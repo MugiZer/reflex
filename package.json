@@ -1,0 +1,39 @@
+{
+  "name": "ubakus-clone-conformity",
+  "version": "1.0.0",
+  "description": "BIM-to-Physics Compiler IFC evidence extractor scaffold",
+  "main": "dist/index.js",
+  "scripts": {
+    "ifc:inspect": "tsx scripts/ifc-inspect.ts",
+    "demo:core": "tsx scripts/demo-core.ts",
+    "serve:localhost": "tsx scripts/serve-localhost.ts",
+    "verify:milestone-4": "tsx scripts/verify-milestone-4.ts",
+    "verify:e2e": "tsx scripts/verify-e2e.ts",
+    "verify:e2e:local": "tsx scripts/verify-e2e-local.ts",
+    "verify:revit-layer-recovery:local": "tsx scripts/verify-revit-layer-recovery-local.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "verify:milestone-1": "tsx scripts/verify-milestone-1.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MugiZer/conformity_ubakusclone.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "UNLICENSED",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/MugiZer/conformity_ubakusclone/issues"
+  },
+  "homepage": "https://github.com/MugiZer/conformity_ubakusclone#readme",
+  "dependencies": {
+    "web-ifc": "^0.0.77"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}
