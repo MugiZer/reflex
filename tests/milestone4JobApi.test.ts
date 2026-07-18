@@ -35,6 +35,7 @@ describe("Milestone 4 Job API", () => {
     expect(client).toContain("Fill demo defaults");
     expect(client).toContain("Hide 3D model");
     expect(client).toContain("Use suggested value");
+    expect(client).toContain("renderArchitectWorkspace(job, targetU, draftSeed, draftSourceSeed)");
     expect(() => new Function(client)).not.toThrow();
   });
 

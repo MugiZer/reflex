@@ -34,7 +34,7 @@ async function workspacePage(jobId, targetU = currentTargetU(), draftSeed = {}, 
     renderProcessing(job, targetU);
     await sleep(600);
   }
-  renderArchitectWorkspace(job, targetU, draftSeed);
+  renderArchitectWorkspace(job, targetU, draftSeed, draftSourceSeed);
 }
 
 function renderProcessing(job, targetU) {
@@ -42,7 +42,7 @@ function renderProcessing(job, targetU) {
   wireTargetForm();
 }
 
-function renderArchitectWorkspace(job, targetU, draftSeed) {
+function renderArchitectWorkspace(job, targetU, draftSeed, draftSourceSeed) {
   const model = job.architectActions || emptyActionModel(job);
   const assemblies = model.assemblies || [];
   const unresolvedInputIds = new Set(assemblies.flatMap((assembly) => assembly.nextAction.requestedInputIds || []));
