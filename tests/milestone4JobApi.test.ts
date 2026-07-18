@@ -9,30 +9,31 @@ import { renderAppShellClientScript } from "../src/app/http/frontend/appShellCli
 import { renderAppShell } from "../src/app/http/renderAppShell.js";
 
 describe("Milestone 4 Job API", () => {
-  it("keeps demo values as a UI-only Review affordance", () => {
+  it("renders the Architect Action View without unsafe demo decisions", () => {
     const html = renderAppShell();
     const client = renderAppShellClientScript();
 
     expect(html).toContain("/assets/app-shell.js");
     expect(html).toContain("Conformity");
-    expect(html).toContain("Local thermal review workspace");
+    expect(html).toContain("Architect thermal action workspace");
     expect(client).toContain("Start analysis");
     expect(client).toContain("Recent analyses");
-    expect(client).toContain("Resolve missing inputs");
-    expect(client).toContain("Demo values");
-    expect(client).toContain("demoValueFor");
-    expect(client).toContain("demoLambdaFor");
-    expect(client).toContain("aluminium");
-    expect(client).toContain("gypse");
-    expect(client).toContain("isolant");
-    expect(client).toContain("Save inputs");
-    expect(client).toContain("Only this layer in this element");
-    expect(client).toContain("All matching assemblies in this review group");
-    expect(client).toContain("All elements using this IFC type");
-    expect(client).toContain("IFC Viewer");
+    expect(client).toContain("Architect action view");
+    expect(client).toContain("Working U-value target");
+    expect(client).toContain("code-compliance verdict");
+    expect(client).toContain("Problem");
+    expect(client).toContain("Next action");
+    expect(client).toContain("Layer proportion and calculated values");
+    expect(client).toContain("Run thermal calculation");
+    expect(client).toContain("Values stay as local drafts");
+    expect(client).toContain("Model-linked thermal review");
+    expect(client).toContain("action-card-meta");
+    expect(client).toContain("action-card-problem");
+    expect(client).not.toContain("storeySelect");
+    expect(client).not.toContain("localStorage");
     expect(html).toContain("/assets/ifc-review-viewer.js");
-    expect(client).not.toContain("Start Job");
-    expect(client).not.toContain("Recent Jobs");
+    expect(client).not.toContain("Demo values");
+    expect(() => new Function(client)).not.toThrow();
   });
 
   it("uploads an IFC, reaches Review, accepts input, and serves report", async () => {
@@ -71,6 +72,12 @@ describe("Milestone 4 Job API", () => {
       }));
       expect(needsReview.review.context.groups[0].questions[0].technicalIds)
         .toEqual(expect.objectContaining({ assemblyGroupId: "ag_element_40" }));
+      expect(needsReview.architectActions.summary.needsReviewCount).toBe(1);
+      expect(needsReview.architectActions.assemblies[0]).toEqual(expect.objectContaining({
+        displayStepIds: [40],
+        problem: "1 required input is still missing.",
+        nextAction: expect.objectContaining({ kind: "resolve_input" }),
+      }));
       const storedJob = app.jobs.getJob(created.jobId);
       expect(storedJob?.uploadPath).toContain(created.jobId);
       await expect(readFile(storedJob?.uploadPath ?? "", "utf8")).resolves.toContain("ISO-10303-21");
@@ -87,7 +94,7 @@ describe("Milestone 4 Job API", () => {
 
       const appShellScript = await fetch(`${baseUrl}/assets/app-shell.js`);
       expect(appShellScript.status).toBe(200);
-      await expect(appShellScript.text()).resolves.toContain("reviewPage");
+      await expect(appShellScript.text()).resolves.toContain("workspacePage");
 
       const submitted = await postJson(`${baseUrl}/api/jobs/${created.jobId}/review-inputs`, {
         assemblyGroupId: "ag_element_40",
@@ -102,6 +109,12 @@ describe("Milestone 4 Job API", () => {
       });
       expect(submitted.jobStatus).toBe("completed");
       expect(submitted.revisionId).toMatch(/^rev_/);
+      const completed = await getJson(`${baseUrl}/api/jobs/${created.jobId}?targetU=0.24`);
+      expect(completed.architectActions.assemblies[0]).toEqual(expect.objectContaining({
+        readinessState: "ready",
+        evidenceState: expect.objectContaining({ status: "user_completed" }),
+        performance: expect.objectContaining({ verdict: "misses_target" }),
+      }));
 
       const report = await fetch(`${baseUrl}/api/jobs/${created.jobId}/report`);
       expect(report.status).toBe(200);
@@ -171,6 +184,94 @@ describe("Milestone 4 Job API", () => {
     }
   });
 
+  it("rejects partial Review submission and completes only with every decision", async () => {
+    const root = join(tmpdir(), `m4-api-all-decisions-${Date.now()}`);
+    const first = workerCalculationInputEvidence();
+    const second = workerCalculationInputEvidence();
+    second.elementStepId = 99;
+    second.elementGlobalId = "worker-wall-99";
+    second.fixedInputs = second.fixedInputs.map((entry) => ({
+      ...entry,
+      value: entry.field === "layer_material_name" ? "Second insulation" : entry.value,
+      evidenceReferences: entry.evidenceReferences.map((reference) => ({
+        ...reference,
+        evidencePath: reference.evidencePath.replaceAll("88", "99"),
+        sourceStepIds: [99, 9901],
+      })),
+    }));
+    second.missingInputs = second.missingInputs.map((entry) => ({
+      ...entry,
+      evidenceReferences: entry.evidenceReferences.map((reference) => ({
+        ...reference,
+        evidencePath: reference.evidencePath.replaceAll("88", "99"),
+        sourceStepIds: [99, 9901],
+      })),
+    }));
+    const app = createLocalhostApp({
+      databasePath: join(root, "data", "app.db"),
+      storageRoot: join(root, "storage"),
+      outputRoot: join(root, "outputs"),
+      workerOverrides: { extractCalculationInputEvidence: async () => [first, second] },
+    });
+    try {
+      app.server.listen(0, "127.0.0.1");
+      await once(app.server, "listening");
+      const baseUrl = boundUrl(app.server);
+      const form = new FormData();
+      form.set("ifc", new Blob(["ISO-10303-21; fixture; END-ISO-10303-21;"]), "fixture.ifc");
+      const created = await postJson(`${baseUrl}/api/jobs`, form);
+      const needsReview = await waitForJob(baseUrl, created.jobId, "needs_review");
+      expect(needsReview.review.requestedInputs).toHaveLength(2);
+
+      const partial = await fetch(`${baseUrl}/api/jobs/${created.jobId}/review-inputs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inputs: [{
+            requestedInputId: needsReview.review.requestedInputs[0].requestedInputId,
+            value: 0.04,
+            unit: "W/mK",
+            overrideScope: "layer_occurrence",
+          }],
+        }),
+      });
+      expect(partial.status).toBe(500);
+      await expect(partial.json()).resolves.toEqual(expect.objectContaining({
+        error: "All required Review inputs must be supplied before calculation.",
+      }));
+      expect((await getJson(`${baseUrl}/api/jobs/${created.jobId}`)).jobStatus).toBe("needs_review");
+
+      const completed = await postJson(`${baseUrl}/api/jobs/${created.jobId}/review-inputs`, {
+        inputs: needsReview.review.requestedInputs.map((input: any, index: number) => ({
+          requestedInputId: input.requestedInputId,
+          value: index === 0 ? 0.04 : 0.05,
+          unit: input.unit,
+          overrideScope: input.scope.scopeKind,
+        })),
+      });
+      expect(completed.jobStatus).toBe("completed");
+
+      const recalculated = await postJson(`${baseUrl}/api/jobs/${created.jobId}/review-inputs`, {
+        inputs: [{
+          requestedInputId: needsReview.review.requestedInputs[0].requestedInputId,
+          value: 0.06,
+          unit: needsReview.review.requestedInputs[0].unit,
+          overrideScope: needsReview.review.requestedInputs[0].scope.scopeKind,
+        }],
+      });
+      expect(recalculated.revisionId).not.toBe(completed.revisionId);
+      const revised = JSON.parse(await readFile(
+        join(root, "outputs", created.jobId, "revisions", recalculated.revisionId + ".json"),
+        "utf8",
+      ));
+      expect(revised.parentRevisionId).toBe(completed.revisionId);
+      expect(revised.userInputs).toHaveLength(2);
+    } finally {
+      app.server.close();
+      app.jobs.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it("does not expose arbitrary IFC paths for unknown Jobs", async () => {
     const root = join(tmpdir(), `m4-api-ifc-missing-${Date.now()}`);
     const app = createLocalhostApp({

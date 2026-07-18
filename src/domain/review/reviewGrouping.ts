@@ -61,6 +61,14 @@ export function materialDecisionRequestedInputId(normalizedMaterialKey: string):
   return `ri_material_layer_lambda_${stableHash(normalizedMaterialKey)}`;
 }
 
+export function layerOccurrenceRequestedInputId(
+  elementStepId: StepId,
+  field: string,
+  layerIndex: number,
+): string {
+  return `ri_${elementStepId}_${field}_${layerIndex}`;
+}
+
 export function normalizeMaterialKey(materialName: string | null): string {
   return (materialName ?? "")
     .trim()

@@ -54,6 +54,7 @@ export async function processIfcJob(command: {
       userInputs: [],
       deps: command.deps,
       calculationInputEvidence,
+      allowProcessingClaim: true,
     });
   } catch (error) {
     command.deps.jobs.updateJob(command.jobId, {
@@ -68,35 +69,58 @@ export async function completeJobWithReviewInputs(command: {
   userInputs: UserInput[];
   deps: ProcessIfcJobDeps;
   calculationInputEvidence?: CalculationInputEvidence[];
+  allowProcessingClaim?: boolean;
 }): Promise<{ revisionId: string; reportPath: string }> {
+  const previousJob = command.deps.jobs.getJob(command.jobId);
+  if (!previousJob) {
+    throw new Error(`Job not found: ${command.jobId}`);
+  }
+  const canClaim = previousJob.jobStatus === "needs_review" ||
+    previousJob.jobStatus === "completed" ||
+    (command.allowProcessingClaim === true && previousJob.jobStatus === "processing");
+  if (!canClaim) {
+    throw new Error(`Job is ${previousJob.jobStatus}; another calculation may already be running.`);
+  }
   command.deps.jobs.updateJob(command.jobId, {
     jobStatus: "processing",
     errorMessage: null,
   });
-  const calculationInputEvidence =
-    command.calculationInputEvidence ??
-    await readJobJson<CalculationInputEvidence[]>(
-      command.deps.outputRoot,
-      command.jobId,
-      "calculation-input-evidence.json",
-    );
-  const result = await runCoreReviewCalculationReport({
-    fileHash: command.jobId,
-    outputRoot: command.deps.outputRoot,
-    calculationInputEvidence,
-    materialLibrary: defaultMaterialLibraryV1,
-    userInputs: command.userInputs,
-  });
-  command.deps.jobs.updateJob(command.jobId, {
-    jobStatus: "completed",
-    fileHash: command.jobId,
-    reportPath: result.reportFilePath,
-    activeRevisionId: result.revision.revisionId,
-  });
-  return {
-    revisionId: result.revision.revisionId,
-    reportPath: result.reportFilePath,
-  };
+  try {
+    const calculationInputEvidence =
+      command.calculationInputEvidence ??
+      await readJobJson<CalculationInputEvidence[]>(
+        command.deps.outputRoot,
+        command.jobId,
+        "calculation-input-evidence.json",
+      );
+    const result = await runCoreReviewCalculationReport({
+      fileHash: command.jobId,
+      outputRoot: command.deps.outputRoot,
+      calculationInputEvidence,
+      materialLibrary: defaultMaterialLibraryV1,
+      userInputs: command.userInputs,
+      parentRevisionId: previousJob.activeRevisionId,
+    });
+    command.deps.jobs.updateJob(command.jobId, {
+      jobStatus: "completed",
+      fileHash: command.jobId,
+      reportPath: result.reportFilePath,
+      activeRevisionId: result.revision.revisionId,
+    });
+    return {
+      revisionId: result.revision.revisionId,
+      reportPath: result.reportFilePath,
+    };
+  } catch (error) {
+    command.deps.jobs.updateJob(command.jobId, {
+      jobStatus: previousJob.jobStatus,
+      errorMessage: previousJob.errorMessage,
+      fileHash: previousJob.fileHash,
+      reportPath: previousJob.reportPath,
+      activeRevisionId: previousJob.activeRevisionId,
+    });
+    throw error;
+  }
 }
 
 async function writeJobJson(

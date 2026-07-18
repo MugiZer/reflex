@@ -4,6 +4,7 @@ import type { MaterialLibrary, ResolvedLambda } from "../materials/materialTypes
 import type { UserInput } from "../review/reviewTypes.js";
 import {
   assemblyGroupIdForEvidence,
+  layerOccurrenceRequestedInputId,
   materialDecisionRequestedInputId,
   normalizeMaterialKey,
 } from "../review/reviewGrouping.js";
@@ -89,8 +90,8 @@ function buildPhysicsLayer(command: {
   userInputs: UserInput[];
   layerIndex: number;
 }): PhysicsLayer | null {
-  const thicknessInput = numericInput(command.evidence, "layer_thickness", command.layerIndex);
-  const materialInput = stringInput(command.evidence, "layer_material_name", command.layerIndex);
+  const thicknessInput = numericInput(command.evidence, "layer_thickness", command.layerIndex, command.userInputs);
+  const materialInput = stringInput(command.evidence, "layer_material_name", command.layerIndex, command.userInputs);
   const lambda = resolveLambdaForLayer({
     evidence: command.evidence,
     materialName: materialInput?.value ?? null,
@@ -114,7 +115,7 @@ function buildPhysicsLayer(command: {
     materialName: materialInput.value,
     thicknessM: thicknessInput.value,
     lambdaWPerMK: lambda.value,
-    datapointSources: unique(["ifc_extracted", lambdaSource]),
+    datapointSources: unique([thicknessInput.source, materialInput.source, lambdaSource]),
     provenance: unique([
       ...thicknessInput.provenance,
       ...materialInput.provenance,
@@ -143,12 +144,18 @@ function numericInput(
   evidence: CalculationInputEvidence,
   field: CalculationInputEvidence["fixedInputs"][number]["field"],
   layerIndex: number,
-): { value: number; provenance: string[] } | null {
+  userInputs: UserInput[],
+): { value: number; provenance: string[]; source: DatapointSource } | null {
+  const reviewed = userInputForLayer(evidence, field, layerIndex, userInputs);
+  if (typeof reviewed?.value === "number" && reviewed.value > 0) {
+    return { value: reviewed.value, provenance: [], source: "user_input" };
+  }
   const input = inputForLayer(evidence, field, layerIndex);
   return typeof input?.value === "number" && input.value > 0
     ? {
         value: input.value,
         provenance: input.evidenceReferences.map((reference) => reference.evidencePath),
+        source: "ifc_extracted",
       }
     : null;
 }
@@ -157,14 +164,36 @@ function stringInput(
   evidence: CalculationInputEvidence,
   field: CalculationInputEvidence["fixedInputs"][number]["field"],
   layerIndex: number,
-): { value: string; provenance: string[] } | null {
+  userInputs: UserInput[],
+): { value: string; provenance: string[]; source: DatapointSource } | null {
+  const reviewed = userInputForLayer(evidence, field, layerIndex, userInputs);
+  if (typeof reviewed?.value === "string" && reviewed.value.trim() !== "") {
+    return { value: reviewed.value.trim(), provenance: [], source: "user_input" };
+  }
   const input = inputForLayer(evidence, field, layerIndex);
   return typeof input?.value === "string" && input.value.trim() !== ""
     ? {
         value: input.value,
         provenance: input.evidenceReferences.map((reference) => reference.evidencePath),
+        source: "ifc_extracted",
       }
     : null;
+}
+
+function userInputForLayer(
+  evidence: CalculationInputEvidence,
+  field: CalculationInputEvidence["fixedInputs"][number]["field"],
+  layerIndex: number,
+  userInputs: UserInput[],
+): UserInput | undefined {
+  const requestedInputId = layerOccurrenceRequestedInputId(
+    evidence.elementStepId,
+    field,
+    layerIndex,
+  );
+  return userInputs.find((input) =>
+    input.requestedInputId === requestedInputId && input.datapoint === field
+  );
 }
 
 function inputForLayer(
@@ -191,7 +220,11 @@ function resolveLambdaForLayer(command: {
     (input) =>
       input.datapoint === "layer_lambda" &&
       input.requestedInputId ===
-        `ri_${command.evidence.elementStepId}_layer_lambda_${command.layerIndex}` &&
+        layerOccurrenceRequestedInputId(
+          command.evidence.elementStepId,
+          "layer_lambda",
+          command.layerIndex,
+        ) &&
       typeof input.value === "number" &&
       input.value > 0,
   ) ?? command.userInputs.find(
@@ -201,15 +234,6 @@ function resolveLambdaForLayer(command: {
         materialDecisionRequestedInputId(normalizeMaterialKey(command.materialName)) &&
       typeof input.value === "number" &&
       input.value > 0,
-  ) ?? (
-    layerIndexes(command.evidence).length === 1
-      ? command.userInputs.find(
-          (input) =>
-            input.datapoint === "layer_lambda" &&
-            typeof input.value === "number" &&
-            input.value > 0,
-        )
-      : undefined
   );
   if (userInput !== undefined && typeof userInput.value === "number") {
     return {

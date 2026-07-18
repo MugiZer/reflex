@@ -2,6 +2,7 @@ import type { CalculationInputEvidence } from "../evidence/calculationInputEvide
 import type { EvidenceReference } from "../evidence/evidenceTypes.js";
 import {
   assemblyGroupIdForEvidence,
+  layerOccurrenceRequestedInputId,
   materialDecisionGroupsFor,
 } from "./reviewGrouping.js";
 import type { RequestedInput } from "./reviewTypes.js";
@@ -72,7 +73,11 @@ export function planRequestedInputs(command: {
           requestedInputId:
             input.layer === undefined
               ? `ri_${evidence.elementStepId}_${input.field}_${index}`
-              : `ri_${evidence.elementStepId}_${input.field}_${input.layer.layerIndex}`,
+              : layerOccurrenceRequestedInputId(
+                  evidence.elementStepId,
+                  input.field,
+                  input.layer.layerIndex,
+                ),
           reviewGroupId,
           reviewGroupKind: isLayerScoped ? "layer_occurrence" : "assembly_group",
           assemblyGroupId,

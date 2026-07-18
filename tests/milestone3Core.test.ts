@@ -214,6 +214,80 @@ describe("Milestone 3 core", () => {
       .toEqual([0.25, 0.04]);
   });
 
+  it("applies user-entered layer thickness only to its requested layer", () => {
+    const evidence = calculationInputEvidence({
+      elementStepId: 15,
+      fixedInputs: [
+        input("layer_order", [351], "ifc_fixed"),
+        input("layer_material_name", "Mineral wool", "ifc_fixed", 0, 351, "Mineral wool"),
+        input("layer_lambda", 0.04, "ifc_fixed", 0, 351, "Mineral wool"),
+      ],
+      missingInputs: [input("layer_thickness", null, "missing", 0, 351, "Mineral wool")],
+    });
+    const requested = planRequestedInputs({ calculationInputEvidence: [evidence] }).requestedInputs[0];
+
+    const result = buildPhysicsAssemblies({
+      calculationInputEvidence: [evidence],
+      materialLibrary: { version: "materials.library.v1", entries: [] },
+      userInputs: [{
+        userInputId: "ui_thickness",
+        requestedInputId: requested.requestedInputId,
+        datapoint: "layer_thickness",
+        value: 0.16,
+        unit: "m",
+        overrideScope: "layer_occurrence",
+      }],
+    });
+
+    expect(result.physicsAssemblies[0]?.layers[0]).toEqual(expect.objectContaining({
+      thicknessM: 0.16,
+      datapointSources: expect.arrayContaining(["user_input", "ifc_extracted"]),
+    }));
+  });
+  it("never applies a Review value to an unrelated single-layer assembly", () => {
+    const first = calculationInputEvidence({
+      elementStepId: 10,
+      fixedInputs: [
+        input("layer_order", [301], "ifc_fixed"),
+        input("layer_thickness", 0.12, "ifc_fixed", 0, 301, "Material A"),
+        input("layer_material_name", "Material A", "ifc_fixed", 0, 301, "Material A"),
+      ],
+      missingInputs: [input("layer_lambda", null, "missing", 0, 301, "Material A")],
+    });
+    const second = calculationInputEvidence({
+      elementStepId: 20,
+      elementGlobalId: "wall-b",
+      fixedInputs: [
+        input("layer_order", [401], "ifc_fixed"),
+        input("layer_thickness", 0.08, "ifc_fixed", 0, 401, "Material B"),
+        input("layer_material_name", "Material B", "ifc_fixed", 0, 401, "Material B"),
+      ],
+      missingInputs: [input("layer_lambda", null, "missing", 0, 401, "Material B")],
+    });
+    const firstRequest = planRequestedInputs({ calculationInputEvidence: [first, second] })
+      .requestedInputs.find((requested) =>
+        requested.scope.scopeKind === "material_decision" && requested.scope.materialName === "Material A"
+      );
+
+    const result = buildPhysicsAssemblies({
+      calculationInputEvidence: [first, second],
+      materialLibrary: { version: "materials.library.v1", entries: [] },
+      userInputs: [{
+        userInputId: "ui_material_a",
+        requestedInputId: firstRequest?.requestedInputId ?? "",
+        datapoint: "layer_lambda",
+        value: 0.04,
+        unit: "W/mK",
+        overrideScope: "material_decision",
+      }],
+    });
+
+    expect(result.physicsAssemblies).toHaveLength(1);
+    expect(result.physicsAssemblies[0]?.layers[0].materialName).toBe("Material A");
+    expect(result.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "physics_assembly_blocked", stepIds: [20] }),
+    ]));
+  });
   it("uses one assembly group for identical explicit layer stacks", () => {
     const result = buildPhysicsAssemblies({
       calculationInputEvidence: [

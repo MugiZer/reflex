@@ -1,5 +1,6 @@
-import type { OverrideScopeKind, UserInput } from "../../domain/review/reviewTypes.js";
+import type { OverrideScopeKind, RequestedInput, UserInput } from "../../domain/review/reviewTypes.js";
 import type { JobRepository } from "../../domain/jobs/jobRepository.js";
+import { readActiveRevisionArtifact } from "../../infrastructure/storage/local-files/jobReviewArtifactStore.js";
 import { completeJobWithReviewInputs, type ProcessIfcJobDeps } from "./processIfcJob.js";
 
 export async function submitJobReviewInputs(command: {
@@ -12,10 +13,20 @@ export async function submitJobReviewInputs(command: {
   if (!job) {
     throw new Error("Job not found");
   }
-  if (job.jobStatus !== "needs_review") {
-    throw new Error(`Job is ${job.jobStatus}, not needs_review.`);
+  if (job.jobStatus !== "needs_review" && job.jobStatus !== "completed") {
+    throw new Error(`Job is ${job.jobStatus}; Review inputs require needs_review or completed.`);
   }
-  const userInputs = validateReviewInputBody(command.jobs, command.jobId, command.body);
+  const submission = validateReviewInputBody(command.jobs, command.jobId, command.body);
+  const activeRevision = await readActiveRevisionArtifact({
+    outputRoot: command.deps.outputRoot,
+    jobId: command.jobId,
+    activeRevisionId: job.activeRevisionId,
+  });
+  const userInputs = mergeReviewInputs({
+    requestedInputs: submission.requestedInputs,
+    submittedInputs: submission.userInputs,
+    activeRevisionInputs: activeRevision?.userInputs ?? [],
+  });
   const result = await completeJobWithReviewInputs({
     jobId: command.jobId,
     userInputs,
@@ -32,9 +43,12 @@ function validateReviewInputBody(
   jobs: JobRepository,
   jobId: string,
   body: unknown,
-): UserInput[] {
-  if (!isRecord(body) || typeof body.assemblyGroupId !== "string" || !Array.isArray(body.inputs)) {
-    throw new Error("Expected assemblyGroupId and inputs array.");
+): { requestedInputs: RequestedInput[]; userInputs: UserInput[] } {
+  if (!isRecord(body) || !Array.isArray(body.inputs)) {
+    throw new Error("Expected inputs array.");
+  }
+  if (body.assemblyGroupId !== undefined && typeof body.assemblyGroupId !== "string") {
+    throw new Error("assemblyGroupId must be a string when supplied.");
   }
   const reviewState = jobs.getReviewState(jobId);
   if (!reviewState) {
@@ -43,14 +57,25 @@ function validateReviewInputBody(
   const requestedById = new Map(
     reviewState.requestedInputs.map((input) => [input.requestedInputId, input]),
   );
-  return body.inputs.map((input, index): UserInput => {
+  const seenRequestedInputIds = new Set<string>();
+  const userInputs = body.inputs.map((input, index): UserInput => {
     if (!isRecord(input) || typeof input.requestedInputId !== "string") {
       throw new Error(`Input ${index} missing requestedInputId.`);
     }
     const requested = requestedById.get(input.requestedInputId);
-    if (!requested || requested.assemblyGroupId !== body.assemblyGroupId) {
+    if (!requested) {
+      throw new Error(`Unknown requested input: ${input.requestedInputId}`);
+    }
+    if (
+      typeof body.assemblyGroupId === "string" &&
+      requested.assemblyGroupId !== body.assemblyGroupId
+    ) {
       throw new Error(`Requested input does not belong to assembly group: ${input.requestedInputId}`);
     }
+    if (seenRequestedInputIds.has(input.requestedInputId)) {
+      throw new Error(`Duplicate requested input: ${input.requestedInputId}`);
+    }
+    seenRequestedInputIds.add(input.requestedInputId);
     const overrideScope = validateOverrideScope(input.overrideScope);
     const value = validateValue(input.value, requested.inputType);
     const unit = input.unit === undefined ? requested.unit : validateUnit(input.unit);
@@ -65,6 +90,23 @@ function validateReviewInputBody(
       unit,
       overrideScope,
     };
+  });
+  return { requestedInputs: reviewState.requestedInputs, userInputs };
+}
+
+function mergeReviewInputs(command: {
+  requestedInputs: RequestedInput[];
+  submittedInputs: UserInput[];
+  activeRevisionInputs: UserInput[];
+}): UserInput[] {
+  const submittedById = new Map(command.submittedInputs.map((input) => [input.requestedInputId, input]));
+  const activeById = new Map(command.activeRevisionInputs.map((input) => [input.requestedInputId, input]));
+  return command.requestedInputs.map((requested) => {
+    const input = submittedById.get(requested.requestedInputId) ?? activeById.get(requested.requestedInputId);
+    if (!input) {
+      throw new Error("All required Review inputs must be supplied before calculation.");
+    }
+    return input;
   });
 }
 

@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { buildArchitectActionViewModel } from "../../application/jobs/buildArchitectActionViewModel.js";
 import { createJob } from "../../application/jobs/createJob.js";
 import type { ProcessIfcJobDeps } from "../../application/jobs/processIfcJob.js";
 import { submitJobReviewInputs } from "../../application/jobs/submitJobReviewInputs.js";
@@ -12,6 +13,10 @@ import type { JobRecord } from "../../domain/jobs/jobTypes.js";
 import { WebIfcViewerGeometryExtractor } from "../../infrastructure/ifc/web-ifc/WebIfcViewerGeometryExtractor.js";
 import { SqliteJobRepository } from "../../infrastructure/persistence/sqlite/SqliteJobRepository.js";
 import { LocalJobFileStorage } from "../../infrastructure/storage/local-files/jobFileStorage.js";
+import {
+  readActiveRevisionArtifact,
+  readCalculationInputEvidenceArtifact,
+} from "../../infrastructure/storage/local-files/jobReviewArtifactStore.js";
 import { LocalViewerGeometryCache } from "../../infrastructure/storage/local-files/viewerGeometryCache.js";
 import { renderAppShellClientScript } from "./frontend/appShellClient.js";
 import { renderIfcReviewViewerClientScript } from "./ifcReviewViewerClient.js";
@@ -58,7 +63,13 @@ export function createLocalhostApp(command: {
 
       const jobId = matchPath(url.pathname, /^\/api\/jobs\/([^/]+)$/);
       if (req.method === "GET" && jobId) {
-        return await sendJob(res, jobs, jobId, command.outputRoot);
+        return await sendJob(
+          res,
+          jobs,
+          jobId,
+          command.outputRoot,
+          parseArchitectTarget(url.searchParams.get("targetU")),
+        );
       }
 
       const reviewJobId = matchPath(url.pathname, /^\/api\/jobs\/([^/]+)\/review-inputs$/);
@@ -122,45 +133,61 @@ async function sendJob(
   jobs: JobRepository,
   jobId: string,
   outputRoot: string,
+  targetUValueWPerM2K: number | null,
 ): Promise<void> {
   const job = jobs.getJob(jobId);
   if (!job) {
     return json(res, 404, { error: "Job not found" });
   }
   const review = jobs.getReviewState(jobId);
-  const calculationInputEvidence = review
-    ? await readCalculationInputEvidence(outputRoot, jobId)
-    : undefined;
+  const evidenceArtifact = await readCalculationInputEvidenceArtifact({ outputRoot, jobId });
+  if (review && evidenceArtifact === null) {
+    throw new Error("Calculation input evidence artifact is missing for this Review.");
+  }
+  const calculationInputEvidence = evidenceArtifact ?? [];
+  const activeRevision = await readActiveRevisionArtifact({
+    outputRoot,
+    jobId,
+    activeRevisionId: job.activeRevisionId,
+  });
+  const reviewContext = review
+    ? buildReviewContextViewModel({
+        jobId,
+        requestedInputs: review.requestedInputs,
+        calculationInputEvidence,
+      })
+    : null;
   return json(res, 200, {
     ...job,
     review: review
       ? {
           ...review,
-          context: buildReviewContextViewModel({
-            jobId,
-            requestedInputs: review.requestedInputs,
-            calculationInputEvidence,
-          }),
+          context: reviewContext,
         }
       : null,
+    architectActions: buildArchitectActionViewModel({
+      jobId,
+      jobStatus: job.jobStatus,
+      calculationInputEvidence,
+      requestedInputs: review?.requestedInputs ?? [],
+      activeRevision,
+      target: targetUValueWPerM2K === null
+        ? null
+        : {
+            maxUValueWPerM2K: targetUValueWPerM2K,
+            label: "Working project target",
+          },
+    }),
     links: linksFor(job),
   });
 }
 
-async function readCalculationInputEvidence(
-  outputRoot: string,
-  jobId: string,
-): Promise<CalculationInputEvidence[] | undefined> {
-  try {
-    const content = await readFile(
-      join(outputRoot, jobId, "job", "calculation-input-evidence.json"),
-      "utf8",
-    );
-    const parsed = JSON.parse(content);
-    return Array.isArray(parsed) ? parsed as CalculationInputEvidence[] : undefined;
-  } catch {
-    return undefined;
+function parseArchitectTarget(value: string | null): number | null {
+  if (value === null || value.trim() === "") {
+    return null;
   }
+  const target = Number(value);
+  return Number.isFinite(target) && target > 0 && target <= 10 ? target : null;
 }
 
 async function sendReport(

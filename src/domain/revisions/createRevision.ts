@@ -4,6 +4,7 @@ import type { Override, UserInput } from "../review/reviewTypes.js";
 import type { Revision } from "./revisionTypes.js";
 
 export function createRevision(command: {
+  revisionId?: string;
   parentRevisionId?: string | null;
   reason: string;
   userInputs: UserInput[];
@@ -14,7 +15,7 @@ export function createRevision(command: {
 }): Revision {
   const createdAt = (command.now ?? new Date()).toISOString();
   return {
-    revisionId: `rev_${createdAt.replace(/[^0-9]/g, "").slice(0, 14)}`,
+    revisionId: command.revisionId ?? `rev_${createdAt.replace(/[^0-9]/g, "")}`,
     parentRevisionId: command.parentRevisionId ?? null,
     createdAt,
     reason: command.reason,

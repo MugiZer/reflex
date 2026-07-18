@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { calculateThermalPerformance } from "../../domain/calculations/calculateThermalPerformance.js";
 import { buildPhysicsAssemblies } from "../../domain/calculations/buildPhysicsAssemblies.js";
 import type { CalculationSnapshot } from "../../domain/calculations/calculationTypes.js";
@@ -28,6 +30,7 @@ export async function runCoreReviewCalculationReport(command: {
   calculationInputEvidence: CalculationInputEvidence[];
   materialLibrary: MaterialLibrary;
   userInputs: UserInput[];
+  parentRevisionId?: string | null;
 }): Promise<RunCoreReviewCalculationReportResult> {
   const requestedInputs = planRequestedInputs({
     calculationInputEvidence: command.calculationInputEvidence,
@@ -55,6 +58,8 @@ export async function runCoreReviewCalculationReport(command: {
   });
 
   const revision = createRevision({
+    revisionId: `rev_${randomUUID()}`,
+    parentRevisionId: command.parentRevisionId ?? null,
     reason: "Milestone 3 scripted review calculation",
     userInputs: command.userInputs,
     overrides,

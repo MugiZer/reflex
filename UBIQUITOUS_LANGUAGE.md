@@ -7,6 +7,7 @@
 | **BIM-to-Physics Compiler** | System that converts BIM/IFC evidence into validated thermal calculation snapshots and reports. | U-value app, report generator, parser |
 | **Job** | One IFC upload and its processing lifecycle. | Upload, task, run |
 | **Review** | User workflow for resolving missing or uncertain datapoints. | Fixing, editing, manual entry |
+| **Architect Action View** | Risk-prioritized projection of Assembly Groups that connects IFC location, calculation result, evidence state, target comparison, and one explicit next action. | Dashboard, scorecard, compliance verdict |
 | **Report** | Clean HTML artifact generated from a calculation snapshot. | Output page, PDF, result |
 | **Verifier** | End-to-end check proving upload, extraction, review, revision, recalculation, and report behavior. | Test suite, smoke test, QA script |
 
