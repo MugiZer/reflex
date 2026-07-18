@@ -29,9 +29,9 @@ function jobCard(job) {
 async function jobPage(jobId) {
   while (true) {
     const job = await api("/api/jobs/" + jobId);
-    const highlightStepIds = firstHighlightStepIds(job);
+    const highlightStepIds = allMissingInputStepIds(job);
     app.innerHTML = viewerShell(job, highlightStepIds) + '<section class="panel"><div class="panel-head"><div><span class="eyebrow">Analysis</span><h2>' + esc(job.originalFilename) + '</h2></div><span class="' + statusClass(job.jobStatus) + '">' + esc(statusLabel(job.jobStatus)) + '</span></div><p class="muted">Run id: ' + esc(job.jobId) + '</p>' + stateMessage(job) + (job.errorMessage ? '<p class="error">Failure: ' + esc(job.errorMessage) + '</p>' : '') + actions(job) + '</section>';
-    initViewer(geometryUrlFor(job.links && job.links.viewerGeometry, highlightStepIds), highlightStepIds);
+    initViewer(job.links && job.links.viewerGeometry, highlightStepIds);
     if (job.jobStatus !== "queued" && job.jobStatus !== "processing") break;
     await sleep(600);
   }
@@ -61,7 +61,7 @@ async function reviewPage(jobId) {
   const activeInputs = inputs.filter((input) => input.assemblyGroupId === active.assemblyGroupId);
   const displayStepIds = displayStepIdsForGroup(active);
   app.innerHTML = viewerShell(job, displayStepIds) + '<section class="review"><div class="panel-head"><div><span class="eyebrow">Review</span><h2>Resolve missing inputs</h2></div><span class="' + statusClass(job.jobStatus) + '">' + esc(statusLabel(job.jobStatus)) + '</span></div><div class="review-list"><nav class="rail">' + groups.map((group, index) => '<button type="button" class="' + (index === 0 ? 'active' : '') + '">' + esc(group.primaryLabel) + '<br><span class="muted">' + esc(group.secondaryLabel) + '</span></button>').join("") + '</nav><form id="reviewForm">' + activeInputs.map((input) => renderQuestion(input, questionContext(active, input))).join("") + '<p><button type="button" class="secondary" id="demoValues">Demo values</button> <button>Save inputs</button></p><p id="reviewMsg" class="muted"></p></form></div></section>';
-  initViewer(geometryUrlFor(job.links && job.links.viewerGeometry, displayStepIds), displayStepIds);
+  initViewer(job.links && job.links.viewerGeometry, displayStepIds);
   document.getElementById("demoValues").onclick = () => {
     const form = document.getElementById("reviewForm");
     activeInputs.forEach((input) => {
@@ -133,18 +133,14 @@ async function initViewer(geometryUrl, highlightStepIds) {
   }
 }
 
-function firstHighlightStepIds(job) {
+function allMissingInputStepIds(job) {
   const groups = job.review && job.review.context && job.review.context.groups;
-  return groups && groups[0] ? displayStepIdsForGroup(groups[0]) : [];
+  if (!groups) return [];
+  return [...new Set(groups.flatMap(displayStepIdsForGroup))];
 }
 
 function viewerTargetText(stepIds) {
-  return stepIds && stepIds.length > 0 ? "Display STEP ids: " + stepIds.join(", ") : "Ready to load model.";
-}
-
-function geometryUrlFor(baseUrl, stepIds) {
-  if (!baseUrl || !stepIds || stepIds.length === 0) return baseUrl;
-  return baseUrl + "?stepIds=" + encodeURIComponent(stepIds.join(","));
+  return stepIds && stepIds.length > 0 ? stepIds.length + " elements need input" : "Ready to load model.";
 }
 
 function displayStepIdsForGroup(group) {

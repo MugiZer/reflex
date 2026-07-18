@@ -1,7 +1,7 @@
 import * as WebIFC from "web-ifc";
 
 export type IfcViewerGeometryPayload = {
-  schemaVersion: "ifc-viewer-geometry.v1";
+  schemaVersion: "ifc-viewer-geometry.v4";
   meshes: IfcViewerMesh[];
   truncated: boolean;
   elementCount: number;
@@ -21,31 +21,19 @@ export type ExtractIfcViewerGeometryCommand = {
   targetStepIds?: number[];
 };
 
-const MAX_MESHES = 900;
-const MAX_TRIANGLES = 250_000;
-const FALLBACK_DISPLAY_ELEMENT_LIMIT = 80;
-const DISPLAY_TYPE_CODES = [
-  WebIFC.IFCWALL,
-  WebIFC.IFCWALLSTANDARDCASE,
-  WebIFC.IFCSLAB,
-  WebIFC.IFCROOF,
-  WebIFC.IFCCURTAINWALL,
-  WebIFC.IFCBUILDINGELEMENTPROXY,
-  WebIFC.IFCBEAM,
-  WebIFC.IFCCOLUMN,
-  WebIFC.IFCPLATE,
-  WebIFC.IFCMEMBER,
-];
-
+// Viewer geometry is the building context, not the current review selection.
+// Keep the guardrails high enough for ordinary architectural IFC models while
+// still preventing a pathological file from exhausting the localhost process.
+const MAX_MESHES = 5_000;
+const MAX_TRIANGLES = 2_000_000;
 export class WebIfcViewerGeometryExtractor {
   async extract(command: ExtractIfcViewerGeometryCommand): Promise<IfcViewerGeometryPayload> {
-    return buildIfcViewerGeometry(command.sourceFileBytes, command.targetStepIds ?? []);
+    return buildIfcViewerGeometry(command.sourceFileBytes);
   }
 }
 
 async function buildIfcViewerGeometry(
   sourceFileBytes: Uint8Array,
-  targetStepIds: number[] = [],
 ): Promise<IfcViewerGeometryPayload> {
   const ifcApi = new WebIFC.IfcAPI();
   await ifcApi.Init();
@@ -74,42 +62,18 @@ async function buildIfcViewerGeometry(
       triangleCount = nextTriangleCount;
       meshes.push(viewerMesh);
     };
-    const stepIds = targetStepIds.length > 0
-      ? targetStepIds
-      : firstDisplayElementStepIds(ifcApi, modelId);
-    if (stepIds.length > 0) {
-      ifcApi.StreamMeshes(modelId, stepIds, callback);
-      if (meshes.length === 0 && targetStepIds.length > 0) {
-        ifcApi.StreamMeshes(modelId, firstDisplayElementStepIds(ifcApi, modelId), callback);
-      }
-    } else {
-      ifcApi.StreamAllMeshes(modelId, callback);
-    }
+    ifcApi.StreamAllMeshes(modelId, callback);
   } finally {
     ifcApi.CloseModel(modelId);
   }
 
   return {
-    schemaVersion: "ifc-viewer-geometry.v1",
+    schemaVersion: "ifc-viewer-geometry.v4",
     meshes,
     truncated,
     elementCount,
     triangleCount,
   };
-}
-
-function firstDisplayElementStepIds(ifcApi: WebIFC.IfcAPI, modelId: number): number[] {
-  const stepIds: number[] = [];
-  for (const typeCode of DISPLAY_TYPE_CODES) {
-    const ids = ifcApi.GetLineIDsWithType(modelId, typeCode);
-    for (let index = 0; index < ids.size(); index += 1) {
-      stepIds.push(ids.get(index));
-      if (stepIds.length >= FALLBACK_DISPLAY_ELEMENT_LIMIT) {
-        return stepIds;
-      }
-    }
-  }
-  return stepIds;
 }
 
 function meshToViewerMesh(

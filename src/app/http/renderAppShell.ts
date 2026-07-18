@@ -15,16 +15,18 @@ export function renderAppShell(): string {
       --line-strong: #b9c4bd;
       --panel: #f4f6f1;
       --surface: #ffffff;
-      --accent: #176c64;
-      --accent-strong: #0f4f49;
+      --accent: #0f766e;
+      --accent-strong: #115e59;
+      --lime: #d8f04a;
+      --nav: #202826;
       --danger: #9a2d20;
       --warning: #8a5a10;
       --ready: #315f32;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: Bahnschrift, Aptos, "Segoe UI", sans-serif; color: var(--ink); background: #f8f9f4; }
-    header { border-bottom: 1px solid var(--line); padding: 14px 24px; display: flex; justify-content: space-between; gap: 16px; align-items: center; background: rgba(255,255,255,0.86); }
-    main { max-width: 1180px; margin: 0 auto; padding: 24px; }
+    body { margin: 0; font-family: Bahnschrift, Aptos, "Segoe UI", sans-serif; color: var(--ink); background: #f4f6f1; }
+    header { border-bottom: 1px solid var(--line); padding: 14px 24px; display: flex; justify-content: space-between; gap: 16px; align-items: center; background: var(--nav); color: white; }
+    main { max-width: 1280px; margin: 0 auto; padding: 28px 24px 42px; }
     h1 { font-size: 22px; margin: 0; letter-spacing: 0; font-weight: 700; }
     h2 { font-size: 17px; margin: 0 0 12px; font-weight: 700; }
     h3 { font-size: 14px; margin: 0 0 8px; font-weight: 700; }
@@ -41,11 +43,11 @@ export function renderAppShell(): string {
     button.secondary:hover, .button.secondary:hover { background: var(--panel); }
     .brand { display: grid; gap: 2px; }
     .brand-mark { display: flex; align-items: baseline; gap: 10px; }
-    .brand-mark::before { content: ""; width: 10px; height: 10px; border: 2px solid var(--accent); border-radius: 2px; transform: rotate(45deg); }
+    .brand-mark::before { content: "C"; width: 22px; height: 22px; display: grid; place-items: center; border: 2px solid var(--lime); border-radius: 50%; color: var(--lime); font-size: 12px; font-weight: 900; }
     .descriptor { color: var(--muted); font-size: 13px; }
     .prototype-note { color: var(--quiet); font-size: 13px; }
     .grid { display: grid; grid-template-columns: 340px 1fr; gap: 20px; align-items: start; }
-    .panel, .job, .review { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: 0 1px 0 rgba(24,32,29,0.03); }
+    .panel, .job, .review { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; box-shadow: 0 8px 24px rgba(24,32,29,0.05); }
     .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
     .eyebrow { color: var(--quiet); font-size: 12px; text-transform: uppercase; }
     .drop { border: 1px solid var(--line); background: var(--panel); padding: 16px; border-radius: 8px; }
@@ -66,14 +68,15 @@ export function renderAppShell(): string {
     .question:first-child { border-top: 0; padding-top: 0; }
     .viewer { border: 1px solid var(--line); background: white; border-radius: 8px; margin-bottom: 18px; overflow: hidden; }
     .viewer-head { display: flex; justify-content: space-between; gap: 12px; padding: 11px 14px; border-bottom: 1px solid var(--line); align-items: center; background: #fbfcf8; }
-    .viewer-stage { min-height: 430px; background: #e9eee9; position: relative; }
+    .viewer-stage { min-height: 430px; background: linear-gradient(145deg,#e8eee9,#d7e1dc); position: relative; }
     .viewer-status { color: var(--muted); font-size: 13px; }
-    .viewer-unavailable { display: grid; place-items: center; min-height: 420px; color: var(--muted); padding: 24px; text-align: center; }
+    .viewer-unavailable { display: grid; place-items: center; min-height: 420px; color: var(--muted); padding: 28px 24px 42px; text-align: center; }
     .evidence { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin: 12px 0; }
     .evidence dl { display: grid; grid-template-columns: 140px 1fr; gap: 6px 12px; margin: 0; }
     .evidence dt { color: var(--muted); }
     .evidence dd { margin: 0; }
     .error { color: #8a1f11; }
+
     @media (max-width: 760px) {
       header, .panel-head { display: block; }
       main { padding: 16px; }

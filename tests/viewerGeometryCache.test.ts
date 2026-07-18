@@ -11,7 +11,7 @@ describe("LocalViewerGeometryCache", () => {
     const cache = new LocalViewerGeometryCache(root);
     try {
       const payload: IfcViewerGeometryPayload = {
-        schemaVersion: "ifc-viewer-geometry.v1",
+        schemaVersion: "ifc-viewer-geometry.v4",
         meshes: [],
         truncated: false,
         elementCount: 0,
@@ -23,7 +23,7 @@ describe("LocalViewerGeometryCache", () => {
 
       const path = await cache.write(firstKey, payload);
 
-      await expect(readFile(path, "utf8")).resolves.toContain("ifc-viewer-geometry.v1");
+      await expect(readFile(path, "utf8")).resolves.toContain("ifc-viewer-geometry.v4");
       await expect(cache.read(equivalentKey)).resolves.toEqual(payload);
       await expect(cache.read(differentKey)).resolves.toBeNull();
     } finally {

@@ -44,14 +44,14 @@ export function renderIfcReviewViewerClientScript(): string {
       geometry.setIndex(mesh.indices);
       const isHighlighted = highlightSet.has(mesh.expressId);
       const material = new THREE.MeshStandardMaterial({
-        color: isHighlighted ? 0xf59e0b : rgbToHex(mesh.color),
+        color: isHighlighted ? 0xf59e0b : 0x9aa7a3,
         roughness: 0.72,
         metalness: 0.02,
         transparent: !isHighlighted,
-        opacity: isHighlighted ? 1 : 0.58,
+        opacity: isHighlighted ? 1 : 0.5,
         side: THREE.DoubleSide,
       });
-      material.userData.baseColor = rgbToHex(mesh.color);
+      material.userData.baseColor = 0x9aa7a3;
       const object = new THREE.Mesh(geometry, material);
       object.userData.expressId = mesh.expressId;
       modelRoot.add(object);
@@ -74,7 +74,7 @@ export function renderIfcReviewViewerClientScript(): string {
       requestAnimationFrame(animate);
     }
     animate();
-    status.textContent = highlightText(highlightStepIds);
+    status.textContent = highlightText(highlightStepIds, payload.truncated);
 
     return {
       setHighlight(nextStepIds) {
@@ -83,10 +83,10 @@ export function renderIfcReviewViewerClientScript(): string {
           if (!object.isMesh) return;
           const highlighted = nextHighlightSet.has(object.userData.expressId);
           object.material.color.setHex(highlighted ? 0xf59e0b : object.material.userData.baseColor);
-          object.material.opacity = highlighted ? 1 : 0.58;
+          object.material.opacity = highlighted ? 1 : 0.5;
           object.material.transparent = !highlighted;
         });
-        status.textContent = highlightText(nextStepIds || []);
+        status.textContent = highlightText(nextStepIds || [], payload.truncated);
       },
       dispose() {
         disposed = true;
@@ -97,30 +97,47 @@ export function renderIfcReviewViewerClientScript(): string {
   }
 
   function frameModel(THREE, modelRoot, camera, controls) {
-    const box = new THREE.Box3().setFromObject(modelRoot);
+    const boxes = modelRoot.children.map(function (object) {
+      object.geometry.computeBoundingBox();
+      return object.geometry.boundingBox.clone();
+    }).filter(function (box) { return !box.isEmpty(); });
+    const centersByAxis = [0, 1, 2].map(function (axis) {
+      return boxes.map(function (box) {
+        return (box.min.getComponent(axis) + box.max.getComponent(axis)) / 2;
+      }).sort(function (a, b) { return a - b; });
+    });
+    const low = centersByAxis.map(function (values) { return values[Math.floor(values.length * 0.01)]; });
+    const high = centersByAxis.map(function (values) { return values[Math.floor(values.length * 0.99)]; });
+    const box = new THREE.Box3();
+    boxes.forEach(function (candidate) {
+      const center = candidate.getCenter(new THREE.Vector3());
+      if (center.x >= low[0] && center.x <= high[0] &&
+          center.y >= low[1] && center.y <= high[1] &&
+          center.z >= low[2] && center.z <= high[2]) {
+        box.union(candidate);
+      }
+    });
+    if (box.isEmpty()) box.setFromObject(modelRoot);
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
     const radius = Math.max(size.x, size.y, size.z, 1);
-    camera.position.set(center.x + radius, center.y + radius * 0.65, center.z + radius);
+    camera.position.set(center.x + radius * 1.15, center.y + radius * 0.8, center.z + radius * 1.15);
     camera.near = Math.max(radius / 1000, 0.01);
-    camera.far = radius * 20;
+    camera.far = radius * 30;
     camera.updateProjectionMatrix();
+    camera.lookAt(center);
     controls.target.copy(center);
     controls.update();
   }
 
-  function rgbToHex(color) {
-    const r = Math.round((color && color[0] !== undefined ? color[0] : 0.62) * 255);
-    const g = Math.round((color && color[1] !== undefined ? color[1] : 0.66) * 255);
-    const b = Math.round((color && color[2] !== undefined ? color[2] : 0.62) * 255);
-    return (r << 16) + (g << 8) + b;
-  }
-
-  function highlightText(stepIds) {
+  function highlightText(stepIds, truncated) {
+    if (truncated) {
+      return "Partial IFC model loaded (viewer limit). " + (stepIds ? stepIds.length : 0) + " elements needing input are highlighted.";
+    }
     if (!stepIds || stepIds.length === 0) {
       return "IFC model loaded.";
     }
-    return "IFC model loaded. Display STEP ids: " + stepIds.join(", ");
+    return "IFC model loaded. " + stepIds.length + " elements needing input are highlighted.";
   }
 
   window.createIfcReviewViewer = createIfcReviewViewer;
