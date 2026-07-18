@@ -88,6 +88,18 @@ export function renderAppShell(): string {
     .summary-metric.danger::before { background: var(--red); }
     .summary-metric.warning::before { background: #e6ae2c; }
     .summary-metric.success::before { background: var(--green); }
+    .review-setup { max-width: 980px; margin: 22px auto 0; padding: 28px; }
+    .review-setup-intro { max-width: 720px; }
+    .review-setup-intro h1 { margin: 5px 0 9px; font-size: 28px; }
+    .review-setup-intro p { color: var(--muted); }
+    .review-setup-count { padding: 10px 12px; border-left: 4px solid var(--lime); background: #f6f8e7; font-size: 12px; }
+    .review-mode-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 22px; }
+    .review-mode-card { min-height: 178px; display: grid; align-content: start; justify-items: start; gap: 8px; padding: 18px; color: var(--ink); background: var(--surface-soft); border: 1px solid var(--line); text-align: left; }
+    .review-mode-card:hover { background: white; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(15,118,110,.12); }
+    .review-mode-card strong { font-size: 16px; }
+    .review-mode-card > span:last-child { color: var(--muted); font-size: 12px; line-height: 1.45; font-weight: 500; }
+    .mode-kicker { color: var(--accent); font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    .review-setup-note { margin: 20px 0 0; color: var(--quiet); font-size: 11px; }
     .architect-workspace { display: grid; grid-template-columns: minmax(0,1.65fr) minmax(420px,.85fr); gap: 12px; align-items: start; }
     .model-column { min-width: 0; position: sticky; top: 10px; }
     .viewer { overflow: hidden; background: white; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
@@ -212,6 +224,7 @@ export function renderAppShell(): string {
       .project-actions { display: grid; grid-template-columns: 1fr; }
       .target-form { width: 100%; padding: 0 0 10px; border: 0; border-bottom: 1px solid var(--line); }
       .architect-summary { grid-template-columns: repeat(2,1fr); }
+      .review-mode-grid { grid-template-columns: 1fr; }
       .architect-summary .summary-metric:last-child { grid-column: span 2; }
       .viewer-stage { height: 430px; min-height: 390px; }
       .viewer-tools { overflow-x: auto; }

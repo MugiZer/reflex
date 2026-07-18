@@ -26,7 +26,7 @@ function jobCard(job) {
   return '<article class="job"><div><strong>' + esc(job.originalFilename) + '</strong><span class="muted">' + esc(jobStateNote(job)) + '</span></div><div class="job-actions"><span class="' + statusClass(job.jobStatus) + '">' + esc(statusLabel(job.jobStatus)) + '</span><a class="button secondary" href="/jobs/' + esc(job.jobId) + '">Open</a></div></article>';
 }
 
-async function workspacePage(jobId, targetU = currentTargetU(), draftSeed = {}, draftSourceSeed = {}) {
+async function workspacePage(jobId, targetU = currentTargetU(), draftSeed = {}, draftSourceSeed = {}, reviewModeSeed = currentReviewMode()) {
   let job;
   while (true) {
     job = await api("/api/jobs/" + encodeURIComponent(jobId) + "?targetU=" + encodeURIComponent(targetU));
@@ -34,15 +34,67 @@ async function workspacePage(jobId, targetU = currentTargetU(), draftSeed = {}, 
     renderProcessing(job, targetU);
     await sleep(600);
   }
-  renderArchitectWorkspace(job, targetU, draftSeed, draftSourceSeed);
+  if (!reviewModeSeed && hasReviewInputs(job)) {
+    renderReviewSetup(job, targetU, draftSeed, draftSourceSeed);
+    return;
+  }
+  const seeded = seedReviewMode(job, draftSeed, draftSourceSeed, reviewModeSeed);
+  renderArchitectWorkspace(job, targetU, seeded.drafts, seeded.sources, reviewModeSeed);
 }
 
+function renderReviewSetup(job, targetU, draftSeed, draftSourceSeed) {
+
+
+
+  const inputs = reviewInputsFor(job);
+  const matchedCount = inputs.filter((input) => librarySuggestion(job, input, reviewQuestionContext(job, input.requestedInputId))).length;
+  app.innerHTML = projectHeader(job, targetU) + '<section class="review-setup panel"><div class="review-setup-intro"><span class="eyebrow">Before you review</span><h1>How should we resolve missing values?</h1><p>Choose how you want to fill the calculation inputs. You can change any individual value later.</p><p class="review-setup-count"><strong>' + esc(matchedCount) + ' of ' + esc(inputs.length) + '</strong> inputs have an exact Material Library match. The rest need a manual value or a different material selection.</p></div><div class="review-mode-grid"><button type="button" class="review-mode-card" data-review-mode="library"><span class="mode-kicker">Fastest start</span><strong>Use Material Library values</strong><span>Prefill exact matches from the reference library and show the selected material and lambda for every input.</span></button><button type="button" class="review-mode-card" data-review-mode="manual"><span class="mode-kicker">Full control</span><strong>Enter values manually</strong><span>Start with blank inputs and provide the thermal values yourself.</span></button><button type="button" class="review-mode-card" data-review-mode="mixed"><span class="mode-kicker">Recommended</span><strong>Use a mix</strong><span>Prefill credible library matches and manually complete the remaining inputs.</span></button></div><p class="review-setup-note">Material Library values are reference data. Confirm them against the product or specification before relying on the final report.</p></section>';
+  wireTargetForm();
+  document.querySelectorAll("[data-review-mode]").forEach((button) => {
+    button.onclick = () => {
+      const mode = button.dataset.reviewMode;
+      const seeded = seedReviewMode(job, draftSeed, draftSourceSeed, mode);
+      const nextDrafts = seeded.drafts;
+      const nextSources = seeded.sources;
+      const next = new URL(location.href);
+      next.searchParams.set("reviewMode", mode);
+      history.replaceState(null, "", next.pathname + next.search);
+      renderArchitectWorkspace(job, targetU, nextDrafts, nextSources, mode);
+    };
+  });
+}
+
+function reviewInputsFor(job) {
+  const model = job.architectActions || emptyActionModel(job);
+  const assemblies = model.assemblies || [];
+  const unresolvedInputIds = new Set(assemblies.flatMap((assembly) => assembly.nextAction.requestedInputIds || []));
+  return uniqueRequestedInputs((job.review && job.review.requestedInputs) || []).filter((input) => unresolvedInputIds.has(input.requestedInputId));
+}
+
+function seedReviewMode(job, draftSeed, draftSourceSeed, mode) {
+  const drafts = { ...(draftSeed || {}) };
+  const sources = { ...(draftSourceSeed || {}) };
+  if (mode !== "manual") {
+    reviewInputsFor(job).forEach((input) => {
+      const library = librarySuggestion(job, input, reviewQuestionContext(job, input.requestedInputId));
+      if (!library || hasDraftValue(drafts[input.requestedInputId])) return;
+      drafts[input.requestedInputId] = String(library.lambdaWPerMK);
+      sources[input.requestedInputId] = { source: "material_library", materialLibraryKey: library.materialKey };
+    });
+  }
+  return { drafts, sources };
+}
+function hasReviewInputs(job) {
+  const model = job.architectActions || emptyActionModel(job);
+  const unresolved = new Set((model.assemblies || []).flatMap((assembly) => assembly.nextAction.requestedInputIds || []));
+  return Boolean(job.review && (job.review.requestedInputs || []).some((input) => unresolved.has(input.requestedInputId)));
+}
 function renderProcessing(job, targetU) {
   app.innerHTML = projectHeader(job, targetU) + '<section class="panel processing-panel"><span class="loading-dot"></span><div><h2>Reading IFC evidence</h2><p class="muted">The model is being grouped into thermal assemblies. This page updates automatically.</p></div></section>';
   wireTargetForm();
 }
 
-function renderArchitectWorkspace(job, targetU, draftSeed, draftSourceSeed) {
+function renderArchitectWorkspace(job, targetU, draftSeed, draftSourceSeed, reviewMode) {
   const model = job.architectActions || emptyActionModel(job);
   const assemblies = model.assemblies || [];
   const unresolvedInputIds = new Set(assemblies.flatMap((assembly) => assembly.nextAction.requestedInputIds || []));
@@ -61,7 +113,7 @@ function renderArchitectWorkspace(job, targetU, draftSeed, draftSourceSeed) {
     const next = new URL(location.href);
     next.searchParams.set("targetU", String(nextTarget));
     history.replaceState(null, "", next.pathname + next.search);
-    workspacePage(job.jobId, String(nextTarget), drafts, draftSources).catch(showError);
+    workspacePage(job.jobId, String(nextTarget), drafts, draftSources, reviewMode).catch(showError);
   });
   renderAside();
   const viewerToggle = document.getElementById("viewerToggle");
@@ -115,7 +167,7 @@ function renderArchitectWorkspace(job, targetU, draftSeed, draftSourceSeed) {
     aside.innerHTML = '<div class="action-aside-head"><div><span class="eyebrow">Architect action view</span><h2>Assemblies, ordered by risk</h2></div><span class="action-count">' + esc(assemblies.length) + '</span></div>' +
       filterBar(activeFilter, model.summary) +
       '<nav class="action-list" aria-label="Thermal assembly actions">' + (visible.map((assembly) => actionCard(assembly, assembly === active, drafts, allInputs)).join("") || '<p class="empty-state">No assemblies match this view.</p>') + '</nav>' +
-      (active ? actionDetail(active, job, allInputs, drafts, hasUnresolvedReview) : '<section class="empty-state"><h3>No assembly data</h3><p>The IFC did not produce an assembly action yet.</p></section>');
+      (active ? actionDetail(active, job, allInputs, drafts, hasUnresolvedReview, reviewMode) : '<section class="empty-state"><h3>No assembly data</h3><p>The IFC did not produce an assembly action yet.</p></section>');
 
     aside.querySelectorAll("[data-action-id]").forEach((button) => {
       button.onclick = () => selectAssembly(button.dataset.actionId, false);
@@ -151,16 +203,6 @@ function renderArchitectWorkspace(job, targetU, draftSeed, draftSourceSeed) {
         renderAside();
       };
     });
-    const demoFill = aside.querySelector("[data-demo-fill]");
-    if (demoFill) demoFill.onclick = () => {
-      allInputs.forEach((input) => {
-        const demo = demoValueFor(job, input);
-        if (!demo) return;
-        drafts[input.requestedInputId] = demo.value;
-        draftSources[input.requestedInputId] = { source: "material_library", materialLibraryKey: demo.materialLibraryKey };
-      });
-      renderAside();
-    };
     const runButton = document.getElementById("runCalculation");
     if (runButton) {
       runButton.onclick = async () => {
@@ -254,7 +296,7 @@ function actionCard(assembly, selected, drafts, allInputs) {
   return '<button type="button" data-action-id="' + esc(assembly.assemblyGroupId) + '" class="action-card ' + (selected ? "selected " : "") + stateClass(assembly) + '"><div class="action-card-top"><span class="state-dot"></span><span class="action-state-label">' + esc(readyLocally ? "Ready locally" : actionStateLabel(assembly)) + '</span><strong>' + esc(resultText(assembly.performance.result)) + '</strong></div><span class="action-card-title">' + esc(assembly.label) + '</span><small>' + esc(assembly.locationLabel) + '</small><span class="action-card-meta">Target: ' + esc(targetText(assembly.performance.target)) + ' | ' + esc(confidenceText(assembly)) + '</span><span class="action-card-problem">' + esc(assembly.problem) + '</span><span class="action-card-next">' + esc(assembly.nextAction.label) + '</span></button>';
 }
 
-function actionDetail(assembly, job, allInputs, drafts, hasUnresolvedReview) {
+function actionDetail(assembly, job, allInputs, drafts, hasUnresolvedReview, reviewMode) {
   const requestedIds = new Set(assembly.nextAction.requestedInputIds || []);
   const actionInputs = allInputs.filter((input) => requestedIds.has(input.requestedInputId));
   return '<section class="action-detail"><header class="action-detail-head"><div><span class="eyebrow">Selected assembly</span><h2>' + esc(assembly.label) + '</h2><p>' + esc(assembly.locationLabel) + '</p></div><span class="state-pill ' + stateClass(assembly) + '">' + esc(actionStateLabel(assembly)) + '</span></header>' +
@@ -262,7 +304,7 @@ function actionDetail(assembly, job, allInputs, drafts, hasUnresolvedReview) {
     '<div class="diagnosis"><span>Problem</span><strong>' + esc(assembly.problem) + '</strong><span>Next action</span><strong>' + esc(assembly.nextAction.label) + '</strong></div>' +
     layerComposition(assembly.layers || []) +
     (actionInputs.length ? '<section class="decision-inputs"><div class="section-heading"><div><span class="eyebrow">Required evidence</span><h3>Complete this assembly decision</h3></div><span class="draft-state" id="activeDraftState">Needs input</span></div>' + actionInputs.map((input, index) => renderQuestion(job, input, drafts, index)).join("") + '</section>' : '') +
-    reviewSubmit(job, allInputs, hasUnresolvedReview) + '</section>';
+    reviewSubmit(job, allInputs, hasUnresolvedReview, reviewMode) + '</section>';
 }
 
 function resultMetric(value, label) {
@@ -300,16 +342,10 @@ function normalizeMaterialName(value) {
   return String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
 }
 
-function reviewSubmit(job, allInputs, hasUnresolvedReview) {
+function reviewSubmit(job, allInputs, hasUnresolvedReview, reviewMode) {
   if (!hasUnresolvedReview || allInputs.length === 0) return "";
-  return '<section class="calculation-submit"><div><strong id="draftProgress">0 of ' + allInputs.length + ' decisions ready</strong><span>Choose a library suggestion or enter a manual value. Demo assumptions are never IFC evidence.</span><span id="reviewMsg"></span></div><div class="submit-actions"><button type="button" class="secondary" data-demo-fill>Fill demo defaults</button><button type="button" id="runCalculation" disabled>Run thermal calculation -></button></div></section>';
+  return '<section class="calculation-submit"><div><strong id="draftProgress">0 of ' + allInputs.length + ' decisions ready</strong><span>Review mode: ' + esc(reviewModeLabel(reviewMode)) + '. Library values remain traceable and any value can be changed manually.</span><span id="reviewMsg"></span></div><div class="submit-actions"><button type="button" id="runCalculation" disabled>Run thermal calculation -></button></div></section>';
 }
-
-function demoValueFor(job, input) {
-  const suggested = librarySuggestion(job, input, reviewQuestionContext(job, input.requestedInputId));
-  return suggested ? { value: String(suggested.lambdaWPerMK), materialLibraryKey: suggested.materialKey } : null;
-}
-
 function updateDraftProgress(aside, allInputs, drafts, activeAssembly) {
   const completed = allInputs.filter((input) => hasValidDraft(input, drafts[input.requestedInputId])).length;
   const progress = aside.querySelector("#draftProgress");
@@ -406,6 +442,17 @@ function emptyActionModel(job) {
   return { jobId: job.jobId, summary: { assemblyCount: 0, needsActionCount: 0, needsReviewCount: 0, blockedCount: 0, failingTargetCount: 0, passingTargetCount: 0, unassessedCount: 0 }, assemblies: [] };
 }
 
+function reviewModeLabel(mode) {
+  if (mode === "library") return "Material Library values";
+  if (mode === "manual") return "Manual values";
+  if (mode === "mixed") return "Mixed library and manual values";
+  return "Not selected";
+}
+
+function currentReviewMode() {
+  const mode = new URLSearchParams(location.search).get("reviewMode");
+  return mode === "library" || mode === "manual" || mode === "mixed" ? mode : null;
+}
 function currentTargetU() {
   const requested = new URLSearchParams(location.search).get("targetU");
   return validTarget(requested) ? requested : "0.24";

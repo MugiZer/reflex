@@ -9,7 +9,7 @@ import { renderAppShellClientScript } from "../src/app/http/frontend/appShellCli
 import { renderAppShell } from "../src/app/http/renderAppShell.js";
 
 describe("Milestone 4 Job API", () => {
-  it("renders the Architect Action View without unsafe demo decisions", () => {
+  it("renders the Review setup and Architect Action View", () => {
     const html = renderAppShell();
     const client = renderAppShellClientScript();
 
@@ -25,17 +25,22 @@ describe("Milestone 4 Job API", () => {
     expect(client).toContain("Next action");
     expect(client).toContain("Layer proportion and calculated values");
     expect(client).toContain("Run thermal calculation");
-    expect(client).toContain("Choose a library suggestion or enter a manual value");
+    expect(client).toContain("Review mode:");
     expect(client).toContain("Model-linked thermal review");
     expect(client).toContain("action-card-meta");
     expect(client).toContain("action-card-problem");
     expect(client).not.toContain("storeySelect");
     expect(client).not.toContain("localStorage");
     expect(html).toContain("/assets/ifc-review-viewer.js");
-    expect(client).toContain("Fill demo defaults");
+    expect(client).toContain("How should we resolve missing values?");
+    expect(client).toContain("Use Material Library values");
+    expect(client).toContain("Enter values manually");
+    expect(client).toContain("Use a mix");
+    expect(client).not.toContain("demo");
     expect(client).toContain("Hide 3D model");
     expect(client).toContain("Use suggested value");
-    expect(client).toContain("renderArchitectWorkspace(job, targetU, draftSeed, draftSourceSeed)");
+    expect(client).toContain("renderArchitectWorkspace(job, targetU, seeded.drafts, seeded.sources, reviewModeSeed)");
+    expect(client).toContain("actionDetail(active, job, allInputs, drafts, hasUnresolvedReview, reviewMode)");
     expect(() => new Function(client)).not.toThrow();
   });
 
