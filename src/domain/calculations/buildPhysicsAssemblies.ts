@@ -239,9 +239,9 @@ function resolveLambdaForLayer(command: {
     return {
       value: userInput.value,
       unit: "W/mK",
-      source: "user_input",
+      source: userInput.valueSource === "material_library" ? "material_library" : "user_input",
       confidence: "medium",
-      sourceLabel: "review input",
+      sourceLabel: userInput.valueSource === "material_library" ? "selected material library value" : "review input",
       evidenceReferences: [],
       userInput,
     };

@@ -308,6 +308,9 @@ function evidenceStateFor(
   if (unresolvedInputCount > 0) {
     return { status: "incomplete", datapointSources, unresolvedInputCount };
   }
+  if (datapointSources.includes("material_library")) {
+    return { status: "library_assisted", datapointSources, unresolvedInputCount };
+  }
   if (resolvedReviewInputCount > 0) {
     return { status: "user_completed", datapointSources, unresolvedInputCount };
   }
@@ -316,9 +319,6 @@ function evidenceStateFor(
   }
   if (datapointSources.includes("user_input") || snapshot?.calculationBasis.startsWith("user_completed")) {
     return { status: "user_completed", datapointSources, unresolvedInputCount };
-  }
-  if (datapointSources.includes("material_library")) {
-    return { status: "library_assisted", datapointSources, unresolvedInputCount };
   }
   return { status: "ifc_extracted", datapointSources, unresolvedInputCount };
 }

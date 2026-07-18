@@ -24,9 +24,9 @@ export function resolveLayerLambda(command: {
       lambda: {
         value: command.userInput.value,
         unit: "W/mK",
-        source: "user_input",
+        source: command.userInput?.valueSource === "material_library" ? "material_library" : "user_input",
         confidence: "medium",
-        sourceLabel: "scripted review input",
+        sourceLabel: command.userInput?.valueSource === "material_library" ? "selected material library value" : "scripted review input",
         evidenceReferences: [],
         userInput: command.userInput,
       },

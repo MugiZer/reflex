@@ -25,14 +25,16 @@ describe("Milestone 4 Job API", () => {
     expect(client).toContain("Next action");
     expect(client).toContain("Layer proportion and calculated values");
     expect(client).toContain("Run thermal calculation");
-    expect(client).toContain("Values stay as local drafts");
+    expect(client).toContain("Choose a library suggestion or enter a manual value");
     expect(client).toContain("Model-linked thermal review");
     expect(client).toContain("action-card-meta");
     expect(client).toContain("action-card-problem");
     expect(client).not.toContain("storeySelect");
     expect(client).not.toContain("localStorage");
     expect(html).toContain("/assets/ifc-review-viewer.js");
-    expect(client).not.toContain("Demo values");
+    expect(client).toContain("Fill demo defaults");
+    expect(client).toContain("Hide 3D model");
+    expect(client).toContain("Use suggested value");
     expect(() => new Function(client)).not.toThrow();
   });
 
@@ -101,18 +103,20 @@ describe("Milestone 4 Job API", () => {
         inputs: [
           {
             requestedInputId: needsReview.review.requestedInputs[0].requestedInputId,
-            value: 0.04,
+            value: 0.99,
             unit: "W/mK",
             overrideScope: "assembly_group",
+            materialLibraryKey: "mineral_wool",
           },
         ],
       });
       expect(submitted.jobStatus).toBe("completed");
       expect(submitted.revisionId).toMatch(/^rev_/);
       const completed = await getJson(`${baseUrl}/api/jobs/${created.jobId}?targetU=0.24`);
+      expect(completed.architectActions.assemblies[0].layers[0].lambdaWPerMK).toBe(0.04);
       expect(completed.architectActions.assemblies[0]).toEqual(expect.objectContaining({
         readinessState: "ready",
-        evidenceState: expect.objectContaining({ status: "user_completed" }),
+        evidenceState: expect.objectContaining({ status: "library_assisted" }),
         performance: expect.objectContaining({ verdict: "misses_target" }),
       }));
 

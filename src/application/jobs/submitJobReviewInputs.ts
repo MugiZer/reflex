@@ -1,5 +1,6 @@
 import type { OverrideScopeKind, RequestedInput, UserInput } from "../../domain/review/reviewTypes.js";
 import type { JobRepository } from "../../domain/jobs/jobRepository.js";
+import { defaultMaterialLibraryV1 } from "../../domain/materials/library.v1.js";
 import { readActiveRevisionArtifact } from "../../infrastructure/storage/local-files/jobReviewArtifactStore.js";
 import { completeJobWithReviewInputs, type ProcessIfcJobDeps } from "./processIfcJob.js";
 
@@ -77,7 +78,10 @@ function validateReviewInputBody(
     }
     seenRequestedInputIds.add(input.requestedInputId);
     const overrideScope = validateOverrideScope(input.overrideScope);
-    const value = validateValue(input.value, requested.inputType);
+    const materialLibraryEntry = materialLibraryEntryFor(input.materialLibraryKey);
+    const value = materialLibraryEntry === null
+      ? validateValue(input.value, requested.inputType)
+      : materialLibraryEntry.lambdaWPerMK;
     const unit = input.unit === undefined ? requested.unit : validateUnit(input.unit);
     if (unit !== requested.unit) {
       throw new Error(`Invalid unit for ${input.requestedInputId}: expected ${requested.unit ?? "null"}`);
@@ -89,6 +93,8 @@ function validateReviewInputBody(
       value,
       unit,
       overrideScope,
+      valueSource: materialLibraryEntry === null ? "manual" : "material_library",
+      materialLibraryKey: materialLibraryEntry?.materialKey,
     };
   });
   return { requestedInputs: reviewState.requestedInputs, userInputs };
@@ -120,6 +126,14 @@ function validateOverrideScope(value: unknown): OverrideScopeKind {
     return value;
   }
   throw new Error("Invalid overrideScope.");
+}
+
+function materialLibraryEntryFor(value: unknown) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") throw new Error("Invalid materialLibraryKey.");
+  const entry = defaultMaterialLibraryV1.entries.find((candidate) => candidate.materialKey === value);
+  if (!entry) throw new Error("Unknown materialLibraryKey.");
+  return entry;
 }
 
 function validateUnit(value: unknown): string | null {

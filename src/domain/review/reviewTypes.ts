@@ -53,6 +53,8 @@ export type UserInput = {
   value: string | number | boolean;
   unit: string | null;
   overrideScope?: OverrideScopeKind;
+  valueSource?: "manual" | "material_library";
+  materialLibraryKey?: string;
 };
 
 export type Override = {

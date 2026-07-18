@@ -91,6 +91,7 @@ export function renderAppShell(): string {
     .architect-workspace { display: grid; grid-template-columns: minmax(0,1.65fr) minmax(420px,.85fr); gap: 12px; align-items: start; }
     .model-column { min-width: 0; position: sticky; top: 10px; }
     .viewer { overflow: hidden; background: white; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+    .viewer-toggle { width: 100%; margin-bottom: 8px; color: var(--accent); background: white; border: 1px solid var(--line); }
     .viewer-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--line); background: #fbfcfa; }
     .viewer-head h2 { margin: 3px 0 0; font-size: 18px; }
     .viewer-status { max-width: 48%; color: var(--muted); font-size: 11px; text-align: right; }
@@ -174,6 +175,9 @@ export function renderAppShell(): string {
     .question label { display: block; font-size: 12px; font-weight: 800; }
     .question-meta, .scope-help { margin: 3px 0 7px; color: var(--muted); font-size: 10px; }
     .scope-help { margin: 5px 0 0; }
+    .library-suggestion { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: center; margin: 8px 0; padding: 9px; border: 1px solid #c7d8ce; border-radius: 7px; background: #f3f8f4; font-size: 10px; }
+    .library-suggestion small { color: var(--muted); }
+    .library-suggestion button { grid-row: span 2; }
     .evidence { margin: 8px 0; padding: 8px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); color: var(--muted); font-size: 10px; }
     .evidence summary { cursor: pointer; font-weight: 750; }
     .evidence dl { display: grid; grid-template-columns: 70px 1fr; gap: 4px 7px; margin: 8px 0 0; }
@@ -184,6 +188,8 @@ export function renderAppShell(): string {
     .calculation-submit strong { margin-bottom: 2px; font-size: 11px; }
     .calculation-submit span { color: #c7d0cc; font-size: 9px; }
     .calculation-submit button { background: var(--lime); color: var(--nav); white-space: nowrap; }
+    .submit-actions { display: flex; gap: 7px; align-items: center; }
+    .calculation-submit .secondary { color: white; background: transparent; border-color: #718079; }
     .empty-state { margin: 0; padding: 18px; color: var(--muted); text-align: center; }
     .processing-panel { min-height: 180px; display: flex; align-items: center; justify-content: center; gap: 15px; }
     .loading-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 0 rgba(15,118,110,.35); animation: pulse 1.3s infinite; }

@@ -26,7 +26,7 @@ function jobCard(job) {
   return '<article class="job"><div><strong>' + esc(job.originalFilename) + '</strong><span class="muted">' + esc(jobStateNote(job)) + '</span></div><div class="job-actions"><span class="' + statusClass(job.jobStatus) + '">' + esc(statusLabel(job.jobStatus)) + '</span><a class="button secondary" href="/jobs/' + esc(job.jobId) + '">Open</a></div></article>';
 }
 
-async function workspacePage(jobId, targetU = currentTargetU(), draftSeed = {}) {
+async function workspacePage(jobId, targetU = currentTargetU(), draftSeed = {}, draftSourceSeed = {}) {
   let job;
   while (true) {
     job = await api("/api/jobs/" + encodeURIComponent(jobId) + "?targetU=" + encodeURIComponent(targetU));
@@ -48,20 +48,29 @@ function renderArchitectWorkspace(job, targetU, draftSeed) {
   const unresolvedInputIds = new Set(assemblies.flatMap((assembly) => assembly.nextAction.requestedInputIds || []));
   const allInputs = uniqueRequestedInputs((job.review && job.review.requestedInputs) || []).filter((input) => unresolvedInputIds.has(input.requestedInputId));
   const drafts = { ...(draftSeed || {}) };
+  const draftSources = { ...(draftSourceSeed || {}) };
+  let viewerVisible = true;
   const hasUnresolvedReview = allInputs.length > 0;
   let activeAssemblyGroupId = (assemblies.find(needsAction) || assemblies[0] || {}).assemblyGroupId || null;
   let activeFilter = "all";
   let viewer = null;
 
   app.innerHTML = projectHeader(job, targetU) + summaryBar(model.summary) +
-    '<div class="architect-workspace"><div class="model-column">' + viewerShell(job) + '</div><aside id="actionAside" class="action-aside"></aside></div>';
+    '<div class="architect-workspace"><div class="model-column">' + (job.links && job.links.viewerGeometry ? '<button type="button" id="viewerToggle" class="viewer-toggle">Hide 3D model</button>' : "") + viewerShell(job) + '</div><aside id="actionAside" class="action-aside"></aside></div>';
   wireTargetForm(function (nextTarget) {
     const next = new URL(location.href);
     next.searchParams.set("targetU", String(nextTarget));
     history.replaceState(null, "", next.pathname + next.search);
-    workspacePage(job.jobId, String(nextTarget), drafts).catch(showError);
+    workspacePage(job.jobId, String(nextTarget), drafts, draftSources).catch(showError);
   });
   renderAside();
+  const viewerToggle = document.getElementById("viewerToggle");
+  const viewerPanel = document.getElementById("ifcViewer");
+  if (viewerToggle && viewerPanel) viewerToggle.onclick = () => {
+    viewerVisible = !viewerVisible;
+    viewerPanel.hidden = !viewerVisible;
+    viewerToggle.textContent = viewerVisible ? "Hide 3D model" : "Show 3D model";
+  };
 
   const actionStepIds = uniqueNumbers(assemblies.filter(needsAction).flatMap((assembly) => assembly.displayStepIds || []));
   initViewer(job.links && job.links.viewerGeometry, actionStepIds, assemblies, function (_stepId, info) {
@@ -122,9 +131,36 @@ function renderArchitectWorkspace(job, targetU, draftSeed) {
     aside.querySelectorAll("[data-requested-input-id]").forEach((field) => {
       field.oninput = () => {
         drafts[field.dataset.requestedInputId] = field.value;
+        draftSources[field.dataset.requestedInputId] = { source: "manual" };
         updateDraftProgress(aside, allInputs, drafts, active);
       };
     });
+    aside.querySelectorAll("[data-use-library]").forEach((button) => {
+      button.onclick = () => {
+        drafts[button.dataset.libraryInputId] = button.dataset.libraryValue;
+        draftSources[button.dataset.libraryInputId] = { source: "material_library", materialLibraryKey: button.dataset.libraryKey };
+        renderAside();
+      };
+    });
+    aside.querySelectorAll("[data-library-picker]").forEach((picker) => {
+      picker.onchange = () => {
+        const entry = ((job.materialLibrary && job.materialLibrary.entries) || []).find((candidate) => candidate.materialKey === picker.value);
+        if (!entry) return;
+        drafts[picker.dataset.libraryInputId] = String(entry.lambdaWPerMK);
+        draftSources[picker.dataset.libraryInputId] = { source: "material_library", materialLibraryKey: entry.materialKey };
+        renderAside();
+      };
+    });
+    const demoFill = aside.querySelector("[data-demo-fill]");
+    if (demoFill) demoFill.onclick = () => {
+      allInputs.forEach((input) => {
+        const demo = demoValueFor(job, input);
+        if (!demo) return;
+        drafts[input.requestedInputId] = demo.value;
+        draftSources[input.requestedInputId] = { source: "material_library", materialLibraryKey: demo.materialLibraryKey };
+      });
+      renderAside();
+    };
     const runButton = document.getElementById("runCalculation");
     if (runButton) {
       runButton.onclick = async () => {
@@ -138,6 +174,7 @@ function renderArchitectWorkspace(job, targetU, draftSeed) {
             value: drafts[input.requestedInputId],
             unit: input.unit,
             overrideScope: input.scope.scopeKind,
+            materialLibraryKey: draftSources[input.requestedInputId] && draftSources[input.requestedInputId].materialLibraryKey,
           })),
         };
         try {
@@ -245,13 +282,32 @@ function renderQuestion(job, input, drafts, index) {
   const evidence = context && context.evidenceSummary;
   const type = input.inputType === "number" ? "number" : "text";
   const value = drafts[input.requestedInputId] || "";
-  const evidenceHtml = evidence ? '<details class="evidence"><summary>Evidence checked</summary><dl><dt>Element</dt><dd>' + esc(evidence.elementLabel) + '</dd><dt>Layer</dt><dd>' + esc(evidence.layerLabel || "Not layer-specific") + '</dd><dt>Material</dt><dd>' + esc(evidence.materialLabel || "Unknown") + '</dd><dt>IFC path</dt><dd>' + esc(evidence.evidencePathLabel) + '</dd></dl></details>' : '';
-  return '<div class="question"><label for="reviewInput' + index + '">' + esc(input.question) + '</label><p class="question-meta">' + esc((context && context.missingValueLabel) || input.datapoint) + (input.unit ? '  |  ' + esc(input.unit) : '') + '</p>' + evidenceHtml + '<input id="reviewInput' + index + '" data-requested-input-id="' + esc(input.requestedInputId) + '" type="' + type + '" ' + (type === "number" ? 'step="any" min="0.000001" ' : '') + 'value="' + esc(value) + '" required placeholder="Enter reviewed value"><p class="scope-help">Applies to: ' + esc(scopeLabel(input.scope.scopeKind)) + '</p></div>';
+  const library = librarySuggestion(job, input, context);
+  const evidenceHtml = evidence ? '<details class="evidence"><summary>Why this input?</summary><dl><dt>Element</dt><dd>' + esc(evidence.elementLabel) + '</dd><dt>Layer</dt><dd>' + esc(evidence.layerLabel || "Not layer-specific") + '</dd><dt>Material</dt><dd>' + esc(evidence.materialLabel || "Unknown") + '</dd></dl></details>' : '';
+  const libraryOptions = input.datapoint === "layer_lambda" ? ((job.materialLibrary && job.materialLibrary.entries) || []).map((entry) => '<option value="' + esc(entry.materialKey) + '">' + esc(entry.displayName + " - " + number(entry.lambdaWPerMK, 3) + " W/mK") + '</option>').join("") : "";
+  const suggestionHtml = input.datapoint === "layer_lambda" ? '<div class="library-suggestion">' + (library ? '<span>Suggested: <strong>' + number(library.lambdaWPerMK, 3) + ' W/mK</strong> | ' + esc(library.displayName) + '</span><small>' + esc(library.sourceLabel) + '</small><button type="button" class="secondary" data-use-library data-library-input-id="' + esc(input.requestedInputId) + '" data-library-value="' + esc(library.lambdaWPerMK) + '" data-library-key="' + esc(library.materialKey) + '">Use suggested value</button>' : '<span>No exact library match.</span><small>Choose a reference material or enter a manual value.</small>') + '<label class="library-picker">Material database<select data-library-picker data-library-input-id="' + esc(input.requestedInputId) + '"><option value="">Choose another material</option>' + libraryOptions + '</select></label></div>' : "";
+  return '<div class="question"><label for="reviewInput' + index + '">' + esc(input.question) + '</label><p class="question-meta">' + esc((context && context.missingValueLabel) || input.datapoint) + (input.unit ? '  |  ' + esc(input.unit) : '') + '</p>' + suggestionHtml + evidenceHtml + '<input id="reviewInput' + index + '" data-requested-input-id="' + esc(input.requestedInputId) + '" type="' + type + '" ' + (type === "number" ? 'step="any" min="0.000001" ' : '') + 'value="' + esc(value) + '" required placeholder="Enter a manual value"><p class="scope-help">Applies to: ' + esc(scopeLabel(input.scope.scopeKind)) + '</p></div>';
+}
+
+function librarySuggestion(job, input, context) {
+  if (input.datapoint !== "layer_lambda") return null;
+  const materialName = input.scope && input.scope.scopeKind === "material_decision" ? input.scope.materialName : context && context.evidenceSummary && context.evidenceSummary.materialLabel;
+  const key = normalizeMaterialName(materialName);
+  return ((job.materialLibrary && job.materialLibrary.entries) || []).find((entry) => [entry.displayName].concat(entry.aliases || []).some((alias) => normalizeMaterialName(alias) === key)) || null;
+}
+
+function normalizeMaterialName(value) {
+  return String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
 }
 
 function reviewSubmit(job, allInputs, hasUnresolvedReview) {
   if (!hasUnresolvedReview || allInputs.length === 0) return "";
-  return '<section class="calculation-submit"><div><strong id="draftProgress">0 of ' + allInputs.length + ' decisions ready</strong><span>Values stay as local drafts until every required decision is present.</span><span id="reviewMsg"></span></div><button type="button" id="runCalculation" disabled>Run thermal calculation -></button></section>';
+  return '<section class="calculation-submit"><div><strong id="draftProgress">0 of ' + allInputs.length + ' decisions ready</strong><span>Choose a library suggestion or enter a manual value. Demo assumptions are never IFC evidence.</span><span id="reviewMsg"></span></div><div class="submit-actions"><button type="button" class="secondary" data-demo-fill>Fill demo defaults</button><button type="button" id="runCalculation" disabled>Run thermal calculation -></button></div></section>';
+}
+
+function demoValueFor(job, input) {
+  const suggested = librarySuggestion(job, input, reviewQuestionContext(job, input.requestedInputId));
+  return suggested ? { value: String(suggested.lambdaWPerMK), materialLibraryKey: suggested.materialKey } : null;
 }
 
 function updateDraftProgress(aside, allInputs, drafts, activeAssembly) {
@@ -272,7 +328,7 @@ function updateDraftProgress(aside, allInputs, drafts, activeAssembly) {
 
 function viewerShell(job) {
   if (!job.links || !job.links.viewerGeometry) return '<section class="viewer-unavailable panel">3D geometry is not available for this analysis.</section>';
-  return '<section class="viewer"><div class="viewer-head"><div><span class="eyebrow">IFC coordination view</span><h2>Model-linked thermal review</h2></div><span id="ifcViewerStatus" class="viewer-status">Ready to load model</span></div><div class="viewer-tools" role="toolbar" aria-label="Viewer controls"><button type="button" class="tool active" data-view="all">Show all</button><button type="button" class="tool" data-view="actions">Show actions</button><button type="button" class="tool" data-view="isolated">Isolate selected</button><button type="button" class="tool" data-view="fit">Fit building</button><label class="context-toggle"><input id="contextToggle" type="checkbox" checked> Context</label></div><div id="ifcViewerStage" class="viewer-stage"></div><div class="viewer-legend"><span><i class="legend-swatch neutral"></i>Model context</span><span><i class="legend-swatch action"></i>Needs action</span><span><i class="legend-swatch blocked"></i>Blocked</span><span><i class="legend-swatch selected"></i>Selected assembly</span></div></section>';
+  return '<section id="ifcViewer" class="viewer"><div class="viewer-head"><div><span class="eyebrow">IFC coordination view</span><h2>Model-linked thermal review</h2></div><span id="ifcViewerStatus" class="viewer-status">Ready to load model</span></div><div class="viewer-tools" role="toolbar" aria-label="Viewer controls"><button type="button" class="tool active" data-view="all">Show all</button><button type="button" class="tool" data-view="actions">Show actions</button><button type="button" class="tool" data-view="isolated">Isolate selected</button><button type="button" class="tool" data-view="fit">Fit building</button><label class="context-toggle"><input id="contextToggle" type="checkbox" checked> Context</label></div><div id="ifcViewerStage" class="viewer-stage"></div><div class="viewer-legend"><span><i class="legend-swatch neutral"></i>Model context</span><span><i class="legend-swatch action"></i>Needs action</span><span><i class="legend-swatch blocked"></i>Blocked</span><span><i class="legend-swatch selected"></i>Selected assembly</span></div></section>';
 }
 
 async function initViewer(geometryUrl, actionStepIds, assemblies, onSelect) {

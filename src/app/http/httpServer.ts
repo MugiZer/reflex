@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { buildArchitectActionViewModel } from "../../application/jobs/buildArchitectActionViewModel.js";
+import { defaultMaterialLibraryV1 } from "../../domain/materials/library.v1.js";
 import { createJob } from "../../application/jobs/createJob.js";
 import type { ProcessIfcJobDeps } from "../../application/jobs/processIfcJob.js";
 import { submitJobReviewInputs } from "../../application/jobs/submitJobReviewInputs.js";
@@ -178,6 +179,7 @@ async function sendJob(
             label: "Working project target",
           },
     }),
+    materialLibrary: defaultMaterialLibraryV1,
     links: linksFor(job),
   });
 }

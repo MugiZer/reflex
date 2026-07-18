@@ -79,6 +79,7 @@ describe("Milestone 3 core", () => {
       datapoint: "layer_lambda",
       value: 0.037,
       unit: "W/mK",
+      valueSource: "material_library",
     };
 
     const result = resolveLayerLambda({
@@ -89,6 +90,7 @@ describe("Milestone 3 core", () => {
     });
 
     expect(result.lambda?.value).toBe(0.037);
+    expect(result.lambda?.source).toBe("material_library");
     expect(evidence.fixedInputs.find((fixed) => fixed.field === "layer_lambda")?.value)
       .toBe(0.045);
   });
