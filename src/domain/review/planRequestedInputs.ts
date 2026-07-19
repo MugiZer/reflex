@@ -1,9 +1,14 @@
 import type { CalculationInputEvidence } from "../evidence/calculationInputEvidenceTypes.js";
 import type { EvidenceReference } from "../evidence/evidenceTypes.js";
+import { resolveMaterialName, specialPhysicsIssuesForEvidence } from "../materials/materialResolution.js";
+import type { MaterialLibrary } from "../materials/materialTypes.js";
 import {
   assemblyGroupIdForEvidence,
   layerOccurrenceRequestedInputId,
+  materialDecisionGroupId,
   materialDecisionGroupsFor,
+  materialOverrideRequestedInputId,
+  normalizeMaterialKey,
 } from "./reviewGrouping.js";
 import type { RequestedInput } from "./reviewTypes.js";
 
@@ -13,17 +18,23 @@ export type PlanRequestedInputsResult = {
 
 export function planRequestedInputs(command: {
   calculationInputEvidence: CalculationInputEvidence[];
+  materialLibrary?: MaterialLibrary;
 }): PlanRequestedInputsResult {
-  const materialDecisionInputs = materialDecisionGroupsFor(command).map(
+  const materialDecisionInputs = materialDecisionGroupsFor(command)
+    .filter((group) => !isSpecialMaterialGroup(group, command) &&
+      (command.materialLibrary === undefined ||
+        resolveMaterialName(group.materialName, command.materialLibrary).status !== "resolved"))
+    .map(
     (group): RequestedInput => ({
       requestedInputId: group.requestedInputId,
       reviewGroupId: group.materialDecisionId,
       reviewGroupKind: "material_decision",
       assemblyGroupId: group.materialDecisionId,
       datapoint: "layer_lambda",
-      question: `What thermal conductivity should be used for ${group.materialName}?`,
+      question: materialDecisionQuestion(group, command.materialLibrary),
       inputType: "number",
       unit: "W/mK",
+      ...(command.materialLibrary === undefined ? {} : { materialResolution: resolveMaterialName(group.materialName, command.materialLibrary) }),
       affects: affectsFor("layer_lambda"),
       scope: {
         scopeKind: "material_decision",
@@ -51,6 +62,7 @@ export function planRequestedInputs(command: {
     evidence.missingInputs
       .filter((input) =>
         isAskable(input.field) &&
+        !shouldSkipLayerDecision(input, evidence, command.materialLibrary) &&
         !(
           input.field === "layer_lambda" &&
           input.layer !== undefined &&
@@ -104,8 +116,137 @@ export function planRequestedInputs(command: {
       }),
   );
 
-  return { requestedInputs: [...materialDecisionInputs, ...occurrenceInputs] };
+  const optionalOverrides = command.materialLibrary === undefined
+    ? []
+    : optionalOverrideInputs({
+        calculationInputEvidence: command.calculationInputEvidence,
+        materialLibrary: command.materialLibrary,
+      });
+  return { requestedInputs: [...materialDecisionInputs, ...occurrenceInputs, ...optionalOverrides] };
 }
+
+function materialDecisionQuestion(
+  group: ReturnType<typeof materialDecisionGroupsFor>[number],
+  materialLibrary: MaterialLibrary | undefined,
+): string {
+  const resolution = materialLibrary === undefined ? null : resolveMaterialName(group.materialName, materialLibrary);
+  return resolution?.status === "ambiguous"
+    ? `Which Material Library family should be used for ${group.materialName} to choose its thermal conductivity?`
+    : `What thermal conductivity should be used for ${group.materialName}?`;
+}
+
+function isSpecialMaterialGroup(
+  group: ReturnType<typeof materialDecisionGroupsFor>[number],
+  command: {
+    calculationInputEvidence: CalculationInputEvidence[];
+    materialLibrary?: MaterialLibrary;
+  },
+): boolean {
+  const library = command.materialLibrary ?? { version: "materials.library.v1" as const, entries: [] };
+  return group.affectedLayers.some((layer) => {
+    const evidence = command.calculationInputEvidence.find(
+      (candidate) => candidate.elementStepId === layer.elementStepId,
+    );
+    return evidence !== undefined &&
+      specialPhysicsIssuesForEvidence({ evidence, materialLibrary: library }).length > 0;
+  });
+}
+
+function shouldSkipLayerDecision(
+  input: CalculationInputEvidence["missingInputs"][number],
+  evidence: CalculationInputEvidence,
+  materialLibrary: MaterialLibrary | undefined,
+): boolean {
+  const library = materialLibrary ?? { version: "materials.library.v1" as const, entries: [] };
+  if (specialPhysicsIssuesForEvidence({ evidence, materialLibrary: library }).length > 0) {
+    return true;
+  }
+  if (
+    input.layer === undefined ||
+    (input.field !== "layer_lambda" && input.field !== "layer_material_name")
+  ) {
+    return false;
+  }
+  return materialLibrary !== undefined &&
+    input.field === "layer_lambda" &&
+    input.layer.materialName !== null &&
+    resolveMaterialName(input.layer.materialName, materialLibrary).status === "resolved";
+}
+
+function optionalOverrideInputs(command: {
+  calculationInputEvidence: CalculationInputEvidence[];
+  materialLibrary: MaterialLibrary;
+}): RequestedInput[] {
+  const groups = new Map<string, {
+    materialName: string;
+    materialResolution: ReturnType<typeof resolveMaterialName>;
+    affectedLayers: Array<{
+      elementStepId: number;
+      layerIndex: number;
+      layerStepId: number | null;
+      materialName: string | null;
+      assemblyGroupId: string;
+      evidenceReferences: EvidenceReference[];
+    }>;
+  }>();
+  for (const evidence of command.calculationInputEvidence) {
+    if (specialPhysicsIssuesForEvidence({ evidence, materialLibrary: command.materialLibrary }).length > 0) {
+      continue;
+    }
+    for (const input of evidence.missingInputs) {
+      const layer = input.layer;
+      const materialName = layer?.materialName ?? null;
+      if (input.field !== "layer_lambda" || layer === undefined || materialName === null) {
+        continue;
+      }
+      const resolution = resolveMaterialName(materialName, command.materialLibrary);
+      if (resolution.status !== "resolved") {
+        continue;
+      }
+      const key = normalizeMaterialKey(materialName);
+      const group = groups.get(key) ?? {
+        materialName,
+        materialResolution: resolution,
+        affectedLayers: [],
+      };
+      group.affectedLayers.push({
+        elementStepId: evidence.elementStepId,
+        layerIndex: layer.layerIndex,
+        layerStepId: layer.layerStepId,
+        materialName,
+        assemblyGroupId: assemblyGroupIdForEvidence(evidence),
+        evidenceReferences: input.evidenceReferences,
+      });
+      groups.set(key, group);
+    }
+  }
+
+  return [...groups.entries()].map(([normalizedMaterialKey, group]): RequestedInput => ({
+    requestedInputId: materialOverrideRequestedInputId(normalizedMaterialKey),
+    reviewGroupId: "override_" + materialDecisionGroupId(normalizedMaterialKey),
+    reviewGroupKind: "material_decision",
+    assemblyGroupId: group.affectedLayers[0]?.assemblyGroupId ?? "unknown",
+    datapoint: "layer_lambda",
+    question: "Choose another material for " + group.materialName + " (optional).",
+    inputType: "number",
+    unit: "W/mK",
+    required: false,
+    purpose: "optional_override",
+    materialResolution: group.materialResolution,
+    affects: affectsFor("layer_lambda"),
+    scope: {
+      scopeKind: "material_decision",
+      materialDecisionId: materialDecisionGroupId(normalizedMaterialKey),
+      normalizedMaterialKey,
+      materialName: group.materialName,
+      affectedLayers: group.affectedLayers,
+    },
+    evidenceReferences: uniqueEvidenceReferences(
+      group.affectedLayers.flatMap((layer) => layer.evidenceReferences),
+    ),
+  }));
+}
+
 
 function isAskable(field: CalculationInputEvidence["missingInputs"][number]["field"]): boolean {
   return [

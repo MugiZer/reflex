@@ -6,7 +6,7 @@ export const defaultMaterialLibraryV1: MaterialLibrary = {
     {
       materialKey: "mineral_wool",
       displayName: "Mineral wool",
-      aliases: ["mineral wool", "rock wool", "stone wool"],
+      aliases: ["mineral wool", "rock wool", "stone wool", "laine minerale", "laine de roche", "laine de verre", "mineral fibre insulation"],
       lambdaWPerMK: 0.04,
       sourceLabel: "Milestone 3 seed library",
       confidence: "high",
@@ -14,15 +14,31 @@ export const defaultMaterialLibraryV1: MaterialLibrary = {
     {
       materialKey: "concrete",
       displayName: "Concrete",
-      aliases: ["concrete", "cast concrete"],
+      aliases: ["concrete", "cast concrete", "cast-in-place concrete", "cast in place concrete", "beton", "beton coule sur place", "beton coule en place", "ordinary concrete"],
       lambdaWPerMK: 1.7,
       sourceLabel: "Milestone 3 seed library",
       confidence: "medium",
     },
     {
+      materialKey: "concrete_block",
+      displayName: "Concrete block",
+      aliases: ["concrete block", "concrete masonry unit", "cmu", "bloc de beton", "bloc beton", "parpaing"],
+      lambdaWPerMK: 1.1,
+      sourceLabel: "Prototype reference library - confirm product data",
+      confidence: "medium",
+    },
+    {
+      materialKey: "masonry_brick",
+      displayName: "Masonry brick",
+      aliases: ["brick", "masonry brick", "clay brick", "brique", "brique maconnerie", "masonry"],
+      lambdaWPerMK: 0.77,
+      sourceLabel: "Prototype reference library - confirm product data",
+      confidence: "medium",
+    },
+    {
       materialKey: "rigid_insulation",
       displayName: "Rigid insulation",
-      aliases: ["isolant rigide", "07 isolant rigide"],
+      aliases: ["isolant rigide", "07 isolant rigide", "rigid insulation", "rigid board insulation", "panneau isolant rigide"],
       lambdaWPerMK: 0.032,
       sourceLabel: "Prototype reference library - confirm product data",
       confidence: "medium",
@@ -30,7 +46,7 @@ export const defaultMaterialLibraryV1: MaterialLibrary = {
     {
       materialKey: "semi_rigid_insulation",
       displayName: "Semi-rigid insulation",
-      aliases: ["isolant semi rigide", "07 isolant semi rigide", "br h vert iso semi rig"],
+      aliases: ["isolant semi rigide", "07 isolant semi rigide", "br h vert iso semi rig", "semi rigid insulation", "semi-rigid insulation", "semi rigid board insulation"],
       lambdaWPerMK: 0.04,
       sourceLabel: "Prototype reference library - confirm product data",
       confidence: "medium",
@@ -38,7 +54,7 @@ export const defaultMaterialLibraryV1: MaterialLibrary = {
     {
       materialKey: "gypsum_board",
       displayName: "Gypsum board",
-      aliases: ["gypse", "gypse mural", "plaque de mur de gypse", "lma gypse 16mm", "lma gypse 25mm"],
+      aliases: ["gypse", "gypse mural", "plaque de mur de gypse", "plaque de gypse", "gypsum board", "drywall", "plasterboard", "lma gypse 16mm", "lma gypse 25mm"],
       lambdaWPerMK: 0.25,
       sourceLabel: "Prototype reference library - confirm product data",
       confidence: "medium",
@@ -46,7 +62,7 @@ export const defaultMaterialLibraryV1: MaterialLibrary = {
     {
       materialKey: "plywood",
       displayName: "Plywood",
-      aliases: ["contreplaque", "contreplaque traite", "06 bois contreplaque traite", "lma 06 contreplaque traite"],
+      aliases: ["contreplaque", "contreplaque traite", "plywood", "treated plywood", "bois contreplaque", "06 bois contreplaque traite", "lma 06 contreplaque traite"],
       lambdaWPerMK: 0.13,
       sourceLabel: "Prototype reference library - confirm product data",
       confidence: "medium",
@@ -54,7 +70,7 @@ export const defaultMaterialLibraryV1: MaterialLibrary = {
     {
       materialKey: "softwood",
       displayName: "Softwood",
-      aliases: ["bois", "structure madriers de bois", "montant bois", "lma montant bois non porteuse", "lma montant bois porteuse"],
+      aliases: ["bois", "softwood", "timber", "wood stud", "wood studs", "wood framing", "structure madriers de bois", "montant bois", "lma montant bois non porteuse", "lma montant bois porteuse"],
       lambdaWPerMK: 0.13,
       sourceLabel: "Prototype reference library - confirm product data",
       confidence: "medium",

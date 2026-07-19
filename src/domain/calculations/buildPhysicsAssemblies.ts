@@ -6,6 +6,7 @@ import {
   groupCalculationInputEvidenceByAssembly,
   layerOccurrenceRequestedInputId,
 } from "../review/reviewGrouping.js";
+import { specialPhysicsIssuesForEvidence } from "../materials/materialResolution.js";
 import { defaultSurfaceResistanceProfileFor } from "./surfaceResistanceProfiles.js";
 import { resolveLayerLambda } from "../materials/resolveLayerLambda.js";
 import type { DatapointSource, PhysicsAssembly, PhysicsLayer } from "./calculationTypes.js";
@@ -47,6 +48,19 @@ function buildPhysicsAssembly(command: {
   userInputs: UserInput[];
   diagnostics: Diagnostic[];
 }): PhysicsAssembly | null {
+  const specialIssues = specialPhysicsIssuesForEvidence({
+    evidence: command.evidence,
+    materialLibrary: command.materialLibrary,
+  });
+  if (specialIssues.length > 0) {
+    command.diagnostics.push(...specialIssues.map((issue) => ({
+      code: "physics_assembly_blocked",
+      severity: "warning" as const,
+      message: "Special physics issue: " + issue.message + " " + issue.nextAction,
+      stepIds: [command.evidence.elementStepId],
+    })));
+    return null;
+  }
   const layers = layerIndexes(command.evidence).map((layerIndex) =>
     buildPhysicsLayer({
       evidence: command.evidence,
@@ -76,6 +90,13 @@ function buildPhysicsAssembly(command: {
     confidence: isIfcExtractedOnly ? "high" : "medium",
     surfaceResistanceProfile: defaultSurfaceResistanceProfileFor(command.evidence.elementClass),
     layers: completeLayers,
+    assumptions: completeLayers
+      .filter((layer) => layer.evidenceState === "library_assisted")
+      .map((layer) => "Library-assisted / assumed lambda for raw IFC material '" + (layer.rawMaterialName ?? layer.materialName) + "'."),
+    provenance: completeLayers.flatMap((layer) => [
+      ...(layer.rawMaterialName ? ["Raw IFC material: " + layer.rawMaterialName] : []),
+      ...(layer.materialLibraryName ? ["Matched Material Library entry: " + layer.materialLibraryName] : []),
+    ]),
   };
 }
 
@@ -87,14 +108,15 @@ function buildPhysicsLayer(command: {
 }): PhysicsLayer | null {
   const thicknessInput = numericInput(command.evidence, "layer_thickness", command.layerIndex, command.userInputs);
   const materialInput = stringInput(command.evidence, "layer_material_name", command.layerIndex, command.userInputs);
-  const lambda = resolveLayerLambda({
+  const lambdaResolution = resolveLayerLambda({
     calculationInputEvidence: command.evidence,
     materialName: materialInput?.value ?? null,
     materialLibrary: command.materialLibrary,
     userInputs: command.userInputs,
     elementStepId: command.evidence.elementStepId,
     layerIndex: command.layerIndex,
-  }).lambda;
+  });
+  const lambda = lambdaResolution.lambda;
   if (thicknessInput === null || materialInput === null || lambda === null) {
     return null;
   }
@@ -109,6 +131,11 @@ function buildPhysicsLayer(command: {
   return {
     layerOccurrenceId: `layer_${command.evidence.elementStepId}_${command.layerIndex}`,
     materialName: materialInput.value,
+    rawMaterialName: materialInput.value,
+    materialLibraryKey: lambda.materialLibraryKey,
+    materialLibraryName: lambda.materialLibraryName,
+    materialResolution: lambda.materialResolution ?? lambdaResolution.resolution,
+    evidenceState: lambda.materialResolution?.evidenceState,
     thicknessM: thicknessInput.value,
     lambdaWPerMK: lambda.value,
     datapointSources: unique([thicknessInput.source, materialInput.source, lambdaSource]),

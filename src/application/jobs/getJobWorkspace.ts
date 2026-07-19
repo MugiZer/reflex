@@ -69,6 +69,7 @@ export async function getJobWorkspace(command: {
             maxUValueWPerM2K: command.targetUValueWPerM2K,
             label: "Working project target",
           },
+      materialLibrary: defaultMaterialLibraryV1,
     }),
     materialLibrary: defaultMaterialLibraryV1,
   };

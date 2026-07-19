@@ -1,6 +1,7 @@
 import type { CalculationInputEvidence } from "../evidence/calculationInputEvidenceTypes.js";
 import type { EvidenceReference, StepId } from "../evidence/evidenceTypes.js";
 
+import { normalizeMaterialName } from "../materials/materialResolution.js";
 export type LayerOccurrenceReference = {
   elementStepId: StepId;
   layerIndex: number;
@@ -71,6 +72,10 @@ export function materialDecisionRequestedInputId(normalizedMaterialKey: string):
   return `ri_material_layer_lambda_${stableHash(normalizedMaterialKey)}`;
 }
 
+export function materialOverrideRequestedInputId(normalizedMaterialKey: string): string {
+  return `oi_material_layer_lambda_${stableHash(normalizedMaterialKey)}`;
+}
+
 export function layerOccurrenceRequestedInputId(
   elementStepId: StepId,
   field: string,
@@ -80,12 +85,7 @@ export function layerOccurrenceRequestedInputId(
 }
 
 export function normalizeMaterialKey(materialName: string | null): string {
-  return (materialName ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .replace(/\s+/g, " ");
+  return normalizeMaterialName(materialName);
 }
 
 export function assemblyGroupIdForEvidence(evidence: CalculationInputEvidence): string {

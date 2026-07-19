@@ -5,6 +5,8 @@ import type {
 import type { CalculationInputEvidence } from "../../domain/evidence/calculationInputEvidenceTypes.js";
 import type { Confidence, ElementClass, StepId } from "../../domain/evidence/evidenceTypes.js";
 import type { JobStatus } from "../../domain/jobs/jobTypes.js";
+import { specialPhysicsIssuesForEvidence } from "../../domain/materials/materialResolution.js";
+import type { MaterialLibrary, MaterialMatchBasis, MaterialResolution, SpecialPhysicsIssue } from "../../domain/materials/materialTypes.js";
 import { deriveEvidenceReadinessState } from "../../domain/assemblies/deriveEvidenceReadiness.js";
 import {
   assemblyGroupIdForEvidence,
@@ -53,6 +55,13 @@ export type ArchitectAssemblyAction = {
     datapointSources: DatapointSource[];
     unresolvedInputCount: number;
   };
+  specialIssues: SpecialPhysicsIssue[];
+  optionalOverrides: Array<{
+    requestedInputId: string;
+    rawMaterialName: string;
+    matchedMaterialName: string;
+    matchBasis: string | null;
+  }>;
   performance: {
     result:
       | { kind: "value"; uValueWPerM2K: number }
@@ -75,6 +84,11 @@ export type ArchitectAssemblyAction = {
     lambdaWPerMK: number;
     rValueM2KPerW: number;
     datapointSources: DatapointSource[];
+    rawMaterialName?: string | null;
+    materialLibraryKey?: string;
+    materialLibraryName?: string;
+    matchBasis?: MaterialMatchBasis | null;
+    evidenceState?: MaterialResolution["evidenceState"];
   }>;
   warnings: string[];
   priorityRank: number;
@@ -87,6 +101,7 @@ export function buildArchitectActionViewModel(command: {
   requestedInputs: RequestedInput[];
   activeRevision: Revision | null;
   target: ArchitectTarget | null;
+  materialLibrary?: MaterialLibrary;
 }): ArchitectActionViewModel {
   const evidenceGroups = groupCalculationInputEvidenceByAssembly(command.calculationInputEvidence);
   const snapshots = new Map(
@@ -110,7 +125,7 @@ export function buildArchitectActionViewModel(command: {
     const snapshot = snapshots.get(assemblyGroupId) ?? null;
     const requestedInputs = requestedInputsByAssembly.get(assemblyGroupId) ?? [];
     const unresolvedInputs = requestedInputs.filter(
-      (requested) => !resolvedInputIds.has(requested.requestedInputId),
+      (requested) => requested.required !== false && !resolvedInputIds.has(requested.requestedInputId),
     );
     return assemblyAction({
       assemblyGroupId,
@@ -120,6 +135,7 @@ export function buildArchitectActionViewModel(command: {
       unresolvedInputs,
       target: command.target,
       jobStatus: command.jobStatus,
+      materialLibrary: command.materialLibrary,
     });
   }).sort((left, right) =>
     left.priorityRank - right.priorityRank || left.label.localeCompare(right.label)
@@ -156,8 +172,11 @@ function assemblyAction(command: {
   unresolvedInputs: RequestedInput[];
   target: ArchitectTarget | null;
   jobStatus: JobStatus;
+  materialLibrary?: MaterialLibrary;
 }): ArchitectAssemblyAction {
   const elementClass = command.evidence[0]?.elementClass ?? "IfcBuildingElementProxy";
+  const materialLibrary = command.materialLibrary ?? { version: "materials.library.v1" as const, entries: [] };
+  const specialIssues = command.evidence.flatMap((evidence) => specialPhysicsIssuesForEvidence({ evidence, materialLibrary }));
   const sourceElements = command.evidence.map((evidence) => ({
     stepId: evidence.elementStepId,
     globalId: evidence.elementGlobalId,
@@ -167,7 +186,8 @@ function assemblyAction(command: {
   const hasBlockingInput = command.unresolvedInputs.some((input) =>
     input.datapoint === "calculation_basis_evidence"
   );
-  const readinessState = hasBlockingInput
+  const isSpecialBlocked = specialIssues.length > 0;
+  const readinessState = isSpecialBlocked || hasBlockingInput
     ? "blocked"
     : command.unresolvedInputs.length > 0
       ? "needs_review"
@@ -176,8 +196,11 @@ function assemblyAction(command: {
   const evidenceState = evidenceStateFor(
     command.snapshot,
     command.unresolvedInputs.length,
-    command.requestedInputs.length - command.unresolvedInputs.length,
+    command.requestedInputs.filter((input) => input.required !== false).length - command.unresolvedInputs.length,
   );
+  const specialNextAction = specialIssues[0]
+    ? { kind: "fix_ifc" as const, label: specialIssues[0].nextAction }
+    : null;
   const nextAction = nextActionFor({
     label,
     readinessState,
@@ -199,10 +222,19 @@ function assemblyAction(command: {
     readinessState,
     calculationConfidence: command.snapshot?.confidence ?? null,
     evidenceState,
+    specialIssues,
+    optionalOverrides: command.requestedInputs
+      .filter((input) => input.required === false && affectedAssemblyGroupIds(input).includes(command.assemblyGroupId))
+      .map((input) => ({
+        requestedInputId: input.requestedInputId,
+        rawMaterialName: input.scope.scopeKind === "material_decision" ? input.scope.materialName : "Unknown IFC material",
+        matchedMaterialName: input.materialResolution?.matchedMaterialName ?? "Material Library value",
+        matchBasis: input.materialResolution?.matchBasis ?? null,
+      })),
     performance,
-    problem: problemFor(readinessState, performance, command.unresolvedInputs.length, command.snapshot),
+    problem: specialIssues[0]?.message ?? problemFor(readinessState, performance, command.unresolvedInputs.length, command.snapshot),
     nextAction: {
-      ...nextAction,
+      ...(specialNextAction ?? nextAction),
       requestedInputIds: unique(command.unresolvedInputs.map((input) => input.requestedInputId)),
     },
     layers: layerViewModels(command.snapshot),
@@ -390,6 +422,11 @@ function layerViewModels(snapshot: CalculationSnapshot | null): ArchitectAssembl
   const totalThicknessM = snapshot?.layers.reduce((sum, layer) => sum + layer.thicknessM, 0) ?? 0;
   return (snapshot?.layers ?? []).map((layer) => ({
     materialName: layer.materialName,
+    rawMaterialName: layer.rawMaterialName ?? layer.materialName,
+    materialLibraryKey: layer.materialLibraryKey,
+    materialLibraryName: layer.materialLibraryName,
+    matchBasis: layer.materialResolution?.matchBasis ?? null,
+    evidenceState: layer.evidenceState,
     thicknessMm: round(layer.thicknessM * 1000, 1),
     thicknessSharePercent: totalThicknessM > 0
       ? round((layer.thicknessM / totalThicknessM) * 100, 1)

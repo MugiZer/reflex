@@ -281,6 +281,39 @@ function renderArchitectWorkspace(job, workspace) {
         renderAside();
       };
     });
+    aside.querySelectorAll("[data-apply-optional]").forEach((button) => {
+      button.onclick = async () => {
+        const requestedInputId = button.dataset.optionalInputId;
+        const requested = (job.review && job.review.requestedInputs || []).find((input) => input.requestedInputId === requestedInputId);
+        const select = document.getElementById("optionalLibrary_" + requestedInputId);
+        const manual = document.getElementById("optionalValue_" + requestedInputId);
+        const entry = ((job.materialLibrary && job.materialLibrary.entries) || []).find((candidate) => candidate.materialKey === (select && select.value));
+        const value = entry ? entry.lambdaWPerMK : Number(manual && manual.value);
+        if (!requested || !Number.isFinite(value) || value <= 0) return;
+        button.disabled = true;
+        try {
+          await api("/api/jobs/" + encodeURIComponent(job.jobId) + "/review-inputs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              inputs: [{
+                requestedInputId,
+                value: String(value),
+                unit: requested.unit,
+                overrideScope: requested.scope.scopeKind,
+                materialLibraryKey: entry && entry.materialKey,
+              }],
+            }),
+          });
+          workspacePage(job.jobId, workspace.state.targetU, workspace.state.drafts, workspace.state.sources, workspace.state.reviewMode).catch(showError);
+        } catch (error) {
+          button.disabled = false;
+          const message = document.getElementById("reviewMsg");
+          if (message) message.textContent = error.message || String(error);
+        }
+      };
+    });
+
     const runButton = document.getElementById("runCalculation");
     if (runButton) {
       runButton.onclick = async () => {
@@ -382,9 +415,20 @@ function actionDetail(assembly, job, allInputs, drafts, hasUnresolvedReview, rev
     '<div class="result-grid">' + resultMetric(resultText(assembly.performance.result), "Calculated U-value") + resultMetric(targetText(assembly.performance.target), "Working target") + resultMetric(confidenceText(assembly), "Evidence") + resultMetric(String(assembly.sourceElementCount), "IFC elements") + '</div>' +
     '<div class="diagnosis"><span>Problem</span><strong>' + esc(assembly.problem) + '</strong><span>Next action</span><strong>' + esc(assembly.nextAction.label) + '</strong></div>' +
     layerComposition(assembly.layers || []) +
+    optionalMaterialOverride(job, assembly) +
     (actionInputs.length ? '<section class="decision-inputs"><div class="section-heading"><div><span class="eyebrow">Required evidence</span><h3>Complete this assembly decision</h3></div><span class="draft-state" id="activeDraftState">Needs input</span></div>' + actionInputs.map((input, index) => renderQuestion(job, input, drafts, index)).join("") + '</section>' : '') +
     reviewSubmit(job, allInputs, hasUnresolvedReview, reviewMode) + '</section>';
 }
+
+function optionalMaterialOverride(job, assembly) {
+  const overrides = assembly.optionalOverrides || [];
+  const entries = (job.materialLibrary && job.materialLibrary.entries) || [];
+  if (!overrides.length) return "";
+  return '<section class="optional-override"><div class="section-heading"><div><span class="eyebrow">Material Library assistance</span><h3>Choose another material (optional)</h3></div><span>Does not change IFC evidence</span></div>' +
+    overrides.map((override) => '<div class="optional-override-row"><p>Original IFC name: <strong>' + esc(override.rawMaterialName) + '</strong><br>Current match: ' + esc(override.matchedMaterialName) + (override.matchBasis ? ' (' + esc(override.matchBasis) + ')' : '') + '</p><label>Library material<select id="optionalLibrary_' + esc(override.requestedInputId) + '"><option value="">Choose a library material</option>' + entries.map((entry) => '<option value="' + esc(entry.materialKey) + '">' + esc(entry.displayName + ' - ' + number(entry.lambdaWPerMK, 3) + ' W/mK') + '</option>').join("") + '</select></label><label>Manual lambda<input id="optionalValue_' + esc(override.requestedInputId) + '" type="number" min="0.000001" step="any" placeholder="Optional product value"></label><button type="button" class="secondary" data-apply-optional data-optional-input-id="' + esc(override.requestedInputId) + '">Apply material override</button></div>').join("") +
+    '</section>';
+}
+
 
 function resultMetric(value, label) {
   return '<div class="result-metric"><strong>' + esc(value) + '</strong><span>' + esc(label) + '</span></div>';
@@ -405,7 +449,8 @@ function renderQuestion(job, input, drafts, index) {
   const value = drafts[input.requestedInputId] || "";
   const library = librarySuggestion(job, input, context);
   const evidenceHtml = evidence ? '<details class="evidence"><summary>Why this input?</summary><dl><dt>Element</dt><dd>' + esc(evidence.elementLabel) + '</dd><dt>Layer</dt><dd>' + esc(evidence.layerLabel || "Not layer-specific") + '</dd><dt>Material</dt><dd>' + esc(evidence.materialLabel || "Unknown") + '</dd></dl></details>' : '';
-  const libraryOptions = input.datapoint === "layer_lambda" ? ((job.materialLibrary && job.materialLibrary.entries) || []).map((entry) => '<option value="' + esc(entry.materialKey) + '">' + esc(entry.displayName + " - " + number(entry.lambdaWPerMK, 3) + " W/mK") + '</option>').join("") : "";
+  const candidateKeys = input.materialResolution && input.materialResolution.candidateMaterialKeys;
+  const libraryOptions = input.datapoint === "layer_lambda" ? ((job.materialLibrary && job.materialLibrary.entries) || []).filter((entry) => candidateKeys === undefined || candidateKeys.includes(entry.materialKey)).map((entry) => '<option value="' + esc(entry.materialKey) + '">' + esc(entry.displayName + " - " + number(entry.lambdaWPerMK, 3) + " W/mK") + '</option>').join("") : "";
   const suggestionHtml = input.datapoint === "layer_lambda" ? '<div class="library-suggestion">' + (library ? '<span>Suggested: <strong>' + number(library.lambdaWPerMK, 3) + ' W/mK</strong> | ' + esc(library.displayName) + '</span><small>' + esc(library.sourceLabel) + '</small><button type="button" class="secondary" data-use-library data-library-input-id="' + esc(input.requestedInputId) + '" data-library-value="' + esc(library.lambdaWPerMK) + '" data-library-key="' + esc(library.materialKey) + '">Use suggested value</button>' : '<span>No exact library match.</span><small>Choose a reference material or enter a manual value.</small>') + '<label class="library-picker">Material database<select data-library-picker data-library-input-id="' + esc(input.requestedInputId) + '"><option value="">Choose another material</option>' + libraryOptions + '</select></label></div>' : "";
   return '<div class="question"><label for="reviewInput' + index + '">' + esc(input.question) + '</label><p class="question-meta">' + esc((context && context.missingValueLabel) || input.datapoint) + (input.unit ? '  |  ' + esc(input.unit) : '') + '</p>' + suggestionHtml + evidenceHtml + '<input id="reviewInput' + index + '" data-requested-input-id="' + esc(input.requestedInputId) + '" type="' + type + '" ' + (type === "number" ? 'step="any" min="0.000001" ' : '') + 'value="' + esc(value) + '" required placeholder="Enter a manual value"><p class="scope-help">Applies to: ' + esc(scopeLabel(input.scope.scopeKind)) + '</p></div>';
 }

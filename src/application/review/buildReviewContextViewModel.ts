@@ -1,5 +1,6 @@
 import type { CalculationInputEvidence, CalculationInputField } from "../../domain/evidence/calculationInputEvidenceTypes.js";
 import type { ElementClass, EvidenceReference, StepId } from "../../domain/evidence/evidenceTypes.js";
+import type { MaterialResolution } from "../../domain/materials/materialTypes.js";
 import { assemblyGroupIdForEvidence } from "../../domain/review/reviewGrouping.js";
 import type { OverrideScopeKind, RequestedInput } from "../../domain/review/reviewTypes.js";
 
@@ -32,6 +33,9 @@ export type ReviewQuestionViewModel = {
   datapoint: CalculationInputField;
   missingValueLabel: string;
   unit: string | null;
+  required: boolean;
+  purpose: RequestedInput["purpose"];
+  materialResolution?: MaterialResolution;
   scopeKind: OverrideScopeKind;
   scopeOptions: ReviewScopeOptionViewModel[];
   evidenceSummary: ReviewEvidenceSummaryViewModel;
@@ -128,6 +132,9 @@ function questionViewModel(
     datapoint: input.datapoint,
     missingValueLabel: missingValueLabelFor(input.datapoint),
     unit: input.unit,
+    required: input.required !== false,
+    purpose: input.purpose ?? "required_input",
+    materialResolution: input.materialResolution,
     scopeKind: input.scope.scopeKind,
     scopeOptions: scopeOptions(),
     evidenceSummary,

@@ -1,5 +1,6 @@
 import type { CalculationInputField } from "../evidence/calculationInputEvidenceTypes.js";
 import type { ElementClass, EvidenceReference, StepId } from "../evidence/evidenceTypes.js";
+import type { MaterialResolution } from "../materials/materialTypes.js";
 import type { LayerOccurrenceReference } from "./reviewGrouping.js";
 
 export type OverrideScopeKind =
@@ -21,6 +22,9 @@ export type RequestedInput = {
   question: string;
   inputType: "number" | "text" | "choice";
   unit: string | null;
+  required?: boolean;
+  purpose?: "required_input" | "optional_override";
+  materialResolution?: MaterialResolution;
   affects: Array<"calculation" | "estimate" | "precision" | "provenance">;
   scope:
     | {

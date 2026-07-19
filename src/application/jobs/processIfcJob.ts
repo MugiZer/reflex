@@ -40,11 +40,15 @@ export async function processIfcJob(command: {
       deps: command.deps,
     });
     await writeEvidenceJson(artifactStore, command.jobId, "calculation-input-evidence.json", calculationInputEvidence);
-    const requestedInputs = planRequestedInputs({ calculationInputEvidence }).requestedInputs;
+    const requestedInputs = planRequestedInputs({
+      calculationInputEvidence,
+      materialLibrary: defaultMaterialLibraryV1,
+    }).requestedInputs;
     command.deps.jobs.saveReviewState({ jobId: command.jobId, requestedInputs });
     await writeJobJson(artifactStore, command.jobId, "requested-inputs.json", requestedInputs);
 
-    if (requestedInputs.length > 0) {
+    const requiredRequestedInputs = requestedInputs.filter((input) => input.required !== false);
+    if (requiredRequestedInputs.length > 0) {
       command.deps.jobs.updateJob(command.jobId, {
         jobStatus: "needs_review",
       });

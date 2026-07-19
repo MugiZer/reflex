@@ -1,4 +1,5 @@
 import type { Confidence, ElementClass } from "../evidence/evidenceTypes.js";
+import type { MaterialResolution } from "../materials/materialTypes.js";
 
 export type DatapointSource =
   | "ifc_extracted"
@@ -33,6 +34,11 @@ export type PhysicsLayer = {
   lambdaWPerMK: number;
   datapointSources: DatapointSource[];
   provenance: string[];
+  rawMaterialName?: string | null;
+  materialLibraryKey?: string;
+  materialLibraryName?: string;
+  materialResolution?: MaterialResolution;
+  evidenceState?: "ifc_extracted" | "library_assisted" | "user_override" | "unresolved";
 };
 
 export type PhysicsAssembly = {
@@ -42,6 +48,8 @@ export type PhysicsAssembly = {
   confidence: Confidence;
   surfaceResistanceProfile: SurfaceResistanceProfile;
   layers: PhysicsLayer[];
+  assumptions?: string[];
+  provenance?: string[];
 };
 
 export type LayerCalculation = PhysicsLayer & {

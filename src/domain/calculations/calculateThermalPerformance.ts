@@ -32,7 +32,7 @@ export function calculateThermalPerformance(command: {
         uValueWPerM2K: null,
         uValueRangeWPerM2K: null,
         temperatureProfile: null,
-        assumptions: command.physicsAssembly.surfaceResistanceProfile.assumptions,
+        assumptions: [...(command.physicsAssembly.assumptions ?? []), ...command.physicsAssembly.surfaceResistanceProfile.assumptions],
         warnings: [message],
         provenance: [],
       },
@@ -77,6 +77,7 @@ export function calculateThermalPerformance(command: {
       uValueRangeWPerM2K: lowConfidenceRange,
       temperatureProfile,
       assumptions: [
+        ...(command.physicsAssembly.assumptions ?? []),
         ...command.physicsAssembly.surfaceResistanceProfile.assumptions,
         ...temperatureProfile.assumptions,
       ],
@@ -84,7 +85,7 @@ export function calculateThermalPerformance(command: {
         command.physicsAssembly.confidence === "low"
           ? ["Low confidence basis; report should avoid false precision."]
           : [],
-      provenance: layers.flatMap((layer) => layer.provenance),
+      provenance: [...(command.physicsAssembly.provenance ?? []), ...layers.flatMap((layer) => layer.provenance)],
     },
     diagnostics,
   };

@@ -37,6 +37,7 @@ export async function runCoreReviewCalculationReport(command: {
 }): Promise<RunCoreReviewCalculationReportResult> {
   const requestedInputs = planRequestedInputs({
     calculationInputEvidence: command.calculationInputEvidence,
+    materialLibrary: command.materialLibrary,
   }).requestedInputs;
   const overrides = command.userInputs.map((userInput): Override => ({
     overrideId: `ov_${userInput.userInputId}`,

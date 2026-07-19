@@ -57,10 +57,18 @@ function renderAssembly(snapshot: CalculationSnapshot, index: number): string {
   const assumptionItems = unique(snapshot.assumptions);
   const warningItems = unique(snapshot.warnings);
   const provenanceItems = unique(snapshot.provenance);
+  const resolutionItems = unique(layers.flatMap((layer) => layer.materialResolution
+    ? [
+        "Raw IFC material: " + (layer.rawMaterialName ?? layer.materialName),
+        "Matched library material: " + (layer.materialLibraryName ?? "none"),
+        "Lambda source: " + (layer.evidenceState === "library_assisted" ? "library-assisted / assumed" : layer.evidenceState ?? layer.materialResolution.evidenceState),
+        "Match basis: " + (layer.materialResolution.matchBasis ?? "none") + "; evidence state: " + (layer.evidenceState ?? layer.materialResolution.evidenceState),
+      ]
+    : []));
   const active = index === 0 ? " active" : "";
   const materialRows = layers.length
     ? layers.map((layer, layerIndex) => renderMaterialRow(layer, layerIndex, totalThickness, totalLayerR)).join("")
-    : "<tr><td colspan=\"7\" class=\"empty-cell\">Layer values are not resolved.</td></tr>";
+    : "<tr><td colspan=\"8\" class=\"empty-cell\">Layer values are not resolved.</td></tr>";
 
   return "<article class=\"assembly-view" + active + "\" data-assembly-index=\"" + index + "\">" +
     "<header class=\"assembly-heading\"><div><span class=\"eyebrow\">Assembly " + twoDigits(index + 1) + "</span><h2>" + escapeHtml(primaryAssemblyLabel(snapshot)) + "</h2><code>" + escapeHtml(snapshot.assemblyGroupId) + "</code></div>" +
@@ -77,7 +85,7 @@ function renderAssembly(snapshot: CalculationSnapshot, index: number): string {
     "<div class=\"table-scroll\"><table><thead><tr><th>Material</th><th>Thickness</th><th>Assembly share</th><th>λ</th><th>Layer R</th><th>R contribution</th><th>Source</th></tr></thead><tbody>" + materialRows + "</tbody></table></div></section>" +
     "<section class=\"technical\" id=\"evidence-" + index + "\"><details><summary>Inputs and assumptions</summary>" + renderList(assumptionItems, "No additional assumptions.") + "</details>" +
     "<details><summary>Warnings</summary>" + renderList(warningItems, "No warnings.") + "</details>" +
-    "<details><summary>Evidence details</summary><h3>Provenance</h3>" + renderList(provenanceItems, "No evidence references.") + "</details></section>" +
+    "<details><summary>Evidence details</summary><h3>Material resolution</h3>" + renderList(resolutionItems, "No library material resolution was applied.") + "<h3>Provenance</h3>" + renderList(provenanceItems, "No evidence references.") + "</details></section>" +
     renderResultDock(snapshot, totalThickness, provenanceItems.length, warningItems.length) +
     "</article>";
 }

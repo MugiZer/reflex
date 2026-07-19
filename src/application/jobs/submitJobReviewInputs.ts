@@ -109,12 +109,13 @@ function mergeReviewInputs(command: {
 }): UserInput[] {
   const submittedById = new Map(command.submittedInputs.map((input) => [input.requestedInputId, input]));
   const activeById = new Map(command.activeRevisionInputs.map((input) => [input.requestedInputId, input]));
-  return command.requestedInputs.map((requested) => {
+  return command.requestedInputs.flatMap((requested) => {
     const input = submittedById.get(requested.requestedInputId) ?? activeById.get(requested.requestedInputId);
     if (!input) {
+      if (requested.required === false) return [];
       throw new Error("All required Review inputs must be supplied before calculation.");
     }
-    return input;
+    return [input];
   });
 }
 
