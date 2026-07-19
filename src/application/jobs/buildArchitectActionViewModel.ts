@@ -5,8 +5,10 @@ import type {
 import type { CalculationInputEvidence } from "../../domain/evidence/calculationInputEvidenceTypes.js";
 import type { Confidence, ElementClass, StepId } from "../../domain/evidence/evidenceTypes.js";
 import type { JobStatus } from "../../domain/jobs/jobTypes.js";
+import { deriveEvidenceReadinessState } from "../../domain/assemblies/deriveEvidenceReadiness.js";
 import {
   assemblyGroupIdForEvidence,
+  groupCalculationInputEvidenceByAssembly,
 } from "../../domain/review/reviewGrouping.js";
 import type { RequestedInput } from "../../domain/review/reviewTypes.js";
 import type { Revision } from "../../domain/revisions/revisionTypes.js";
@@ -86,7 +88,7 @@ export function buildArchitectActionViewModel(command: {
   activeRevision: Revision | null;
   target: ArchitectTarget | null;
 }): ArchitectActionViewModel {
-  const evidenceGroups = groupEvidence(command.calculationInputEvidence);
+  const evidenceGroups = groupCalculationInputEvidenceByAssembly(command.calculationInputEvidence);
   const snapshots = new Map(
     (command.activeRevision?.calculationSnapshots ?? []).map((snapshot) => [
       snapshot.assemblyGroupId,
@@ -169,7 +171,7 @@ function assemblyAction(command: {
     ? "blocked"
     : command.unresolvedInputs.length > 0
       ? "needs_review"
-      : command.snapshot?.readinessState ?? readinessFromEvidence(command.evidence);
+      : command.snapshot?.readinessState ?? deriveEvidenceReadinessState(command.evidence);
   const performance = performanceFor(command.snapshot, command.target);
   const evidenceState = evidenceStateFor(
     command.snapshot,
@@ -209,15 +211,6 @@ function assemblyAction(command: {
   };
 }
 
-function groupEvidence(evidence: CalculationInputEvidence[]) {
-  const groups = new Map<string, CalculationInputEvidence[]>();
-  for (const item of evidence) {
-    const assemblyGroupId = assemblyGroupIdForEvidence(item);
-    groups.set(assemblyGroupId, [...(groups.get(assemblyGroupId) ?? []), item]);
-  }
-  return groups;
-}
-
 function mapRequestedInputsToAssemblies(requestedInputs: RequestedInput[]) {
   const byAssembly = new Map<string, RequestedInput[]>();
   for (const requestedInput of requestedInputs) {
@@ -236,21 +229,6 @@ function affectedAssemblyGroupIds(input: RequestedInput): string[] {
     return unique(input.scope.affectedLayers.map((layer) => layer.assemblyGroupId));
   }
   return [input.assemblyGroupId];
-}
-
-function readinessFromEvidence(
-  evidence: CalculationInputEvidence[],
-): ArchitectAssemblyAction["readinessState"] {
-  if (evidence.length === 0) {
-    return "blocked";
-  }
-  if (evidence.some((item) => item.calculationInputBasis === "blocked_missing_evidence")) {
-    return "blocked";
-  }
-  if (evidence.some((item) => item.calculationInputBasis === "non_layered_estimate_possible")) {
-    return "estimated";
-  }
-  return evidence.some((item) => item.missingInputs.length > 0) ? "needs_review" : "ready";
 }
 
 function performanceFor(

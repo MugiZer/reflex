@@ -1,11 +1,20 @@
 import * as WebIFC from "web-ifc";
 
+export const IFC_VIEWER_GEOMETRY_SCHEMA_VERSION = "ifc-viewer-geometry.v6" as const;
+
 export type IfcViewerGeometryPayload = {
-  schemaVersion: "ifc-viewer-geometry.v4";
+  schemaVersion: typeof IFC_VIEWER_GEOMETRY_SCHEMA_VERSION;
   meshes: IfcViewerMesh[];
   truncated: boolean;
   elementCount: number;
   triangleCount: number;
+  storeys: IfcViewerStorey[];
+};
+
+export type IfcViewerStorey = {
+  expressId: number;
+  name: string;
+  elevation: number | null;
 };
 
 export type IfcViewerMesh = {
@@ -14,11 +23,11 @@ export type IfcViewerMesh = {
   normals: number[];
   indices: number[];
   color: [number, number, number, number];
+  storeyId: number | null;
 };
 
 export type ExtractIfcViewerGeometryCommand = {
   sourceFileBytes: Uint8Array;
-  targetStepIds?: number[];
 };
 
 // Viewer geometry is the building context, not the current review selection.
@@ -42,8 +51,13 @@ async function buildIfcViewerGeometry(
   let elementCount = 0;
   let triangleCount = 0;
   let truncated = false;
+  let storeyIndex: ReturnType<typeof buildIfcStoreyIndex> = {
+    storeys: [],
+    storeyIdByElement: new Map(),
+  };
 
   try {
+    storeyIndex = buildIfcStoreyIndex(ifcApi, modelId);
     const callback = (mesh: WebIFC.FlatMesh) => {
       elementCount += 1;
       if (truncated) {
@@ -53,7 +67,7 @@ async function buildIfcViewerGeometry(
         truncated = true;
         return;
       }
-      const viewerMesh = meshToViewerMesh(ifcApi, modelId, mesh);
+      const viewerMesh = meshToViewerMesh(ifcApi, modelId, mesh, storeyIndex.storeyIdByElement);
       const nextTriangleCount = triangleCount + viewerMesh.indices.length / 3;
       if (nextTriangleCount > MAX_TRIANGLES) {
         truncated = true;
@@ -68,18 +82,120 @@ async function buildIfcViewerGeometry(
   }
 
   return {
-    schemaVersion: "ifc-viewer-geometry.v4",
+    schemaVersion: IFC_VIEWER_GEOMETRY_SCHEMA_VERSION,
     meshes,
     truncated,
     elementCount,
     triangleCount,
+    storeys: buildIfcStoreyIndexFromMeshes(meshes, storeyIndex.storeys),
   };
 }
 
+export function isIfcViewerGeometryPayload(value: unknown): value is IfcViewerGeometryPayload {
+  if (!isRecord(value) || value.schemaVersion !== IFC_VIEWER_GEOMETRY_SCHEMA_VERSION) return false;
+  return Array.isArray(value.meshes) && value.meshes.every(isIfcViewerMesh) &&
+    typeof value.truncated === "boolean" &&
+    isNonNegativeInteger(value.elementCount) &&
+    isNonNegativeNumber(value.triangleCount) &&
+    Array.isArray(value.storeys) && value.storeys.every(isIfcViewerStorey);
+}
+
+function isIfcViewerMesh(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return isNonNegativeInteger(value.expressId) &&
+    isNumberArray(value.positions) &&
+    isNumberArray(value.normals) &&
+    isIntegerArray(value.indices) &&
+    Array.isArray(value.color) && value.color.length === 4 && value.color.every(isFiniteNumber) &&
+    (value.storeyId === null || isNonNegativeInteger(value.storeyId));
+}
+
+function isIfcViewerStorey(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return isNonNegativeInteger(value.expressId) &&
+    typeof value.name === "string" &&
+    (value.elevation === null || isFiniteNumber(value.elevation));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isNumberArray(value: unknown): value is number[] {
+  return Array.isArray(value) && value.every(isFiniteNumber);
+}
+
+function isIntegerArray(value: unknown): value is number[] {
+  return Array.isArray(value) && value.every((entry) => Number.isInteger(entry) && entry >= 0);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isNonNegativeNumber(value: unknown): value is number {
+  return isFiniteNumber(value) && value >= 0;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return Number.isInteger(value) && Number(value) >= 0;
+}
+function buildIfcStoreyIndex(ifcApi: WebIFC.IfcAPI, modelId: number): {
+  storeys: IfcViewerStorey[];
+  storeyIdByElement: Map<number, number>;
+} {
+  const storeys = new Map<number, IfcViewerStorey>();
+  const storeyIdByElement = new Map<number, number>();
+  const storeyIds = ifcApi.GetLineIDsWithType(modelId, WebIFC.IFCBUILDINGSTOREY);
+  for (let index = 0; index < storeyIds.size(); index += 1) {
+    const storeyId = storeyIds.get(index);
+    const storeyLine = ifcApi.GetLine(modelId, storeyId, false) as {
+      Name?: { value?: string };
+      LongName?: { value?: string };
+      Elevation?: { value?: number };
+    };
+    storeys.set(storeyId, {
+      expressId: storeyId,
+      name: storeyLine.LongName?.value?.trim() || storeyLine.Name?.value?.trim() || "Storey #" + storeyId,
+      elevation: typeof storeyLine.Elevation?.value === "number" ? storeyLine.Elevation.value : null,
+    });
+  }
+  const relationIds = ifcApi.GetLineIDsWithType(modelId, WebIFC.IFCRELCONTAINEDINSPATIALSTRUCTURE);
+  for (let index = 0; index < relationIds.size(); index += 1) {
+    const relation = ifcApi.GetLine(modelId, relationIds.get(index), true) as {
+      RelatingStructure?: { expressID?: number; value?: number };
+      RelatedElements?: Array<{ expressID?: number; value?: number }>;
+    };
+    const storeyId = referenceId(relation.RelatingStructure);
+    if (storeyId === null || !storeys.has(storeyId)) continue;
+    for (const element of relation.RelatedElements ?? []) {
+      const elementId = referenceId(element);
+      if (elementId !== null) storeyIdByElement.set(elementId, storeyId);
+    }
+  }
+  return {
+    storeys: [...storeys.values()].sort((left, right) => (right.elevation ?? 0) - (left.elevation ?? 0)),
+    storeyIdByElement,
+  };
+}
+
+function referenceId(reference: { expressID?: number; value?: number } | undefined): number | null {
+  if (typeof reference?.expressID === "number") return reference.expressID;
+  if (typeof reference?.value === "number") return reference.value;
+  return null;
+}
+function buildIfcStoreyIndexFromMeshes(
+  meshes: IfcViewerMesh[],
+  storeys: IfcViewerStorey[],
+): IfcViewerStorey[] {
+  const used = new Set(meshes.flatMap((mesh) => mesh.storeyId === null ? [] : [mesh.storeyId]));
+  return storeys.filter((storey) => used.has(storey.expressId));
+}
 function meshToViewerMesh(
   ifcApi: WebIFC.IfcAPI,
   modelId: number,
   mesh: WebIFC.FlatMesh,
+  storeyIdByElement: Map<number, number>,
 ): IfcViewerMesh {
   const positions: number[] = [];
   const normals: number[] = [];
@@ -122,6 +238,7 @@ function meshToViewerMesh(
     normals,
     indices,
     color,
+    storeyId: storeyIdByElement.get(mesh.expressID) ?? null,
   };
 }
 

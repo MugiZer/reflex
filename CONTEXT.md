@@ -94,3 +94,8 @@ Do not read all context files by default - only what is relevant.
 **File:** `context/decisions/2026-06-09-local-ifc-viewer-strategy.md`
 **Read when:** revisiting IFC viewer packages, local viewer geometry extraction, Three.js rendering, That Open/xeokit alternatives, or viewer/domain separation.
 **Contains:** Decision to use bounded server-side `web-ifc` geometry extraction plus an isolated browser Three.js viewer for the localhost prototype, with revisit triggers.
+
+### Viewer, Report, and Workspace Scope
+**File:** `context/decisions/2026-07-18-viewer-report-workspace-scope.md`
+**Read when:** changing viewer payloads/caching, workspace orchestration, or report/UI boundaries.
+**Contains:** The full-model viewer cache contract and the explicit reconciliation with the Conformity UI redesign.

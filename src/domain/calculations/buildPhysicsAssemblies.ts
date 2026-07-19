@@ -1,14 +1,13 @@
 import type { CalculationInputEvidence } from "../evidence/calculationInputEvidenceTypes.js";
 import type { Diagnostic } from "../evidence/evidenceTypes.js";
-import type { MaterialLibrary, ResolvedLambda } from "../materials/materialTypes.js";
+import type { MaterialLibrary } from "../materials/materialTypes.js";
 import type { UserInput } from "../review/reviewTypes.js";
 import {
-  assemblyGroupIdForEvidence,
+  groupCalculationInputEvidenceByAssembly,
   layerOccurrenceRequestedInputId,
-  materialDecisionRequestedInputId,
-  normalizeMaterialKey,
 } from "../review/reviewGrouping.js";
 import { defaultSurfaceResistanceProfileFor } from "./surfaceResistanceProfiles.js";
+import { resolveLayerLambda } from "../materials/resolveLayerLambda.js";
 import type { DatapointSource, PhysicsAssembly, PhysicsLayer } from "./calculationTypes.js";
 
 export type BuildPhysicsAssembliesResult = {
@@ -22,25 +21,21 @@ export function buildPhysicsAssemblies(command: {
   userInputs: UserInput[];
 }): BuildPhysicsAssembliesResult {
   const diagnostics: Diagnostic[] = [];
-  const seenAssemblyGroupIds = new Set<string>();
-  const physicsAssemblies = command.calculationInputEvidence.flatMap((evidence) => {
-    const assemblyGroupId = assemblyGroupIdForEvidence(evidence);
-    if (seenAssemblyGroupIds.has(assemblyGroupId)) {
-      return [];
-    }
-    const physicsAssembly = buildPhysicsAssembly({
-      evidence,
-      assemblyGroupId,
-      materialLibrary: command.materialLibrary,
-      userInputs: command.userInputs,
-      diagnostics,
+  const physicsAssemblies = [...groupCalculationInputEvidenceByAssembly(command.calculationInputEvidence).entries()]
+    .flatMap(([assemblyGroupId, groupedEvidence]) => {
+      const evidence = groupedEvidence[0];
+      if (evidence === undefined) {
+        return [];
+      }
+      const physicsAssembly = buildPhysicsAssembly({
+        evidence,
+        assemblyGroupId,
+        materialLibrary: command.materialLibrary,
+        userInputs: command.userInputs,
+        diagnostics,
+      });
+      return physicsAssembly === null ? [] : [physicsAssembly];
     });
-    if (physicsAssembly === null) {
-      return [];
-    }
-    seenAssemblyGroupIds.add(assemblyGroupId);
-    return [physicsAssembly];
-  });
 
   return { physicsAssemblies, diagnostics };
 }
@@ -92,13 +87,14 @@ function buildPhysicsLayer(command: {
 }): PhysicsLayer | null {
   const thicknessInput = numericInput(command.evidence, "layer_thickness", command.layerIndex, command.userInputs);
   const materialInput = stringInput(command.evidence, "layer_material_name", command.layerIndex, command.userInputs);
-  const lambda = resolveLambdaForLayer({
-    evidence: command.evidence,
+  const lambda = resolveLayerLambda({
+    calculationInputEvidence: command.evidence,
     materialName: materialInput?.value ?? null,
     materialLibrary: command.materialLibrary,
     userInputs: command.userInputs,
+    elementStepId: command.evidence.elementStepId,
     layerIndex: command.layerIndex,
-  });
+  }).lambda;
   if (thicknessInput === null || materialInput === null || lambda === null) {
     return null;
   }
@@ -207,80 +203,6 @@ function inputForLayer(
       (candidate.layer?.layerIndex === layerIndex ||
         (candidate.layer === undefined && layerIndex === 0)),
   );
-}
-
-function resolveLambdaForLayer(command: {
-  evidence: CalculationInputEvidence;
-  materialName: string | null;
-  materialLibrary: MaterialLibrary;
-  userInputs: UserInput[];
-  layerIndex: number;
-}): ResolvedLambda | null {
-  const userInput = command.userInputs.find(
-    (input) =>
-      input.datapoint === "layer_lambda" &&
-      input.requestedInputId ===
-        layerOccurrenceRequestedInputId(
-          command.evidence.elementStepId,
-          "layer_lambda",
-          command.layerIndex,
-        ) &&
-      typeof input.value === "number" &&
-      input.value > 0,
-  ) ?? command.userInputs.find(
-    (input) =>
-      input.datapoint === "layer_lambda" &&
-      input.requestedInputId ===
-        materialDecisionRequestedInputId(normalizeMaterialKey(command.materialName)) &&
-      typeof input.value === "number" &&
-      input.value > 0,
-  );
-  if (userInput !== undefined && typeof userInput.value === "number") {
-    return {
-      value: userInput.value,
-      unit: "W/mK",
-      source: userInput.valueSource === "material_library" ? "material_library" : "user_input",
-      confidence: "medium",
-      sourceLabel: userInput.valueSource === "material_library" ? "selected material library value" : "review input",
-      evidenceReferences: [],
-      userInput,
-    };
-  }
-
-  const ifcLambda = inputForLayer(command.evidence, "layer_lambda", command.layerIndex);
-  if (
-    ifcLambda?.source === "ifc_fixed" &&
-    typeof ifcLambda.value === "number" &&
-    ifcLambda.value > 0
-  ) {
-    return {
-      value: ifcLambda.value,
-      unit: "W/mK",
-      source: "ifc_fixed",
-      confidence: ifcLambda.confidence,
-      sourceLabel: "IFC fixed lambda evidence",
-      evidenceReferences: ifcLambda.evidenceReferences,
-    };
-  }
-
-  const normalizedName = normalize(command.materialName);
-  const materialEntry = command.materialLibrary.entries.find((entry) =>
-    [entry.displayName, ...entry.aliases].some((alias) => normalize(alias) === normalizedName),
-  );
-  return materialEntry === undefined
-    ? null
-    : {
-        value: materialEntry.lambdaWPerMK,
-        unit: "W/mK",
-        source: "material_library",
-        confidence: materialEntry.confidence,
-        sourceLabel: materialEntry.sourceLabel,
-        evidenceReferences: [],
-      };
-}
-
-function normalize(value: string | null): string {
-  return (value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ");
 }
 
 function unique<T>(items: T[]): T[] {

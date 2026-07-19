@@ -10,6 +10,7 @@ import { planRequestedInputs } from "../../domain/review/planRequestedInputs.js"
 import type { Override, UserInput } from "../../domain/review/reviewTypes.js";
 import { createRevision } from "../../domain/revisions/createRevision.js";
 import type { Revision } from "../../domain/revisions/revisionTypes.js";
+import { LocalJobArtifactStore } from "../../infrastructure/storage/local-files/jobArtifactStore.js";
 import { writeRevisionArtifacts } from "../../infrastructure/storage/local-files/writeRevisionArtifacts.js";
 import { generateHtmlReport } from "../reports/generateHtmlReport.js";
 
@@ -26,6 +27,8 @@ export type RunCoreReviewCalculationReportResult = {
 
 export async function runCoreReviewCalculationReport(command: {
   fileHash: string;
+  jobId?: string;
+  artifactStore?: LocalJobArtifactStore;
   outputRoot: string;
   calculationInputEvidence: CalculationInputEvidence[];
   materialLibrary: MaterialLibrary;
@@ -66,13 +69,18 @@ export async function runCoreReviewCalculationReport(command: {
     calculationSnapshots,
     diagnostics,
   });
+  const artifactStore = command.artifactStore ?? new LocalJobArtifactStore(command.outputRoot);
+  const jobId = command.jobId ?? legacyJobId(command.fileHash);
   const revisionArtifacts = await writeRevisionArtifacts({
-    outputRoot: command.outputRoot,
+    artifactStore,
+    jobId,
     fileHash: command.fileHash,
     revision,
   });
   const report = await generateHtmlReport({
+    artifactStore,
     outputRoot: command.outputRoot,
+    jobId,
     fileHash: command.fileHash,
     revision,
     calculationSnapshots,
@@ -87,6 +95,10 @@ export async function runCoreReviewCalculationReport(command: {
     reportFilePath: report.reportFilePath,
     diagnostics,
   };
+}
+
+function legacyJobId(fileHash: string): string {
+  return fileHash.startsWith("job_") ? fileHash : `job_${fileHash.replace(/[^A-Za-z0-9]/g, "")}`;
 }
 
 function targetIdForOverride(

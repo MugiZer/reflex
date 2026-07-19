@@ -1,23 +1,16 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 
-import { buildArchitectActionViewModel } from "../../application/jobs/buildArchitectActionViewModel.js";
-import { defaultMaterialLibraryV1 } from "../../domain/materials/library.v1.js";
 import { createJob } from "../../application/jobs/createJob.js";
+import { getJobWorkspace } from "../../application/jobs/getJobWorkspace.js";
 import type { ProcessIfcJobDeps } from "../../application/jobs/processIfcJob.js";
 import { submitJobReviewInputs } from "../../application/jobs/submitJobReviewInputs.js";
-import { buildReviewContextViewModel } from "../../application/review/buildReviewContextViewModel.js";
-import type { CalculationInputEvidence } from "../../domain/evidence/calculationInputEvidenceTypes.js";
 import type { ClosableJobRepository, JobRepository } from "../../domain/jobs/jobRepository.js";
 import type { JobRecord } from "../../domain/jobs/jobTypes.js";
 import { WebIfcViewerGeometryExtractor } from "../../infrastructure/ifc/web-ifc/WebIfcViewerGeometryExtractor.js";
 import { SqliteJobRepository } from "../../infrastructure/persistence/sqlite/SqliteJobRepository.js";
+import { LocalJobArtifactStore } from "../../infrastructure/storage/local-files/jobArtifactStore.js";
 import { LocalJobFileStorage } from "../../infrastructure/storage/local-files/jobFileStorage.js";
-import {
-  readActiveRevisionArtifact,
-  readCalculationInputEvidenceArtifact,
-} from "../../infrastructure/storage/local-files/jobReviewArtifactStore.js";
 import { LocalViewerGeometryCache } from "../../infrastructure/storage/local-files/viewerGeometryCache.js";
 import { renderAppShellClientScript } from "./frontend/appShellClient.js";
 import { renderIfcReviewViewerClientScript } from "./ifcReviewViewerClient.js";
@@ -37,11 +30,13 @@ export function createLocalhostApp(command: {
 }): LocalhostApp {
   const jobs = new SqliteJobRepository(command.databasePath);
   const storage = new LocalJobFileStorage(command.storageRoot);
-  const viewerGeometryCache = new LocalViewerGeometryCache(command.outputRoot);
+  const artifactStore = new LocalJobArtifactStore(command.outputRoot);
+  const viewerGeometryCache = new LocalViewerGeometryCache(artifactStore);
   const viewerGeometryExtractor = new WebIfcViewerGeometryExtractor();
   const workerDeps: ProcessIfcJobDeps = {
     jobs,
     outputRoot: command.outputRoot,
+    artifactStore,
     ...command.workerOverrides,
   };
   const server = createServer(async (req, res) => {
@@ -67,8 +62,8 @@ export function createLocalhostApp(command: {
         return await sendJob(
           res,
           jobs,
+          artifactStore,
           jobId,
-          command.outputRoot,
           parseArchitectTarget(url.searchParams.get("targetU")),
         );
       }
@@ -104,7 +99,6 @@ export function createLocalhostApp(command: {
           viewerGeometryCache,
           viewerGeometryExtractor,
           viewerGeometryJobId,
-          url,
         );
       }
 
@@ -132,55 +126,25 @@ export function createLocalhostApp(command: {
 async function sendJob(
   res: ServerResponse,
   jobs: JobRepository,
+  artifactStore: LocalJobArtifactStore,
   jobId: string,
-  outputRoot: string,
   targetUValueWPerM2K: number | null,
 ): Promise<void> {
-  const job = jobs.getJob(jobId);
-  if (!job) {
+  const workspace = await getJobWorkspace({
+    jobs,
+    artifactStore,
+    jobId,
+    targetUValueWPerM2K,
+  });
+  if (!workspace) {
     return json(res, 404, { error: "Job not found" });
   }
-  const review = jobs.getReviewState(jobId);
-  const evidenceArtifact = await readCalculationInputEvidenceArtifact({ outputRoot, jobId });
-  if (review && evidenceArtifact === null) {
-    throw new Error("Calculation input evidence artifact is missing for this Review.");
-  }
-  const calculationInputEvidence = evidenceArtifact ?? [];
-  const activeRevision = await readActiveRevisionArtifact({
-    outputRoot,
-    jobId,
-    activeRevisionId: job.activeRevisionId,
-  });
-  const reviewContext = review
-    ? buildReviewContextViewModel({
-        jobId,
-        requestedInputs: review.requestedInputs,
-        calculationInputEvidence,
-      })
-    : null;
   return json(res, 200, {
-    ...job,
-    review: review
-      ? {
-          ...review,
-          context: reviewContext,
-        }
-      : null,
-    architectActions: buildArchitectActionViewModel({
-      jobId,
-      jobStatus: job.jobStatus,
-      calculationInputEvidence,
-      requestedInputs: review?.requestedInputs ?? [],
-      activeRevision,
-      target: targetUValueWPerM2K === null
-        ? null
-        : {
-            maxUValueWPerM2K: targetUValueWPerM2K,
-            label: "Working project target",
-          },
-    }),
-    materialLibrary: defaultMaterialLibraryV1,
-    links: linksFor(job),
+    ...workspace.job,
+    review: workspace.review,
+    architectActions: workspace.architectActions,
+    materialLibrary: workspace.materialLibrary,
+    links: linksFor(workspace.job),
   });
 }
 
@@ -236,48 +200,28 @@ async function sendViewerGeometry(
   viewerGeometryCache: LocalViewerGeometryCache,
   viewerGeometryExtractor: WebIfcViewerGeometryExtractor,
   jobId: string,
-  url: URL,
 ): Promise<void> {
   const job = jobs.getJob(jobId);
   if (!job) {
     return json(res, 404, { error: "Job not found" });
   }
   try {
-    const targetStepIds = parseStepIds(url.searchParams.get("stepIds"));
-    const cached = await viewerGeometryCache.read({
-      jobId,
-      fileHash: job.fileHash,
-      targetStepIds,
-    });
+    const cacheKey = { jobId, fileHash: job.fileHash };
+    const cached = await viewerGeometryCache.read(cacheKey);
     if (cached) {
       return json(res, 200, cached);
     }
     const sourceFileBytes = await storage.readUpload(jobId, job.uploadPath);
     const geometry = await viewerGeometryExtractor.extract({
       sourceFileBytes: new Uint8Array(sourceFileBytes),
-      targetStepIds,
     });
-    await viewerGeometryCache.write({
-      jobId,
-      fileHash: job.fileHash,
-      targetStepIds,
-    }, geometry);
+    await viewerGeometryCache.write(cacheKey, geometry);
     return json(res, 200, geometry);
   } catch (error) {
     return json(res, 422, {
       error: error instanceof Error ? error.message : "IFC geometry extraction failed.",
     });
   }
-}
-
-function parseStepIds(value: string | null): number[] {
-  if (!value) {
-    return [];
-  }
-  return value
-    .split(",")
-    .map((part) => Number(part.trim()))
-    .filter((stepId) => Number.isInteger(stepId) && stepId > 0);
 }
 
 function linksFor(job: JobRecord): Record<string, string> {

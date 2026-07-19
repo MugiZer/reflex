@@ -1,6 +1,15 @@
 import type { CalculationInputEvidence } from "../evidence/calculationInputEvidenceTypes.js";
 import type { UserInput } from "../review/reviewTypes.js";
-import type { MaterialLibrary, ResolvedLambda } from "./materialTypes.js";
+import {
+  layerOccurrenceRequestedInputId,
+  materialDecisionRequestedInputId,
+  normalizeMaterialKey,
+} from "../review/reviewGrouping.js";
+import type {
+  MaterialLibrary,
+  MaterialLibraryEntry,
+  ResolvedLambda,
+} from "./materialTypes.js";
 
 export type ResolveLayerLambdaResult = {
   lambda: ResolvedLambda | null;
@@ -13,66 +22,54 @@ export function resolveLayerLambda(command: {
   materialName: string | null;
   materialLibrary: MaterialLibrary;
   userInput?: UserInput | null;
+  userInputs?: UserInput[];
+  elementStepId?: number;
+  layerIndex?: number;
 }): ResolveLayerLambdaResult {
+  const userInput = command.userInput ?? userInputForLayer(command);
   if (
-    command.userInput?.datapoint === "layer_lambda" &&
-    typeof command.userInput.value === "number" &&
-    command.userInput.value > 0
+    userInput?.datapoint === "layer_lambda" &&
+    typeof userInput.value === "number" &&
+    userInput.value > 0
   ) {
-    return {
-      resolutionStatus: "resolved",
-      lambda: {
-        value: command.userInput.value,
-        unit: "W/mK",
-        source: command.userInput?.valueSource === "material_library" ? "material_library" : "user_input",
-        confidence: "medium",
-        sourceLabel: command.userInput?.valueSource === "material_library" ? "selected material library value" : "scripted review input",
-        evidenceReferences: [],
-        userInput: command.userInput,
-      },
-      warnings: [],
-    };
+    return resolved({
+      value: userInput.value,
+      source: userInput.valueSource === "material_library" ? "material_library" : "user_input",
+      confidence: "medium",
+      sourceLabel: userInput.valueSource === "material_library"
+        ? "selected material library value"
+        : "review input",
+      evidenceReferences: [],
+      userInput,
+    });
   }
 
   const ifcLambda = command.calculationInputEvidence.fixedInputs.find(
-    (input) =>
-      input.field === "layer_lambda" &&
+    (input) => input.field === "layer_lambda" &&
       input.source === "ifc_fixed" &&
+      matchesLayer(input.layer?.layerIndex, command.layerIndex) &&
       typeof input.value === "number" &&
       input.value > 0,
   );
   if (ifcLambda !== undefined) {
-    return {
-      resolutionStatus: "resolved",
-      lambda: {
-        value: ifcLambda.value as number,
-        unit: "W/mK",
-        source: "ifc_fixed",
-        confidence: ifcLambda.confidence,
-        sourceLabel: "IFC fixed lambda evidence",
-        evidenceReferences: ifcLambda.evidenceReferences,
-      },
-      warnings: [],
-    };
+    return resolved({
+      value: ifcLambda.value as number,
+      source: "ifc_fixed",
+      confidence: ifcLambda.confidence,
+      sourceLabel: "IFC fixed lambda evidence",
+      evidenceReferences: ifcLambda.evidenceReferences,
+    });
   }
 
-  const normalizedName = normalize(command.materialName);
-  const materialEntry = command.materialLibrary.entries.find((entry) =>
-    [entry.displayName, ...entry.aliases].some((alias) => normalize(alias) === normalizedName),
-  );
-  if (materialEntry !== undefined) {
-    return {
-      resolutionStatus: "resolved",
-      lambda: {
-        value: materialEntry.lambdaWPerMK,
-        unit: "W/mK",
-        source: "material_library",
-        confidence: materialEntry.confidence,
-        sourceLabel: materialEntry.sourceLabel,
-        evidenceReferences: [],
-      },
-      warnings: [],
-    };
+  const materialEntry = findMaterialLibraryEntry(command.materialLibrary, command.materialName);
+  if (materialEntry !== null) {
+    return resolved({
+      value: materialEntry.lambdaWPerMK,
+      source: "material_library",
+      confidence: materialEntry.confidence,
+      sourceLabel: materialEntry.sourceLabel,
+      evidenceReferences: [],
+    });
   }
 
   return {
@@ -82,6 +79,61 @@ export function resolveLayerLambda(command: {
   };
 }
 
-function normalize(value: string | null): string {
-  return (value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ");
+export function findMaterialLibraryEntry(
+  materialLibrary: MaterialLibrary,
+  materialName: string | null,
+): MaterialLibraryEntry | null {
+  const normalizedName = normalizeMaterialKey(materialName);
+  return materialLibrary.entries.find((entry) =>
+    [entry.displayName, ...entry.aliases].some((alias) => normalizeMaterialKey(alias) === normalizedName),
+  ) ?? null;
+}
+
+export function materialLibraryEntryForKey(
+  materialLibrary: MaterialLibrary,
+  materialKey: string,
+): MaterialLibraryEntry | null {
+  return materialLibrary.entries.find((entry) => entry.materialKey === materialKey) ?? null;
+}
+
+function userInputForLayer(command: {
+  materialName: string | null;
+  userInputs?: UserInput[];
+  elementStepId?: number;
+  layerIndex?: number;
+}): UserInput | undefined {
+  if (command.userInputs === undefined || command.elementStepId === undefined || command.layerIndex === undefined) {
+    return undefined;
+  }
+  const layerInputId = layerOccurrenceRequestedInputId(
+    command.elementStepId,
+    "layer_lambda",
+    command.layerIndex,
+  );
+  const materialInputId = materialDecisionRequestedInputId(
+    normalizeMaterialKey(command.materialName ?? null),
+  );
+  return command.userInputs.find((input) =>
+    input.datapoint === "layer_lambda" &&
+    (input.requestedInputId === layerInputId || input.requestedInputId === materialInputId) &&
+    typeof input.value === "number" &&
+    input.value > 0,
+  );
+}
+
+function matchesLayer(inputLayerIndex: number | undefined, requestedLayerIndex: number | undefined): boolean {
+  return requestedLayerIndex === undefined
+    ? true
+    : inputLayerIndex === requestedLayerIndex || (inputLayerIndex === undefined && requestedLayerIndex === 0);
+}
+
+function resolved(lambda: Omit<ResolvedLambda, "unit">): ResolveLayerLambdaResult {
+  return {
+    resolutionStatus: "resolved",
+    lambda: {
+      ...lambda,
+      unit: "W/mK",
+    },
+    warnings: [],
+  };
 }

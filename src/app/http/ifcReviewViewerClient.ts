@@ -15,7 +15,8 @@ export function renderIfcReviewViewerClientScript(): string {
     const response = await fetch(geometryUrl);
     if (!response.ok) throw new Error("IFC geometry fetch failed: " + response.status);
     const payload = await response.json();
-    if (!payload.meshes || payload.meshes.length === 0) throw new Error("No displayable IFC geometry was extracted.");
+    if (!isIfcViewerGeometryPayload(payload)) throw new Error("IFC geometry payload is invalid.");
+    if (payload.meshes.length === 0) throw new Error("No displayable IFC geometry was extracted.");
 
     container.innerHTML = "";
     const scene = new THREE.Scene();
@@ -193,6 +194,33 @@ export function renderIfcReviewViewerClientScript(): string {
     };
   }
 
+  function isIfcViewerGeometryPayload(value) {
+    if (!value || typeof value !== "object" || value.schemaVersion !== "ifc-viewer-geometry.v6") return false;
+    return Array.isArray(value.meshes) && value.meshes.every(isIfcViewerMesh) &&
+      typeof value.truncated === "boolean" && Number.isInteger(value.elementCount) && value.elementCount >= 0 &&
+      Number.isFinite(value.triangleCount) && value.triangleCount >= 0 &&
+      Array.isArray(value.storeys) && value.storeys.every(isIfcViewerStorey);
+  }
+
+  function isIfcViewerMesh(value) {
+    return value && typeof value === "object" && Number.isInteger(value.expressId) && value.expressId >= 0 &&
+      isNumberArray(value.positions) && isNumberArray(value.normals) && isIntegerArray(value.indices) &&
+      Array.isArray(value.color) && value.color.length === 4 && value.color.every(Number.isFinite) &&
+      (value.storeyId === null || (Number.isInteger(value.storeyId) && value.storeyId >= 0));
+  }
+
+  function isIfcViewerStorey(value) {
+    return value && typeof value === "object" && Number.isInteger(value.expressId) && value.expressId >= 0 &&
+      typeof value.name === "string" && (value.elevation === null || Number.isFinite(value.elevation));
+  }
+
+  function isNumberArray(value) {
+    return Array.isArray(value) && value.every(Number.isFinite);
+  }
+
+  function isIntegerArray(value) {
+    return Array.isArray(value) && value.every(function (entry) { return Number.isInteger(entry) && entry >= 0; });
+  }
   function frameObjects(THREE, objects, camera, controls) {
     if (!objects.length) return;
     const boxes = objects.map(function (object) {

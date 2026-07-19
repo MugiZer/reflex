@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname } from "node:path";
 
 import type { CalculationInputEvidence } from "../../domain/evidence/calculationInputEvidenceTypes.js";
 import { planRequestedInputs } from "../../domain/review/planRequestedInputs.js";
@@ -9,11 +9,13 @@ import { runCoreReviewCalculationReport } from "../review/runCoreReviewCalculati
 import type { JobRepository } from "../../domain/jobs/jobRepository.js";
 import type { JobRecord } from "../../domain/jobs/jobTypes.js";
 import { WebIfcEvidenceExtractor } from "../../infrastructure/ifc/web-ifc/WebIfcEvidenceExtractor.js";
+import { LocalJobArtifactStore } from "../../infrastructure/storage/local-files/jobArtifactStore.js";
 import { createMilestone1ArtifactPackage } from "../ifc/createMilestone1ArtifactPackage.js";
 
 export type ProcessIfcJobDeps = {
   jobs: JobRepository;
   outputRoot: string;
+  artifactStore?: LocalJobArtifactStore;
   extractCalculationInputEvidence?: (
     job: JobRecord,
   ) => Promise<CalculationInputEvidence[]>;
@@ -27,6 +29,7 @@ export async function processIfcJob(command: {
   if (!job) {
     throw new Error(`Job not found: ${command.jobId}`);
   }
+  const artifactStore = command.deps.artifactStore ?? new LocalJobArtifactStore(command.deps.outputRoot);
   try {
     command.deps.jobs.updateJob(command.jobId, {
       jobStatus: "processing",
@@ -36,15 +39,14 @@ export async function processIfcJob(command: {
       job,
       deps: command.deps,
     });
-    await writeJobJson(command.deps.outputRoot, command.jobId, "calculation-input-evidence.json", calculationInputEvidence);
+    await writeEvidenceJson(artifactStore, command.jobId, "calculation-input-evidence.json", calculationInputEvidence);
     const requestedInputs = planRequestedInputs({ calculationInputEvidence }).requestedInputs;
     command.deps.jobs.saveReviewState({ jobId: command.jobId, requestedInputs });
-    await writeJobJson(command.deps.outputRoot, command.jobId, "requested-inputs.json", requestedInputs);
+    await writeJobJson(artifactStore, command.jobId, "requested-inputs.json", requestedInputs);
 
     if (requestedInputs.length > 0) {
       command.deps.jobs.updateJob(command.jobId, {
         jobStatus: "needs_review",
-        fileHash: command.jobId,
       });
       return;
     }
@@ -85,16 +87,16 @@ export async function completeJobWithReviewInputs(command: {
     jobStatus: "processing",
     errorMessage: null,
   });
+  const artifactStore = command.deps.artifactStore ?? new LocalJobArtifactStore(command.deps.outputRoot);
+
   try {
     const calculationInputEvidence =
       command.calculationInputEvidence ??
-      await readJobJson<CalculationInputEvidence[]>(
-        command.deps.outputRoot,
-        command.jobId,
-        "calculation-input-evidence.json",
-      );
+      await readEvidenceJson<CalculationInputEvidence[]>(artifactStore, command.jobId, "calculation-input-evidence.json");
     const result = await runCoreReviewCalculationReport({
-      fileHash: command.jobId,
+      fileHash: previousJob.fileHash ?? previousJob.jobId,
+      jobId: previousJob.jobId,
+      artifactStore,
       outputRoot: command.deps.outputRoot,
       calculationInputEvidence,
       materialLibrary: defaultMaterialLibraryV1,
@@ -103,7 +105,6 @@ export async function completeJobWithReviewInputs(command: {
     });
     command.deps.jobs.updateJob(command.jobId, {
       jobStatus: "completed",
-      fileHash: command.jobId,
       reportPath: result.reportFilePath,
       activeRevisionId: result.revision.revisionId,
     });
@@ -124,22 +125,33 @@ export async function completeJobWithReviewInputs(command: {
 }
 
 async function writeJobJson(
-  outputRoot: string,
+  artifactStore: LocalJobArtifactStore,
   jobId: string,
   filename: string,
   value: unknown,
 ): Promise<void> {
-  const dir = join(outputRoot, jobId, "job");
-  await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, filename), JSON.stringify(value, null, 2), "utf8");
+  const path = artifactStore.pathsFor(jobId).jobFile(filename);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, JSON.stringify(value, null, 2), "utf8");
 }
 
-async function readJobJson<T>(
-  outputRoot: string,
+async function writeEvidenceJson(
+  artifactStore: LocalJobArtifactStore,
+  jobId: string,
+  filename: string,
+  value: unknown,
+): Promise<void> {
+  const path = artifactStore.pathsFor(jobId).evidenceFile(filename);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, JSON.stringify(value, null, 2), "utf8");
+}
+
+async function readEvidenceJson<T>(
+  artifactStore: LocalJobArtifactStore,
   jobId: string,
   filename: string,
 ): Promise<T> {
-  const path = join(outputRoot, jobId, "job", filename);
+  const path = artifactStore.pathsFor(jobId).evidenceFile(filename);
   return JSON.parse(await readFile(path, "utf8")) as T;
 }
 

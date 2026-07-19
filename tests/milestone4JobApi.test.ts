@@ -39,7 +39,16 @@ describe("Milestone 4 Job API", () => {
     expect(client).not.toContain("demo");
     expect(client).toContain("Hide 3D model");
     expect(client).toContain("Use suggested value");
-    expect(client).toContain("renderArchitectWorkspace(job, targetU, seeded.drafts, seeded.sources, reviewModeSeed)");
+    expect(client).toContain("createThermalReviewWorkspace(jobId, initial = {})");
+    expect(client).toContain("history.replaceState(null, \"\", next.pathname + next.search)");
+    expect(client).not.toContain("sessionStorage");
+    expect(client).toContain("workspace.setReviewMode(mode)");
+    expect(client).toContain("workspace.setTarget(nextTarget)");
+    expect(client).toContain("workspace.setDraft(field.dataset.requestedInputId, field.value, { source: \"manual\" })");
+    expect(client).toContain("workspace.setDraft(button.dataset.libraryInputId, button.dataset.libraryValue, { source: \"material_library\"");
+    expect(client).toContain("workspace.setFilter(button.dataset.actionFilter)");
+    expect(client).toContain("workspace.setViewer(createdViewer)");
+    expect(client).toContain("workspace.navigationUrl()");
     expect(client).toContain("actionDetail(active, job, allInputs, drafts, hasUnresolvedReview, reviewMode)");
     expect(() => new Function(client)).not.toThrow();
   });
@@ -168,7 +177,7 @@ describe("Milestone 4 Job API", () => {
         highlightStepIds: [88],
       }));
       await expect(readFile(
-        join(root, "outputs", created.jobId, "job", "calculation-input-evidence.json"),
+        join(root, "outputs", created.jobId, "evidence", "calculation-input-evidence.json"),
         "utf8",
       )).resolves.toContain("Recovered insulation");
 

@@ -10,6 +10,83 @@ async function api(url, options) {
   return response.json();
 }
 
+function createThermalReviewWorkspace(jobId, initial = {}) {
+  const url = new URL(location.href);
+  let viewer = null;
+  const state = {
+    targetU: validTarget(initial.targetU ?? url.searchParams.get("targetU"))
+      ? String(initial.targetU ?? url.searchParams.get("targetU"))
+      : "0.24",
+    reviewMode: validReviewMode(initial.reviewMode ?? url.searchParams.get("reviewMode")),
+    filter: validFilter(initial.filter ?? url.searchParams.get("filter")),
+    drafts: { ...(initial.drafts || {}) },
+    sources: { ...(initial.sources || {}) },
+  };
+
+  function syncUrl() {
+    const next = new URL(location.href);
+    next.searchParams.set("targetU", state.targetU);
+    if (state.reviewMode) next.searchParams.set("reviewMode", state.reviewMode);
+    else next.searchParams.delete("reviewMode");
+    if (state.filter !== "all") next.searchParams.set("filter", state.filter);
+    else next.searchParams.delete("filter");
+    history.replaceState(null, "", next.pathname + next.search);
+
+  }
+
+  return {
+    state,
+    seed(job) {
+      const seeded = seedReviewMode(job, state.drafts, state.sources, state.reviewMode);
+      state.drafts = seeded.drafts;
+      state.sources = seeded.sources;
+      return state;
+    },
+    setReviewMode(mode) {
+      if (!validReviewMode(mode)) return;
+      state.reviewMode = mode;
+      syncUrl();
+    },
+    setTarget(target) {
+      if (!validTarget(target)) return;
+      state.targetU = String(target);
+      syncUrl();
+    },
+    setFilter(filter) {
+      state.filter = validFilter(filter);
+      syncUrl();
+    },
+    setDraft(requestedInputId, value, source) {
+      state.drafts[requestedInputId] = value;
+      state.sources[requestedInputId] = source;
+    },
+    clearDrafts() {
+      state.drafts = {};
+      state.sources = {};
+    },
+    setViewer(nextViewer) {
+      viewer = nextViewer;
+    },
+    hasViewer() {
+      return Boolean(viewer);
+    },
+    selectViewer(stepIds) {
+      if (viewer && viewer.select) viewer.select(stepIds);
+    },
+    navigationUrl() {
+      syncUrl();
+      return location.pathname + location.search;
+    },
+  };
+}
+
+function validReviewMode(value) {
+  return value === "library" || value === "manual" || value === "mixed" ? value : null;
+}
+
+function validFilter(value) {
+  return value === "action" || value === "over" || value === "meets" ? value : "all";
+}
 async function home() {
   app.innerHTML = '<div class="grid home-grid"><section class="panel"><div class="panel-head"><div><span class="eyebrow">IFC upload</span><h2>New analysis</h2></div></div><form id="upload" class="drop"><input name="ifc" type="file" accept=".ifc,.ifczip,.ifcxml" required><p><button>Start analysis</button></p><p id="uploadMsg" class="muted"></p></form></section><section><div class="panel-head"><div><span class="eyebrow">Workspace</span><h2>Recent analyses</h2></div></div><div id="jobs" class="jobs"></div></section></div>';
   document.getElementById("upload").onsubmit = async (event) => {
@@ -27,25 +104,32 @@ function jobCard(job) {
 }
 
 async function workspacePage(jobId, targetU = currentTargetU(), draftSeed = {}, draftSourceSeed = {}, reviewModeSeed = currentReviewMode()) {
+  const workspace = createThermalReviewWorkspace(jobId, {
+    targetU,
+    drafts: draftSeed,
+    sources: draftSourceSeed,
+    reviewMode: reviewModeSeed,
+  });
   let job;
   while (true) {
-    job = await api("/api/jobs/" + encodeURIComponent(jobId) + "?targetU=" + encodeURIComponent(targetU));
+    job = await api("/api/jobs/" + encodeURIComponent(jobId) + "?targetU=" + encodeURIComponent(workspace.state.targetU));
     if (job.jobStatus !== "queued" && job.jobStatus !== "processing") break;
-    renderProcessing(job, targetU);
+    renderProcessing(job, workspace.state.targetU);
     await sleep(600);
   }
-  if (!reviewModeSeed && hasReviewInputs(job)) {
-    renderReviewSetup(job, targetU, draftSeed, draftSourceSeed);
+  if (!workspace.state.reviewMode && hasReviewInputs(job)) {
+    renderReviewSetup(job, workspace);
     return;
   }
-  const seeded = seedReviewMode(job, draftSeed, draftSourceSeed, reviewModeSeed);
-  renderArchitectWorkspace(job, targetU, seeded.drafts, seeded.sources, reviewModeSeed);
+  workspace.seed(job);
+  renderArchitectWorkspace(job, workspace);
 }
 
-function renderReviewSetup(job, targetU, draftSeed, draftSourceSeed) {
+function renderReviewSetup(job, workspace) {
 
 
 
+  const targetU = workspace.state.targetU;
   const inputs = reviewInputsFor(job);
   const matchedCount = inputs.filter((input) => librarySuggestion(job, input, reviewQuestionContext(job, input.requestedInputId))).length;
   app.innerHTML = projectHeader(job, targetU) + '<section class="review-setup panel"><div class="review-setup-intro"><span class="eyebrow">Before you review</span><h1>How should we resolve missing values?</h1><p>Choose how you want to fill the calculation inputs. You can change any individual value later.</p><p class="review-setup-count"><strong>' + esc(matchedCount) + ' of ' + esc(inputs.length) + '</strong> inputs have an exact Material Library match. The rest need a manual value or a different material selection.</p></div><div class="review-mode-grid"><button type="button" class="review-mode-card" data-review-mode="library"><span class="mode-kicker">Fastest start</span><strong>Use Material Library values</strong><span>Prefill exact matches from the reference library and show the selected material and lambda for every input.</span></button><button type="button" class="review-mode-card" data-review-mode="manual"><span class="mode-kicker">Full control</span><strong>Enter values manually</strong><span>Start with blank inputs and provide the thermal values yourself.</span></button><button type="button" class="review-mode-card" data-review-mode="mixed"><span class="mode-kicker">Recommended</span><strong>Use a mix</strong><span>Prefill credible library matches and manually complete the remaining inputs.</span></button></div><p class="review-setup-note">Material Library values are reference data. Confirm them against the product or specification before relying on the final report.</p></section>';
@@ -53,13 +137,9 @@ function renderReviewSetup(job, targetU, draftSeed, draftSourceSeed) {
   document.querySelectorAll("[data-review-mode]").forEach((button) => {
     button.onclick = () => {
       const mode = button.dataset.reviewMode;
-      const seeded = seedReviewMode(job, draftSeed, draftSourceSeed, mode);
-      const nextDrafts = seeded.drafts;
-      const nextSources = seeded.sources;
-      const next = new URL(location.href);
-      next.searchParams.set("reviewMode", mode);
-      history.replaceState(null, "", next.pathname + next.search);
-      renderArchitectWorkspace(job, targetU, nextDrafts, nextSources, mode);
+      workspace.setReviewMode(mode);
+      workspace.seed(job);
+      renderArchitectWorkspace(job, workspace);
     };
   });
 }
@@ -94,26 +174,25 @@ function renderProcessing(job, targetU) {
   wireTargetForm();
 }
 
-function renderArchitectWorkspace(job, targetU, draftSeed, draftSourceSeed, reviewMode) {
+function renderArchitectWorkspace(job, workspace) {
+  const targetU = workspace.state.targetU;
+  const reviewMode = workspace.state.reviewMode;
   const model = job.architectActions || emptyActionModel(job);
   const assemblies = model.assemblies || [];
   const unresolvedInputIds = new Set(assemblies.flatMap((assembly) => assembly.nextAction.requestedInputIds || []));
   const allInputs = uniqueRequestedInputs((job.review && job.review.requestedInputs) || []).filter((input) => unresolvedInputIds.has(input.requestedInputId));
-  const drafts = { ...(draftSeed || {}) };
-  const draftSources = { ...(draftSourceSeed || {}) };
+  const drafts = workspace.state.drafts;
+  const draftSources = workspace.state.sources;
   let viewerVisible = true;
   const hasUnresolvedReview = allInputs.length > 0;
   let activeAssemblyGroupId = (assemblies.find(needsAction) || assemblies[0] || {}).assemblyGroupId || null;
-  let activeFilter = "all";
-  let viewer = null;
+  let activeFilter = workspace.state.filter;
 
   app.innerHTML = projectHeader(job, targetU) + summaryBar(model.summary) +
     '<div class="architect-workspace"><div class="model-column">' + (job.links && job.links.viewerGeometry ? '<button type="button" id="viewerToggle" class="viewer-toggle">Hide 3D model</button>' : "") + viewerShell(job) + '</div><aside id="actionAside" class="action-aside"></aside></div>';
   wireTargetForm(function (nextTarget) {
-    const next = new URL(location.href);
-    next.searchParams.set("targetU", String(nextTarget));
-    history.replaceState(null, "", next.pathname + next.search);
-    workspacePage(job.jobId, String(nextTarget), drafts, draftSources, reviewMode).catch(showError);
+    workspace.setTarget(nextTarget);
+    workspacePage(job.jobId, workspace.state.targetU, drafts, draftSources, reviewMode).catch(showError);
   });
   renderAside();
   const viewerToggle = document.getElementById("viewerToggle");
@@ -128,10 +207,10 @@ function renderArchitectWorkspace(job, targetU, draftSeed, draftSourceSeed, revi
   initViewer(job.links && job.links.viewerGeometry, actionStepIds, assemblies, function (_stepId, info) {
     if (info && info.groupId) selectAssembly(info.groupId, true);
   }).then(function (createdViewer) {
-    viewer = createdViewer;
-    if (viewer && activeAssemblyGroupId) {
+    workspace.setViewer(createdViewer);
+    if (createdViewer && activeAssemblyGroupId) {
       const active = assemblies.find((assembly) => assembly.assemblyGroupId === activeAssemblyGroupId);
-      if (active) viewer.select(active.displayStepIds || []);
+      if (active) workspace.selectViewer(active.displayStepIds || []);
     }
   });
 
@@ -145,12 +224,13 @@ function renderArchitectWorkspace(job, targetU, draftSeed, draftSourceSeed, revi
   function selectAssembly(assemblyGroupId, scrollCard) {
     if (!assemblies.some((assembly) => assembly.assemblyGroupId === assemblyGroupId)) return;
     if (!visibleAssemblies().some((assembly) => assembly.assemblyGroupId === assemblyGroupId)) {
-      activeFilter = "all";
+      workspace.setFilter("all");
+      activeFilter = workspace.state.filter;
     }
     activeAssemblyGroupId = assemblyGroupId;
     renderAside();
     const active = assemblies.find((assembly) => assembly.assemblyGroupId === assemblyGroupId);
-    if (viewer && active) viewer.select(active.displayStepIds || []);
+    if (workspace.hasViewer() && active) workspace.selectViewer(active.displayStepIds || []);
     if (scrollCard) {
       const card = document.querySelector('[data-action-id="' + attributeSelectorValue(assemblyGroupId) + '"]');
       if (card) card.scrollIntoView({ block: "nearest" });
@@ -174,23 +254,22 @@ function renderArchitectWorkspace(job, targetU, draftSeed, draftSourceSeed, revi
     });
     aside.querySelectorAll("[data-action-filter]").forEach((button) => {
       button.onclick = () => {
-        activeFilter = button.dataset.actionFilter;
+        workspace.setFilter(button.dataset.actionFilter);
+        activeFilter = workspace.state.filter;
         renderAside();
         const selected = assemblies.find((assembly) => assembly.assemblyGroupId === activeAssemblyGroupId);
-        if (viewer && selected) viewer.select(selected.displayStepIds || []);
+        if (workspace.hasViewer() && selected) workspace.selectViewer(selected.displayStepIds || []);
       };
     });
     aside.querySelectorAll("[data-requested-input-id]").forEach((field) => {
       field.oninput = () => {
-        drafts[field.dataset.requestedInputId] = field.value;
-        draftSources[field.dataset.requestedInputId] = { source: "manual" };
+        workspace.setDraft(field.dataset.requestedInputId, field.value, { source: "manual" });
         updateDraftProgress(aside, allInputs, drafts, active);
       };
     });
     aside.querySelectorAll("[data-use-library]").forEach((button) => {
       button.onclick = () => {
-        drafts[button.dataset.libraryInputId] = button.dataset.libraryValue;
-        draftSources[button.dataset.libraryInputId] = { source: "material_library", materialLibraryKey: button.dataset.libraryKey };
+        workspace.setDraft(button.dataset.libraryInputId, button.dataset.libraryValue, { source: "material_library", materialLibraryKey: button.dataset.libraryKey });
         renderAside();
       };
     });
@@ -198,8 +277,7 @@ function renderArchitectWorkspace(job, targetU, draftSeed, draftSourceSeed, revi
       picker.onchange = () => {
         const entry = ((job.materialLibrary && job.materialLibrary.entries) || []).find((candidate) => candidate.materialKey === picker.value);
         if (!entry) return;
-        drafts[picker.dataset.libraryInputId] = String(entry.lambdaWPerMK);
-        draftSources[picker.dataset.libraryInputId] = { source: "material_library", materialLibraryKey: entry.materialKey };
+        workspace.setDraft(picker.dataset.libraryInputId, String(entry.lambdaWPerMK), { source: "material_library", materialLibraryKey: entry.materialKey });
         renderAside();
       };
     });
@@ -225,7 +303,8 @@ function renderArchitectWorkspace(job, targetU, draftSeed, draftSourceSeed, revi
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           });
-          location.href = "/jobs/" + encodeURIComponent(job.jobId) + "?targetU=" + encodeURIComponent(targetU);
+          workspace.clearDrafts();
+          location.href = workspace.navigationUrl();
         } catch (error) {
           message.textContent = error && error.message ? error.message : "Calculation could not be started.";
           updateDraftProgress(aside, allInputs, drafts, active);
@@ -450,8 +529,7 @@ function reviewModeLabel(mode) {
 }
 
 function currentReviewMode() {
-  const mode = new URLSearchParams(location.search).get("reviewMode");
-  return mode === "library" || mode === "manual" || mode === "mixed" ? mode : null;
+  return validReviewMode(new URLSearchParams(location.search).get("reviewMode"));
 }
 function currentTargetU() {
   const requested = new URLSearchParams(location.search).get("targetU");

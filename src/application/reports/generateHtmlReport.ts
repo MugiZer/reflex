@@ -1,20 +1,27 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname } from "node:path";
 
 import type { CalculationSnapshot, LayerCalculation } from "../../domain/calculations/calculationTypes.js";
 import type { Revision } from "../../domain/revisions/revisionTypes.js";
+import { LocalJobArtifactStore } from "../../infrastructure/storage/local-files/jobArtifactStore.js";
 
 export async function generateHtmlReport(command: {
+  artifactStore?: LocalJobArtifactStore;
   outputRoot: string;
+  jobId?: string;
   fileHash: string;
   revision: Revision;
   calculationSnapshots: CalculationSnapshot[];
 }): Promise<{ reportFilePath: string }> {
-  const reportDir = join(command.outputRoot, command.fileHash, "reports");
-  await mkdir(reportDir, { recursive: true });
-  const reportFilePath = join(reportDir, command.revision.revisionId + ".html");
+  const artifactStore = command.artifactStore ?? new LocalJobArtifactStore(command.outputRoot);
+  const reportFilePath = artifactStore.pathsFor(command.jobId ?? legacyJobId(command.fileHash)).reportFile(command.revision.revisionId);
+  await mkdir(dirname(reportFilePath), { recursive: true });
   await writeFile(reportFilePath, renderReport(command), "utf8");
   return { reportFilePath };
+}
+
+function legacyJobId(fileHash: string): string {
+  return fileHash.startsWith("job_") ? fileHash : `job_${fileHash.replace(/[^A-Za-z0-9]/g, "")}`;
 }
 
 function renderReport(command: {

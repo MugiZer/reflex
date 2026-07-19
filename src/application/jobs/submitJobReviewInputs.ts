@@ -1,6 +1,7 @@
 import type { OverrideScopeKind, RequestedInput, UserInput } from "../../domain/review/reviewTypes.js";
 import type { JobRepository } from "../../domain/jobs/jobRepository.js";
 import { defaultMaterialLibraryV1 } from "../../domain/materials/library.v1.js";
+import { materialLibraryEntryForKey } from "../../domain/materials/resolveLayerLambda.js";
 import { readActiveRevisionArtifact } from "../../infrastructure/storage/local-files/jobReviewArtifactStore.js";
 import { completeJobWithReviewInputs, type ProcessIfcJobDeps } from "./processIfcJob.js";
 
@@ -19,6 +20,7 @@ export async function submitJobReviewInputs(command: {
   }
   const submission = validateReviewInputBody(command.jobs, command.jobId, command.body);
   const activeRevision = await readActiveRevisionArtifact({
+    artifactStore: command.deps.artifactStore,
     outputRoot: command.deps.outputRoot,
     jobId: command.jobId,
     activeRevisionId: job.activeRevisionId,
@@ -131,7 +133,7 @@ function validateOverrideScope(value: unknown): OverrideScopeKind {
 function materialLibraryEntryFor(value: unknown) {
   if (value === undefined || value === null) return null;
   if (typeof value !== "string") throw new Error("Invalid materialLibraryKey.");
-  const entry = defaultMaterialLibraryV1.entries.find((candidate) => candidate.materialKey === value);
+  const entry = materialLibraryEntryForKey(defaultMaterialLibraryV1, value);
   if (!entry) throw new Error("Unknown materialLibraryKey.");
   return entry;
 }

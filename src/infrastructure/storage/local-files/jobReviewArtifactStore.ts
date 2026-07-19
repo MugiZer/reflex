@@ -1,15 +1,16 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 
 import type { CalculationInputEvidence } from "../../../domain/evidence/calculationInputEvidenceTypes.js";
 import type { Revision } from "../../../domain/revisions/revisionTypes.js";
+import { LocalJobArtifactStore } from "./jobArtifactStore.js";
 
 export async function readCalculationInputEvidenceArtifact(command: {
-  outputRoot: string;
+  artifactStore?: LocalJobArtifactStore;
+  outputRoot?: string;
   jobId: string;
 }): Promise<CalculationInputEvidence[] | null> {
   const parsed = await readJsonArtifact<unknown>(
-    join(command.outputRoot, command.jobId, "job", "calculation-input-evidence.json"),
+    artifactPaths(command).evidenceFile("calculation-input-evidence.json"),
     "calculation input evidence",
   );
   if (parsed === null) {
@@ -22,7 +23,8 @@ export async function readCalculationInputEvidenceArtifact(command: {
 }
 
 export async function readActiveRevisionArtifact(command: {
-  outputRoot: string;
+  artifactStore?: LocalJobArtifactStore;
+  outputRoot?: string;
   jobId: string;
   activeRevisionId: string | null;
 }): Promise<Revision | null> {
@@ -30,7 +32,7 @@ export async function readActiveRevisionArtifact(command: {
     return null;
   }
   const revision = await readJsonArtifact<unknown>(
-    join(command.outputRoot, command.jobId, "revisions", command.activeRevisionId + ".json"),
+    artifactPaths(command).revisionFile(command.activeRevisionId),
     "active revision",
   );
   if (revision === null) {
@@ -42,6 +44,14 @@ export async function readActiveRevisionArtifact(command: {
   return revision;
 }
 
+function artifactPaths(command: {
+  artifactStore?: LocalJobArtifactStore;
+  outputRoot?: string;
+  jobId: string;
+}) {
+  const store = command.artifactStore ?? new LocalJobArtifactStore(command.outputRoot ?? "outputs");
+  return store.pathsFor(command.jobId);
+}
 async function readJsonArtifact<T>(path: string, label: string): Promise<T | null> {
   let content: string;
   try {

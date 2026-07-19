@@ -53,6 +53,16 @@ export function materialDecisionGroupsFor(command: {
   return [...groups.values()].sort((a, b) => a.materialName.localeCompare(b.materialName));
 }
 
+export function groupCalculationInputEvidenceByAssembly(
+  evidence: CalculationInputEvidence[],
+): Map<string, CalculationInputEvidence[]> {
+  const groups = new Map<string, CalculationInputEvidence[]>();
+  for (const item of evidence) {
+    const assemblyGroupId = assemblyGroupIdForEvidence(item);
+    groups.set(assemblyGroupId, [...(groups.get(assemblyGroupId) ?? []), item]);
+  }
+  return groups;
+}
 export function materialDecisionGroupId(normalizedMaterialKey: string): string {
   return `md_${stableHash(normalizedMaterialKey)}`;
 }
