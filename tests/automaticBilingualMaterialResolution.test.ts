@@ -118,6 +118,40 @@ describe("automatic bilingual material resolution", () => {
       nextAction: expect.objectContaining({ kind: "fix_ifc" }),
     }));
   });
+
+  it("classifies mojibake French product-sensitive materials with actionable guidance", () => {
+    const names = [
+      "07 MEMBRANE FINITION TOITURE",
+      "LMA_PANNEAU B\u00c3\u0089TON L\u00c3\u0089GER - Fb1",
+      "LMA_PANNEAU B\u00c3\u0089TON L\u00c3\u0089GER - Fb2",
+      "LMA_PanneauSupport Haute Densit\u00c3\u00a9",
+    ];
+
+    for (const name of names) {
+      const resolution = resolveMaterialName(name, defaultMaterialLibraryV1);
+      expect(resolution).toEqual(expect.objectContaining({
+        status: "unresolved",
+        reason: expect.stringContaining("product performance"),
+      }));
+
+      const evidence = layeredEvidence(name, "IfcRoof");
+      const actions = buildArchitectActionViewModel({
+        jobId: "job_product_sensitive",
+        jobStatus: "needs_review",
+        calculationInputEvidence: [evidence],
+        requestedInputs: planRequestedInputs({
+          calculationInputEvidence: [evidence],
+          materialLibrary: defaultMaterialLibraryV1,
+        }).requestedInputs,
+        activeRevision: null,
+        target: null,
+        materialLibrary: defaultMaterialLibraryV1,
+      });
+      expect(actions.assemblies[0]?.specialIssues).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: "product_sensitive" }),
+      ]));
+    }
+  });
 });
 
 function layeredEvidence(materialName: string, elementClass: CalculationInputEvidence["elementClass"]): CalculationInputEvidence {

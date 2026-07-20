@@ -29,7 +29,7 @@ export function resolveMaterialName(
     return unresolvedResolution(materialName, normalizedMaterialName, [], "Material name is missing.");
   }
 
-  const special = specialIssueForMaterialName(materialName);
+  const special = specialIssueForMaterialName(repairedMaterialName);
   if (special !== null && special.code !== "product_sensitive") {
     return {
       rawMaterialName,
@@ -92,9 +92,11 @@ export function resolveMaterialName(
     materialName,
     normalizedMaterialName,
     suggestions,
-    suggestions.length > 1
-      ? "Material name '" + materialName + "' needs a family decision before lambda can be selected."
-      : "No unique eligible Material Library match was found for '" + materialName + "'.",
+    special?.code === "product_sensitive"
+      ? `${special.message} ${special.nextAction}`
+      : suggestions.length > 1
+        ? "Material name '" + materialName + "' needs a family decision before lambda can be selected."
+        : "No unique eligible Material Library match was found for '" + materialName + "'.",
   );
 }
 
@@ -165,7 +167,7 @@ export function specialPhysicsIssuesForEvidence(command: {
 }
 
 export function specialIssueForMaterialName(materialName: string | null): SpecialPhysicsIssue | null {
-  const normalized = normalizeMaterialName(materialName);
+  const normalized = normalizeMaterialName(materialName === null ? null : repairMojibake(materialName));
   if (normalized.length === 0) return null;
   if (/^(?:unnamed|sans nom)$/.test(normalized)) {
     return {
@@ -191,7 +193,7 @@ export function specialIssueForMaterialName(materialName: string | null): Specia
       nextAction: "Provide a parallel-path or thermal-bridge model for the metal path.",
     };
   }
-  if (/\b(membrane|lightweight concrete|light weight concrete|concrete panel|panneau beton leger|lightweight panel)\b/.test(normalized)) {
+  if (/\b(membrane|roofing membrane|membrane finition toiture|membrane de finition toiture|lightweight concrete|light weight concrete|concrete panel|panneau beton leger|lightweight panel|high density support board|high density cover board|panneau support haute densite|panneausupport haute densite)\b/.test(normalized)) {
     return {
       code: "product_sensitive",
       label: "Product-sensitive material",
@@ -250,7 +252,7 @@ function repairMojibake(value: string): string {
 }
 
 function suggestedFamilies(materialName: string, materialLibrary: MaterialLibrary): string[] {
-  const normalized = normalizeMaterialName(materialName);
+  const normalized = normalizeMaterialName(repairMojibake(materialName));
   const keys = materialLibrary.entries
     .filter((entry) => entry.autoResolve !== false && entry.familyKind !== "product_sensitive" && entry.familyKind !== "special_physics")
     .filter((entry) => {
