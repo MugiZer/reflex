@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 
 import type { CalculationInputEvidence } from "../../domain/evidence/calculationInputEvidenceTypes.js";
 import { planRequestedInputs } from "../../domain/review/planRequestedInputs.js";
+import { groupCalculationInputEvidenceByAssembly } from "../../domain/review/reviewGrouping.js";
 import type { UserInput } from "../../domain/review/reviewTypes.js";
 import { defaultMaterialLibraryV1 } from "../../domain/materials/library.v1.js";
 import { specialPhysicsIssuesForEvidence } from "../../domain/materials/materialResolution.js";
@@ -95,7 +96,8 @@ export async function completeJobWithReviewInputs(command: {
   deps: ProcessIfcJobDeps;
   calculationInputEvidence?: CalculationInputEvidence[];
   allowProcessingClaim?: boolean;
-}): Promise<{ revisionId: string; reportPath: string }> {
+  completionStatus?: "completed" | "needs_review";
+}): Promise<{ revisionId: string; reportPath: string; calculatedAssemblyCount: number; skippedAssemblyCount: number }> {
   const previousJob = command.deps.jobs.getJob(command.jobId);
   if (!previousJob) {
     throw new Error(`Job not found: ${command.jobId}`);
@@ -127,13 +129,18 @@ export async function completeJobWithReviewInputs(command: {
       parentRevisionId: previousJob.activeRevisionId,
     });
     command.deps.jobs.updateJob(command.jobId, {
-      jobStatus: "completed",
+      jobStatus: command.completionStatus ?? "completed",
       reportPath: result.reportFilePath,
       activeRevisionId: result.revision.revisionId,
     });
     return {
       revisionId: result.revision.revisionId,
       reportPath: result.reportFilePath,
+      calculatedAssemblyCount: result.calculationSnapshots.length,
+      skippedAssemblyCount: Math.max(
+        0,
+        groupCalculationInputEvidenceByAssembly(calculationInputEvidence).size - result.calculationSnapshots.length,
+      ),
     };
   } catch (error) {
     command.deps.jobs.updateJob(command.jobId, {

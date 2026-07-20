@@ -12,7 +12,7 @@ export async function submitJobReviewInputs(command: {
   body: unknown;
   jobs: JobRepository;
   deps: ProcessIfcJobDeps;
-}): Promise<{ jobId: string; revisionId: string; jobStatus: "completed" }> {
+}): Promise<{ jobId: string; revisionId: string; jobStatus: "completed" | "needs_review"; calculatedAssemblyCount: number; skippedAssemblyCount: number; unresolvedDecisionCount: number }> {
   const job = command.jobs.getJob(command.jobId);
   if (!job) {
     throw new Error("Job not found");
@@ -40,16 +40,26 @@ export async function submitJobReviewInputs(command: {
       ...submission.userInputs,
     ],
     activeRevisionInputs: activeRevision?.userInputs ?? [],
+    allowPartial: submission.allowPartial,
   });
+  const unresolvedDecisionCount = submission.requestedInputs.filter((input) =>
+    input.required !== false && !userInputs.some((value) => value.requestedInputId === input.requestedInputId)
+  ).length;
+  const jobStatus = unresolvedDecisionCount > 0 ? "needs_review" : "completed";
   const result = await completeJobWithReviewInputs({
     jobId: command.jobId,
     userInputs,
     deps: command.deps,
+    completionStatus: jobStatus,
   });
   return {
     jobId: command.jobId,
     revisionId: result.revisionId,
-    jobStatus: "completed",
+    jobStatus,
+    calculatedAssemblyCount: result.calculatedAssemblyCount,
+    skippedAssemblyCount: result.skippedAssemblyCount,
+    unresolvedDecisionCount,
+
   };
 }
 
@@ -57,7 +67,7 @@ function validateReviewInputBody(
   jobs: JobRepository,
   jobId: string,
   body: unknown,
-): { requestedInputs: RequestedInput[]; userInputs: UserInput[]; reviewMode: ReviewMode | undefined } {
+): { requestedInputs: RequestedInput[]; userInputs: UserInput[]; reviewMode: ReviewMode | undefined; allowPartial: boolean } {
   if (!isRecord(body) || !Array.isArray(body.inputs)) {
     throw new Error("Expected inputs array.");
   }
@@ -114,6 +124,7 @@ function validateReviewInputBody(
     requestedInputs: reviewState.requestedInputs,
     userInputs,
     reviewMode: reviewModeFrom(body.reviewMode),
+    allowPartial: allowPartialFrom(body.allowPartial),
   };
 }
 
@@ -157,17 +168,24 @@ function mergeReviewInputs(command: {
   requestedInputs: RequestedInput[];
   submittedInputs: UserInput[];
   activeRevisionInputs: UserInput[];
+  allowPartial: boolean;
 }): UserInput[] {
   const submittedById = new Map(command.submittedInputs.map((input) => [input.requestedInputId, input]));
   const activeById = new Map(command.activeRevisionInputs.map((input) => [input.requestedInputId, input]));
   return command.requestedInputs.flatMap((requested) => {
     const input = submittedById.get(requested.requestedInputId) ?? activeById.get(requested.requestedInputId);
     if (!input) {
-      if (requested.required === false) return [];
+      if (requested.required === false || command.allowPartial) return [];
       throw new Error("All required Review inputs must be supplied before calculation.");
     }
     return [input];
   });
+}
+
+function allowPartialFrom(value: unknown): boolean {
+  if (value === undefined) return false;
+  if (typeof value !== "boolean") throw new Error("allowPartial must be a boolean when supplied.");
+  return value;
 }
 
 function validateOverrideScope(value: unknown): OverrideScopeKind {

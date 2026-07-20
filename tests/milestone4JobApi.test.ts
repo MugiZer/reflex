@@ -25,6 +25,9 @@ describe("Milestone 4 Job API", () => {
     expect(client).toContain("Next action");
     expect(client).toContain("Layer proportion and calculated values");
     expect(client).toContain("Run thermal calculation");
+    expect(client).toContain("Calculate available assemblies");
+    expect(client).toContain("allowPartial: true");
+    expect(client).not.toContain("if (availableInputs.length === 0) return");
     expect(client).toContain("Review mode:");
     expect(client).toContain("Model-linked thermal review");
     expect(client).toContain("action-card-meta");
@@ -327,7 +330,7 @@ describe("Milestone 4 Job API", () => {
     }
   });
 
-  it("rejects partial Review submission and completes only with every decision", async () => {
+  it("keeps strict Review submissions and allows opt-in partial calculation", async () => {
     const root = join(tmpdir(), `m4-api-all-decisions-${Date.now()}`);
     const first = workerCalculationInputEvidence();
     const second = workerCalculationInputEvidence();
@@ -383,6 +386,37 @@ describe("Milestone 4 Job API", () => {
         error: "All required Review inputs must be supplied before calculation.",
       }));
       expect((await getJson(`${baseUrl}/api/jobs/${created.jobId}`)).jobStatus).toBe("needs_review");
+
+      const noInputCalculation = await postJson(`${baseUrl}/api/jobs/${created.jobId}/review-inputs`, {
+        allowPartial: true,
+        inputs: [],
+      });
+      expect(noInputCalculation).toEqual(expect.objectContaining({
+        jobStatus: "needs_review",
+        calculatedAssemblyCount: 0,
+        skippedAssemblyCount: 2,
+        unresolvedDecisionCount: 2,
+      }));
+
+      const partialCalculation = await postJson(`${baseUrl}/api/jobs/${created.jobId}/review-inputs`, {
+        allowPartial: true,
+        inputs: [{
+          requestedInputId: needsReview.review.requestedInputs[0].requestedInputId,
+          value: 0.04,
+          unit: "W/mK",
+          overrideScope: "layer_occurrence",
+        }],
+      });
+      expect(partialCalculation).toEqual(expect.objectContaining({
+        jobStatus: "needs_review",
+        calculatedAssemblyCount: 1,
+        skippedAssemblyCount: 1,
+        unresolvedDecisionCount: 1,
+      }));
+      const partiallyCalculated = await getJson(`${baseUrl}/api/jobs/${created.jobId}`);
+      expect(partiallyCalculated.review.projection.decisions.filter((decision: any) =>
+        decision.required && decision.status === "pending"
+      )).toHaveLength(1);
 
       const completed = await postJson(`${baseUrl}/api/jobs/${created.jobId}/review-inputs`, {
         inputs: needsReview.review.requestedInputs.map((input: any, index: number) => ({

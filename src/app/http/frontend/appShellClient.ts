@@ -325,13 +325,8 @@ function renderArchitectWorkspace(job, workspace) {
         message.textContent = "Calculating every reviewed assembly...";
         const payload = {
           reviewMode,
-          inputs: allInputs.map((input) => ({
-            requestedInputId: input.requestedInputId,
-            value: drafts[input.requestedInputId],
-            unit: input.submission.unit,
-            overrideScope: input.submission.overrideScope,
-            materialLibraryKey: draftSources[input.requestedInputId] && draftSources[input.requestedInputId].materialLibraryKey,
-          })),
+          inputs: allInputs.map((input) => reviewSubmissionInput(input, drafts, draftSources)),
+
         };
         try {
           await api("/api/jobs/" + encodeURIComponent(job.jobId) + "/review-inputs", {
@@ -343,6 +338,33 @@ function renderArchitectWorkspace(job, workspace) {
           location.href = workspace.navigationUrl();
         } catch (error) {
           message.textContent = error && error.message ? error.message : "Calculation could not be started.";
+          updateDraftProgress(aside, allInputs, drafts, active);
+        }
+      };
+    }
+    const runAvailableButton = document.getElementById("runAvailableCalculation");
+    if (runAvailableButton) {
+      runAvailableButton.onclick = async () => {
+        const availableInputs = allInputs.filter((input) => hasValidDraft(input, drafts[input.requestedInputId]));
+        runAvailableButton.disabled = true;
+        const message = document.getElementById("reviewMsg");
+        message.textContent = "Calculating complete assemblies and skipping unresolved ones...";
+        const payload = {
+          allowPartial: true,
+          reviewMode,
+          inputs: availableInputs.map((input) => reviewSubmissionInput(input, drafts, draftSources)),
+
+        };
+        try {
+          await api("/api/jobs/" + encodeURIComponent(job.jobId) + "/review-inputs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          workspace.clearDrafts();
+          location.href = workspace.navigationUrl();
+        } catch (error) {
+          message.textContent = error && error.message ? error.message : "Available assemblies could not be calculated.";
           updateDraftProgress(aside, allInputs, drafts, active);
         }
       };
@@ -467,7 +489,7 @@ function libraryOptionFor(job, requestedInputId, materialLibraryKey) {
 
 function reviewSubmit(job, allInputs, hasUnresolvedReview, reviewMode) {
   if (!hasUnresolvedReview || allInputs.length === 0) return "";
-  return '<section class="calculation-submit"><div><strong id="draftProgress">0 of ' + allInputs.length + ' decisions ready</strong><span>Review mode: ' + esc(reviewModeLabel(reviewMode)) + '. Library values remain traceable and any value can be changed manually.</span><span id="reviewMsg"></span></div><div class="submit-actions"><button type="button" id="runCalculation" disabled>Run thermal calculation -></button></div></section>';
+  return '<section class="calculation-submit"><div><strong id="draftProgress">0 of ' + allInputs.length + ' decisions ready</strong><span>Review mode: ' + esc(reviewModeLabel(reviewMode)) + '. Library values remain traceable and any value can be changed manually.</span><span id="reviewMsg"></span></div><div class="submit-actions"><button type="button" class="secondary" id="runAvailableCalculation" disabled>Calculate available assemblies -></button><button type="button" id="runCalculation" disabled>Run thermal calculation -></button></div></section>';
 }
 function updateDraftProgress(aside, allInputs, drafts, activeAssembly) {
   const completed = allInputs.filter((input) => hasValidDraft(input, drafts[input.requestedInputId])).length;
@@ -475,6 +497,8 @@ function updateDraftProgress(aside, allInputs, drafts, activeAssembly) {
   if (progress) progress.textContent = completed + " of " + allInputs.length + " decisions ready";
   const runButton = aside.querySelector("#runCalculation");
   if (runButton) runButton.disabled = completed !== allInputs.length;
+  const runAvailableButton = aside.querySelector("#runAvailableCalculation");
+  if (runAvailableButton) runAvailableButton.disabled = false;
   const activeState = aside.querySelector("#activeDraftState");
   if (activeState && activeAssembly) {
     const assemblyInputs = allInputs.filter((input) => input.affectedAssemblyGroupIds.includes(activeAssembly.assemblyGroupId));
@@ -649,6 +673,15 @@ function localReviewStateNote(progress) {
 }
 
 function hasDraftValue(value) { return value !== undefined && String(value).trim() !== ""; }
+function reviewSubmissionInput(input, drafts, draftSources) {
+  return {
+    requestedInputId: input.requestedInputId,
+    value: drafts[input.requestedInputId],
+    unit: input.submission.unit,
+    overrideScope: input.submission.overrideScope,
+    materialLibraryKey: draftSources[input.requestedInputId] && draftSources[input.requestedInputId].materialLibraryKey,
+  };
+}
 function hasValidDraft(input, value) {
   if (!input || !hasDraftValue(value)) return false;
   return input.inputType !== "number" || (Number.isFinite(Number(value)) && Number(value) > 0);
