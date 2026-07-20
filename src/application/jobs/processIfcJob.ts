@@ -9,6 +9,7 @@ import { specialPhysicsIssuesForEvidence } from "../../domain/materials/material
 import { runCoreReviewCalculationReport } from "../review/runCoreReviewCalculationReport.js";
 import type { JobRepository } from "../../domain/jobs/jobRepository.js";
 import type { JobRecord } from "../../domain/jobs/jobTypes.js";
+import type { MaterialLibrary } from "../../domain/materials/materialTypes.js";
 import { WebIfcEvidenceExtractor } from "../../infrastructure/ifc/web-ifc/WebIfcEvidenceExtractor.js";
 import { LocalJobArtifactStore } from "../../infrastructure/storage/local-files/jobArtifactStore.js";
 import { createMilestone1ArtifactPackage } from "../ifc/createMilestone1ArtifactPackage.js";
@@ -20,7 +21,10 @@ export type ProcessIfcJobDeps = {
   extractCalculationInputEvidence?: (
     job: JobRecord,
   ) => Promise<CalculationInputEvidence[]>;
+  materialLibrary?: MaterialLibrary;
 };
+
+export const reviewPlanVersion = "review-plan.v1";
 
 export async function processIfcJob(command: {
   jobId: string;
@@ -31,6 +35,7 @@ export async function processIfcJob(command: {
     throw new Error(`Job not found: ${command.jobId}`);
   }
   const artifactStore = command.deps.artifactStore ?? new LocalJobArtifactStore(command.deps.outputRoot);
+  const materialLibrary = command.deps.materialLibrary ?? defaultMaterialLibraryV1;
   try {
     command.deps.jobs.updateJob(command.jobId, {
       jobStatus: "processing",
@@ -43,17 +48,22 @@ export async function processIfcJob(command: {
     await writeEvidenceJson(artifactStore, command.jobId, "calculation-input-evidence.json", calculationInputEvidence);
     const requestedInputs = planRequestedInputs({
       calculationInputEvidence,
-      materialLibrary: defaultMaterialLibraryV1,
+      materialLibrary,
       deferResolvedMaterialsToReview: true,
     }).requestedInputs;
-    command.deps.jobs.saveReviewState({ jobId: command.jobId, requestedInputs });
+    command.deps.jobs.saveReviewState({
+      jobId: command.jobId,
+      requestedInputs,
+      planVersion: reviewPlanVersion,
+      materialLibraryVersion: materialLibrary.version,
+    });
     await writeJobJson(artifactStore, command.jobId, "requested-inputs.json", requestedInputs);
 
     const requiredRequestedInputs = requestedInputs.filter((input) => input.required !== false);
     const hasSpecialPhysicsBlocker = calculationInputEvidence.some((evidence) =>
       specialPhysicsIssuesForEvidence({
         evidence,
-        materialLibrary: defaultMaterialLibraryV1,
+        materialLibrary,
       }).length > 0,
     );
     if (requiredRequestedInputs.length > 0 || hasSpecialPhysicsBlocker) {
@@ -77,6 +87,7 @@ export async function processIfcJob(command: {
     });
   }
 }
+
 
 export async function completeJobWithReviewInputs(command: {
   jobId: string;
@@ -111,7 +122,7 @@ export async function completeJobWithReviewInputs(command: {
       artifactStore,
       outputRoot: command.deps.outputRoot,
       calculationInputEvidence,
-      materialLibrary: defaultMaterialLibraryV1,
+      materialLibrary: command.deps.materialLibrary ?? defaultMaterialLibraryV1,
       userInputs: command.userInputs,
       parentRevisionId: previousJob.activeRevisionId,
     });

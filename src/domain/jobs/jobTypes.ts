@@ -18,6 +18,8 @@ export type JobRecord = {
 export type JobReviewState = {
   jobId: string;
   requestedInputs: RequestedInput[];
+  planVersion?: string;
+  materialLibraryVersion?: string;
 };
 
 export type JobSummary = Pick<

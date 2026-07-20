@@ -2,7 +2,7 @@ import type { Confidence, EvidenceReference } from "../evidence/evidenceTypes.js
 import type { UserInput } from "../review/reviewTypes.js";
 
 export type MaterialLibrary = {
-  version: "materials.library.v1";
+  version: string;
   entries: MaterialLibraryEntry[];
 };
 

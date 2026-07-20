@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { readFile } from "node:fs/promises";
 
 import { createJob } from "../../application/jobs/createJob.js";
+import { reconcileJobReviewPlan } from "../../application/jobs/reconcileJobReviewPlan.js";
 import { getJobWorkspace } from "../../application/jobs/getJobWorkspace.js";
 import type { ProcessIfcJobDeps } from "../../application/jobs/processIfcJob.js";
 import { submitJobReviewInputs } from "../../application/jobs/submitJobReviewInputs.js";
@@ -68,10 +69,15 @@ export function createLocalhostApp(command: {
         );
       }
 
+      const reconcileJobId = matchPath(url.pathname, /^\/api\/jobs\/([^/]+)\/reconcile-review-plan$/);
+      if (req.method === "POST" && reconcileJobId) {
+        const result = await reconcileJobReviewPlan({ jobId: reconcileJobId, deps: workerDeps });
+        return json(res, 202, result);
+      }
+
       const reviewJobId = matchPath(url.pathname, /^\/api\/jobs\/([^/]+)\/review-inputs$/);
       if (req.method === "POST" && reviewJobId) {
-        const body = await readJson(req);
-        const result = await submitJobReviewInputs({
+        const body = await readJson(req);        const result = await submitJobReviewInputs({
           jobId: reviewJobId,
           body,
           jobs,
