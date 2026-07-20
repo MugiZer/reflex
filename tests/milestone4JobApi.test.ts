@@ -50,7 +50,8 @@ describe("Milestone 4 Job API", () => {
     expect(client).toContain("workspace.setViewer(createdViewer)");
     expect(client).toContain("workspace.navigationUrl()");
     expect(client).toContain("actionDetail(active, job, allInputs, drafts, hasUnresolvedReview, reviewMode)");
-    expect(client).toContain("input.materialResolution && input.materialResolution.matchedMaterialKey");
+    expect(client).toContain("job.review.projection && job.review.projection.decisions");
+      expect(client).not.toContain("function normalizeMaterialName");
     expect(() => new Function(client)).not.toThrow();
   });
 

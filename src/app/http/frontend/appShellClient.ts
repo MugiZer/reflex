@@ -131,7 +131,7 @@ function renderReviewSetup(job, workspace) {
 
   const targetU = workspace.state.targetU;
   const inputs = reviewInputsFor(job);
-  const matchedCount = inputs.filter((input) => librarySuggestion(job, input, reviewQuestionContext(job, input.requestedInputId))).length;
+  const matchedCount = inputs.filter((input) => input.defaultValue !== null).length;
   app.innerHTML = projectHeader(job, targetU) + '<section class="review-setup panel"><div class="review-setup-intro"><span class="eyebrow">Before you review</span><h1>How should we resolve missing values?</h1><p>Choose how you want to fill the calculation inputs. You can change any individual value later.</p><p class="review-setup-count"><strong>' + esc(matchedCount) + ' of ' + esc(inputs.length) + '</strong> inputs have an exact Material Library match. The rest need a manual value or a different material selection.</p></div><div class="review-mode-grid"><button type="button" class="review-mode-card" data-review-mode="library"><span class="mode-kicker">Fastest start</span><strong>Use Material Library values</strong><span>Prefill exact matches from the reference library and show the selected material and lambda for every input.</span></button><button type="button" class="review-mode-card" data-review-mode="manual"><span class="mode-kicker">Full control</span><strong>Enter values manually</strong><span>Start with blank inputs and provide the thermal values yourself.</span></button><button type="button" class="review-mode-card" data-review-mode="mixed"><span class="mode-kicker">Recommended</span><strong>Use a mix</strong><span>Prefill credible library matches and manually complete the remaining inputs.</span></button></div><p class="review-setup-note">Material Library values are reference data. Confirm them against the product or specification before relying on the final report.</p></section>';
   wireTargetForm();
   document.querySelectorAll("[data-review-mode]").forEach((button) => {
@@ -145,10 +145,7 @@ function renderReviewSetup(job, workspace) {
 }
 
 function reviewInputsFor(job) {
-  const model = job.architectActions || emptyActionModel(job);
-  const assemblies = model.assemblies || [];
-  const unresolvedInputIds = new Set(assemblies.flatMap((assembly) => assembly.nextAction.requestedInputIds || []));
-  return uniqueRequestedInputs((job.review && job.review.requestedInputs) || []).filter((input) => unresolvedInputIds.has(input.requestedInputId));
+  return ((job.review && job.review.projection && job.review.projection.decisions) || []).filter((decision) => decision.required && decision.status === "pending");
 }
 
 function seedReviewMode(job, draftSeed, draftSourceSeed, mode) {
@@ -156,18 +153,16 @@ function seedReviewMode(job, draftSeed, draftSourceSeed, mode) {
   const sources = { ...(draftSourceSeed || {}) };
   if (mode !== "manual") {
     reviewInputsFor(job).forEach((input) => {
-      const library = librarySuggestion(job, input, reviewQuestionContext(job, input.requestedInputId));
+      const library = input.defaultValue;
       if (!library || hasDraftValue(drafts[input.requestedInputId])) return;
-      drafts[input.requestedInputId] = String(library.lambdaWPerMK);
-      sources[input.requestedInputId] = { source: "material_library", materialLibraryKey: library.materialKey };
+      drafts[input.requestedInputId] = String(library.value);
+      sources[input.requestedInputId] = { source: library.source, materialLibraryKey: library.materialLibraryKey };
     });
   }
   return { drafts, sources };
 }
 function hasReviewInputs(job) {
-  const model = job.architectActions || emptyActionModel(job);
-  const unresolved = new Set((model.assemblies || []).flatMap((assembly) => assembly.nextAction.requestedInputIds || []));
-  return Boolean(job.review && (job.review.requestedInputs || []).some((input) => unresolved.has(input.requestedInputId)));
+  return reviewInputsFor(job).length > 0;
 }
 function renderProcessing(job, targetU) {
   app.innerHTML = projectHeader(job, targetU) + '<section class="panel processing-panel"><span class="loading-dot"></span><div><h2>Reading IFC evidence</h2><p class="muted">The model is being grouped into thermal assemblies. This page updates automatically.</p></div></section>';
@@ -179,8 +174,7 @@ function renderArchitectWorkspace(job, workspace) {
   const reviewMode = workspace.state.reviewMode;
   const model = job.architectActions || emptyActionModel(job);
   const assemblies = model.assemblies || [];
-  const unresolvedInputIds = new Set(assemblies.flatMap((assembly) => assembly.nextAction.requestedInputIds || []));
-  const allInputs = uniqueRequestedInputs((job.review && job.review.requestedInputs) || []).filter((input) => unresolvedInputIds.has(input.requestedInputId));
+  const allInputs = reviewInputsFor(job);
   const drafts = workspace.state.drafts;
   const draftSources = workspace.state.sources;
   let viewerVisible = true;
@@ -275,19 +269,19 @@ function renderArchitectWorkspace(job, workspace) {
     });
     aside.querySelectorAll("[data-library-picker]").forEach((picker) => {
       picker.onchange = () => {
-        const entry = ((job.materialLibrary && job.materialLibrary.entries) || []).find((candidate) => candidate.materialKey === picker.value);
+        const entry = libraryOptionFor(job, picker.dataset.libraryInputId, picker.value);
         if (!entry) return;
-        workspace.setDraft(picker.dataset.libraryInputId, String(entry.lambdaWPerMK), { source: "material_library", materialLibraryKey: entry.materialKey });
+        workspace.setDraft(picker.dataset.libraryInputId, String(entry.lambdaWPerMK), { source: "material_library", materialLibraryKey: entry.materialLibraryKey });
         renderAside();
       };
     });
     aside.querySelectorAll("[data-apply-optional]").forEach((button) => {
       button.onclick = async () => {
         const requestedInputId = button.dataset.optionalInputId;
-        const requested = (job.review && job.review.requestedInputs || []).find((input) => input.requestedInputId === requestedInputId);
+        const requested = decisionFor(job, requestedInputId);
         const select = document.getElementById("optionalLibrary_" + requestedInputId);
         const manual = document.getElementById("optionalValue_" + requestedInputId);
-        const entry = ((job.materialLibrary && job.materialLibrary.entries) || []).find((candidate) => candidate.materialKey === (select && select.value));
+        const entry = libraryOptionFor(job, requestedInputId, select && select.value);
         const value = entry ? entry.lambdaWPerMK : Number(manual && manual.value);
         if (!requested || !Number.isFinite(value) || value <= 0) return;
         button.disabled = true;
@@ -299,9 +293,9 @@ function renderArchitectWorkspace(job, workspace) {
               inputs: [{
                 requestedInputId,
                 value: String(value),
-                unit: requested.unit,
-                overrideScope: requested.scope.scopeKind,
-                materialLibraryKey: entry && entry.materialKey,
+                unit: requested.submission.unit,
+                overrideScope: requested.submission.overrideScope,
+                materialLibraryKey: entry && entry.materialLibraryKey,
               }],
             }),
           });
@@ -326,8 +320,8 @@ function renderArchitectWorkspace(job, workspace) {
           inputs: allInputs.map((input) => ({
             requestedInputId: input.requestedInputId,
             value: drafts[input.requestedInputId],
-            unit: input.unit,
-            overrideScope: input.scope.scopeKind,
+            unit: input.submission.unit,
+            overrideScope: input.submission.overrideScope,
             materialLibraryKey: draftSources[input.requestedInputId] && draftSources[input.requestedInputId].materialLibraryKey,
           })),
         };
@@ -403,15 +397,13 @@ function filterButton(value, label, count, activeFilter) {
 }
 
 function actionCard(assembly, selected, drafts, allInputs) {
-  const requestedIds = assembly.nextAction.requestedInputIds || [];
-  const inputsById = new Map(allInputs.map((input) => [input.requestedInputId, input]));
-  const readyLocally = requestedIds.length > 0 && requestedIds.every((id) => hasValidDraft(inputsById.get(id), drafts[id]));
+  const assemblyInputs = allInputs.filter((input) => input.affectedAssemblyGroupIds.includes(assembly.assemblyGroupId));
+  const readyLocally = assemblyInputs.length > 0 && assemblyInputs.every((input) => hasValidDraft(input, drafts[input.requestedInputId]));
   return '<button type="button" data-action-id="' + esc(assembly.assemblyGroupId) + '" class="action-card ' + (selected ? "selected " : "") + stateClass(assembly) + '"><div class="action-card-top"><span class="state-dot"></span><span class="action-state-label">' + esc(readyLocally ? "Ready locally" : actionStateLabel(assembly)) + '</span><strong>' + esc(resultText(assembly.performance.result)) + '</strong></div><span class="action-card-title">' + esc(assembly.label) + '</span><small>' + esc(assembly.locationLabel) + '</small><span class="action-card-meta">Target: ' + esc(targetText(assembly.performance.target)) + ' | ' + esc(confidenceText(assembly)) + '</span><span class="action-card-problem">' + esc(assembly.problem) + '</span><span class="action-card-next">' + esc(assembly.nextAction.label) + '</span></button>';
 }
 
 function actionDetail(assembly, job, allInputs, drafts, hasUnresolvedReview, reviewMode) {
-  const requestedIds = new Set(assembly.nextAction.requestedInputIds || []);
-  const actionInputs = allInputs.filter((input) => requestedIds.has(input.requestedInputId));
+  const actionInputs = allInputs.filter((input) => input.affectedAssemblyGroupIds.includes(assembly.assemblyGroupId));
   return '<section class="action-detail"><header class="action-detail-head"><div><span class="eyebrow">Selected assembly</span><h2>' + esc(assembly.label) + '</h2><p>' + esc(assembly.locationLabel) + '</p></div><span class="state-pill ' + stateClass(assembly) + '">' + esc(actionStateLabel(assembly)) + '</span></header>' +
     '<div class="result-grid">' + resultMetric(resultText(assembly.performance.result), "Calculated U-value") + resultMetric(targetText(assembly.performance.target), "Working target") + resultMetric(confidenceText(assembly), "Evidence") + resultMetric(String(assembly.sourceElementCount), "IFC elements") + '</div>' +
     '<div class="diagnosis"><span>Problem</span><strong>' + esc(assembly.problem) + '</strong><span>Next action</span><strong>' + esc(assembly.nextAction.label) + '</strong></div>' +
@@ -422,15 +414,12 @@ function actionDetail(assembly, job, allInputs, drafts, hasUnresolvedReview, rev
 }
 
 function optionalMaterialOverride(job, assembly) {
-  const overrides = assembly.optionalOverrides || [];
-  const entries = (job.materialLibrary && job.materialLibrary.entries) || [];
+  const overrides = (assembly.optionalOverrides || []).map((override) => decisionFor(job, override.requestedInputId)).filter(Boolean);
   if (!overrides.length) return "";
   return '<section class="optional-override"><div class="section-heading"><div><span class="eyebrow">Material Library assistance</span><h3>Choose another material (optional)</h3></div><span>Does not change IFC evidence</span></div>' +
-    overrides.map((override) => '<div class="optional-override-row"><p>Original IFC name: <strong>' + esc(override.rawMaterialName) + '</strong><br>Current match: ' + esc(override.matchedMaterialName) + (override.matchBasis ? ' (' + esc(override.matchBasis) + ')' : '') + '</p><label>Library material<select id="optionalLibrary_' + esc(override.requestedInputId) + '"><option value="">Choose a library material</option>' + entries.map((entry) => '<option value="' + esc(entry.materialKey) + '">' + esc(entry.displayName + ' - ' + number(entry.lambdaWPerMK, 3) + ' W/mK') + '</option>').join("") + '</select></label><label>Manual lambda<input id="optionalValue_' + esc(override.requestedInputId) + '" type="number" min="0.000001" step="any" placeholder="Optional product value"></label><button type="button" class="secondary" data-apply-optional data-optional-input-id="' + esc(override.requestedInputId) + '">Apply material override</button></div>').join("") +
+    overrides.map((decision) => '<div class="optional-override-row"><p>Original IFC name: <strong>' + esc(decision.evidence.materialLabel || "Unknown IFC material") + '</strong><br>Current match: ' + esc(decision.defaultValue ? decision.defaultValue.materialLibraryName : "No library default") + '</p><label>Library material<select id="optionalLibrary_' + esc(decision.requestedInputId) + '"><option value="">Choose a library material</option>' + decision.constraints.materialOptions.map((entry) => '<option value="' + esc(entry.materialLibraryKey) + '">' + esc(entry.label + ' - ' + number(entry.lambdaWPerMK, 3) + ' W/mK') + '</option>').join("") + '</select></label><label>Manual lambda<input id="optionalValue_' + esc(decision.requestedInputId) + '" type="number" min="0.000001" step="any" placeholder="Optional product value"></label><button type="button" class="secondary" data-apply-optional data-optional-input-id="' + esc(decision.requestedInputId) + '">Apply material override</button></div>').join("") +
     '</section>';
 }
-
-
 function resultMetric(value, label) {
   return '<div class="result-metric"><strong>' + esc(value) + '</strong><span>' + esc(label) + '</span></div>';
 }
@@ -444,30 +433,23 @@ function layerComposition(layers) {
 }
 
 function renderQuestion(job, input, drafts, index) {
-  const context = reviewQuestionContext(job, input.requestedInputId);
-  const evidence = context && context.evidenceSummary;
+  const evidence = input.evidence;
   const type = input.inputType === "number" ? "number" : "text";
   const value = drafts[input.requestedInputId] || "";
-  const library = librarySuggestion(job, input, context);
-  const evidenceHtml = evidence ? '<details class="evidence"><summary>Why this input?</summary><dl><dt>Element</dt><dd>' + esc(evidence.elementLabel) + '</dd><dt>Layer</dt><dd>' + esc(evidence.layerLabel || "Not layer-specific") + '</dd><dt>Material</dt><dd>' + esc(evidence.materialLabel || "Unknown") + '</dd></dl></details>' : '';
-  const candidateKeys = input.materialResolution && input.materialResolution.candidateMaterialKeys;
-  const libraryOptions = input.datapoint === "layer_lambda" ? ((job.materialLibrary && job.materialLibrary.entries) || []).filter((entry) => candidateKeys === undefined || candidateKeys.includes(entry.materialKey)).map((entry) => '<option value="' + esc(entry.materialKey) + '">' + esc(entry.displayName + " - " + number(entry.lambdaWPerMK, 3) + " W/mK") + '</option>').join("") : "";
-  const suggestionHtml = input.datapoint === "layer_lambda" ? '<div class="library-suggestion">' + (library ? '<span>Suggested: <strong>' + number(library.lambdaWPerMK, 3) + ' W/mK</strong> | ' + esc(library.displayName) + '</span><small>' + esc(library.sourceLabel) + '</small><button type="button" class="secondary" data-use-library data-library-input-id="' + esc(input.requestedInputId) + '" data-library-value="' + esc(library.lambdaWPerMK) + '" data-library-key="' + esc(library.materialKey) + '">Use suggested value</button>' : '<span>No exact library match.</span><small>Choose a reference material or enter a manual value.</small>') + '<label class="library-picker">Material database<select data-library-picker data-library-input-id="' + esc(input.requestedInputId) + '"><option value="">Choose another material</option>' + libraryOptions + '</select></label></div>' : "";
-  return '<div class="question"><label for="reviewInput' + index + '">' + esc(input.question) + '</label><p class="question-meta">' + esc((context && context.missingValueLabel) || input.datapoint) + (input.unit ? '  |  ' + esc(input.unit) : '') + '</p>' + suggestionHtml + evidenceHtml + '<input id="reviewInput' + index + '" data-requested-input-id="' + esc(input.requestedInputId) + '" type="' + type + '" ' + (type === "number" ? 'step="any" min="0.000001" ' : '') + 'value="' + esc(value) + '" required placeholder="Enter a manual value"><p class="scope-help">Applies to: ' + esc(scopeLabel(input.scope.scopeKind)) + '</p></div>';
+  const library = input.defaultValue;
+  const evidenceHtml = '<details class="evidence"><summary>Why this input?</summary><dl><dt>Element</dt><dd>' + esc(evidence.elementLabel) + '</dd><dt>Layer</dt><dd>' + esc(evidence.layerLabel || "Not layer-specific") + '</dd><dt>Material</dt><dd>' + esc(evidence.materialLabel || "Unknown") + '</dd></dl></details>';
+  const libraryOptions = input.constraints.materialOptions.map((entry) => '<option value="' + esc(entry.materialLibraryKey) + '">' + esc(entry.label + " - " + number(entry.lambdaWPerMK, 3) + " W/mK") + '</option>').join("");
+  const suggestionHtml = input.datapoint === "layer_lambda" ? '<div class="library-suggestion">' + (library ? '<span>Suggested: <strong>' + number(library.value, 3) + ' W/mK</strong> | ' + esc(library.materialLibraryName) + '</span><small>' + esc(library.sourceLabel) + '</small><button type="button" class="secondary" data-use-library data-library-input-id="' + esc(input.requestedInputId) + '" data-library-value="' + esc(library.value) + '" data-library-key="' + esc(library.materialLibraryKey) + '">Use suggested value</button>' : '<span>No exact library match.</span><small>Choose a reference material or enter a manual value.</small>') + '<label class="library-picker">Material database<select data-library-picker data-library-input-id="' + esc(input.requestedInputId) + '"><option value="">Choose another material</option>' + libraryOptions + '</select></label></div>' : "";
+  return '<div class="question"><label for="reviewInput' + index + '">' + esc(input.label) + '</label><p class="question-meta">' + esc(input.datapoint) + (input.unit ? '  |  ' + esc(input.unit) : "") + '</p>' + suggestionHtml + evidenceHtml + '<input id="reviewInput' + index + '" data-requested-input-id="' + esc(input.requestedInputId) + '" type="' + type + '" ' + (type === "number" ? 'step="any" min="' + esc(input.constraints.minimumExclusive || 0.000001) + '" ' : "") + 'value="' + esc(value) + '" required placeholder="Enter a manual value"><p class="scope-help">Applies to: ' + esc(scopeLabel(input.submission.overrideScope)) + '</p></div>';
 }
 
-function librarySuggestion(job, input, context) {
-  if (input.datapoint !== "layer_lambda") return null;
-  const matchedMaterialKey = input.materialResolution && input.materialResolution.matchedMaterialKey;
-  const resolved = ((job.materialLibrary && job.materialLibrary.entries) || []).find((entry) => entry.materialKey === matchedMaterialKey);
-  if (resolved) return resolved;
-  const materialName = input.scope && input.scope.scopeKind === "material_decision" ? input.scope.materialName : context && context.evidenceSummary && context.evidenceSummary.materialLabel;
-  const key = normalizeMaterialName(materialName);
-  return ((job.materialLibrary && job.materialLibrary.entries) || []).find((entry) => [entry.displayName].concat(entry.aliases || []).some((alias) => normalizeMaterialName(alias) === key)) || null;
+function decisionFor(job, requestedInputId) {
+  return ((job.review && job.review.projection && job.review.projection.decisions) || []).find((decision) => decision.requestedInputId === requestedInputId) || null;
 }
 
-function normalizeMaterialName(value) {
-  return String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+function libraryOptionFor(job, requestedInputId, materialLibraryKey) {
+  const decision = decisionFor(job, requestedInputId);
+  return decision && decision.constraints.materialOptions.find((entry) => entry.materialLibraryKey === materialLibraryKey) || null;
 }
 
 function reviewSubmit(job, allInputs, hasUnresolvedReview, reviewMode) {
@@ -482,9 +464,8 @@ function updateDraftProgress(aside, allInputs, drafts, activeAssembly) {
   if (runButton) runButton.disabled = completed !== allInputs.length;
   const activeState = aside.querySelector("#activeDraftState");
   if (activeState && activeAssembly) {
-    const ids = activeAssembly.nextAction.requestedInputIds || [];
-    const inputsById = new Map(allInputs.map((input) => [input.requestedInputId, input]));
-    const complete = ids.length > 0 && ids.every((id) => hasValidDraft(inputsById.get(id), drafts[id]));
+    const assemblyInputs = allInputs.filter((input) => input.affectedAssemblyGroupIds.includes(activeAssembly.assemblyGroupId));
+    const complete = assemblyInputs.length > 0 && assemblyInputs.every((input) => hasValidDraft(input, drafts[input.requestedInputId]));
     activeState.textContent = complete ? "Ready locally" : "Needs input";
     activeState.className = "draft-state " + (complete ? "ready" : "");
   }
@@ -546,24 +527,6 @@ function buildElementInfo(assemblies) {
     };
   }));
   return info;
-}
-
-function reviewQuestionContext(job, requestedInputId) {
-  const groups = job.review && job.review.context && job.review.context.groups || [];
-  for (const group of groups) {
-    const question = (group.questions || []).find((candidate) => candidate.requestedInputId === requestedInputId);
-    if (question) return question;
-  }
-  return null;
-}
-
-function uniqueRequestedInputs(inputs) {
-  const seen = new Set();
-  return inputs.filter((input) => {
-    if (seen.has(input.requestedInputId)) return false;
-    seen.add(input.requestedInputId);
-    return true;
-  });
 }
 
 function emptyActionModel(job) {

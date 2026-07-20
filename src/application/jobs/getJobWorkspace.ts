@@ -1,6 +1,7 @@
 import { buildArchitectActionViewModel } from "./buildArchitectActionViewModel.js";
 import { defaultMaterialLibraryV1 } from "../../domain/materials/library.v1.js";
 import type { JobRepository } from "../../domain/jobs/jobRepository.js";
+import { buildActionReadyReviewProjection, type ActionReadyReviewProjection } from "../review/buildActionReadyReviewProjection.js";
 import type { JobRecord, JobReviewState } from "../../domain/jobs/jobTypes.js";
 import type { LocalJobArtifactStore } from "../../infrastructure/storage/local-files/jobArtifactStore.js";
 import {
@@ -14,7 +15,10 @@ import {
 
 export type JobWorkspaceViewModel = {
   job: JobRecord;
-  review: (JobReviewState & { context: ReviewContextViewModel }) | null;
+  review: (JobReviewState & {
+    context: ReviewContextViewModel;
+    projection: ActionReadyReviewProjection;
+  }) | null;
   architectActions: ReturnType<typeof buildArchitectActionViewModel>;
   materialLibrary: typeof defaultMaterialLibraryV1;
 };
@@ -43,13 +47,24 @@ export async function getJobWorkspace(command: {
     jobId: command.jobId,
     activeRevisionId: job.activeRevisionId,
   });
-  const review = reviewState
+  const reviewContext = reviewState
+    ? buildReviewContextViewModel({
+        jobId: command.jobId,
+        requestedInputs: reviewState.requestedInputs,
+        calculationInputEvidence: evidence,
+      })
+    : null;
+  const review = reviewState && reviewContext
     ? {
         ...reviewState,
-        context: buildReviewContextViewModel({
+        context: reviewContext,
+        projection: buildActionReadyReviewProjection({
           jobId: command.jobId,
           requestedInputs: reviewState.requestedInputs,
           calculationInputEvidence: evidence,
+          materialLibrary: defaultMaterialLibraryV1,
+          context: reviewContext,
+          resolvedRequestedInputIds: new Set(activeRevision?.userInputs.map((input) => input.requestedInputId) ?? []),
         }),
       }
     : null;
