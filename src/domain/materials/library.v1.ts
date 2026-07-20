@@ -22,7 +22,7 @@ export const defaultMaterialLibraryV1: MaterialLibrary = {
     {
       materialKey: "concrete_block",
       displayName: "Concrete block",
-      aliases: ["concrete block", "concrete masonry unit", "cmu", "bloc de beton", "bloc beton", "parpaing"],
+      aliases: ["concrete block", "concrete masonry unit", "cmu", "bloc de beton", "bloc beton", "blocs beton manufactures", "parpaing"],
       lambdaWPerMK: 1.1,
       sourceLabel: "Prototype reference library - confirm product data",
       confidence: "medium",
@@ -30,7 +30,7 @@ export const defaultMaterialLibraryV1: MaterialLibrary = {
     {
       materialKey: "masonry_brick",
       displayName: "Masonry brick",
-      aliases: ["brick", "masonry brick", "clay brick", "brique", "brique maconnerie", "masonry"],
+      aliases: ["brick", "masonry brick", "clay brick", "brique", "brique maconnerie", "brique modulaire b1a", "brique modulaire b2a", "masonry"],
       lambdaWPerMK: 0.77,
       sourceLabel: "Prototype reference library - confirm product data",
       confidence: "medium",

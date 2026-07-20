@@ -50,10 +50,133 @@ describe("Milestone 4 Job API", () => {
     expect(client).toContain("workspace.setViewer(createdViewer)");
     expect(client).toContain("workspace.navigationUrl()");
     expect(client).toContain("actionDetail(active, job, allInputs, drafts, hasUnresolvedReview, reviewMode)");
+    expect(client).toContain("input.materialResolution && input.materialResolution.matchedMaterialKey");
     expect(() => new Function(client)).not.toThrow();
   });
 
+  it("keeps a recognized bilingual material in Review so the startup mode can prefill it", async () => {
+    const root = join(tmpdir(), `m4-api-library-startup-${Date.now()}`);
+    const recognized = workerCalculationInputEvidence();
+    const layer = {
+      layerIndex: 0,
+      layerStepId: 8801,
+      materialName: "Project_06_Contreplaqu\u00e9 trait\u00e9_18mm",
+    };
+    recognized.fixedInputs = recognized.fixedInputs.map((entry) => ({
+      ...entry,
+      value: entry.field === "layer_material_name" ? layer.materialName : entry.value,
+      layer,
+    }));
+    recognized.missingInputs = recognized.missingInputs.map((entry) => ({ ...entry, layer }));
+    const app = createLocalhostApp({
+      databasePath: join(root, "data", "app.db"),
+      storageRoot: join(root, "storage"),
+      outputRoot: join(root, "outputs"),
+      workerOverrides: { extractCalculationInputEvidence: async () => [recognized] },
+    });
+    try {
+      app.server.listen(0, "127.0.0.1");
+      await once(app.server, "listening");
+      const baseUrl = boundUrl(app.server);
+      const form = new FormData();
+      form.set("ifc", new Blob(["ISO-10303-21; bilingual fixture; END-ISO-10303-21;"]), "fixture.ifc");
+
+      const created = await postJson(`${baseUrl}/api/jobs`, form);
+      const needsReview = await waitForJob(baseUrl, created.jobId, "needs_review");
+
+      const requiredInputs = needsReview.review.requestedInputs.filter((input: any) => input.required !== false);
+      expect(requiredInputs).toEqual([
+        expect.objectContaining({
+          datapoint: "layer_lambda",
+          materialResolution: expect.objectContaining({
+            status: "resolved",
+            matchedMaterialKey: "plywood",
+          }),
+        }),
+      ]);
+
+      const selected = requiredInputs[0];
+      await postJson(`${baseUrl}/api/jobs/${created.jobId}/review-inputs`, {
+        inputs: [{
+          requestedInputId: selected.requestedInputId,
+          unit: selected.unit,
+          overrideScope: selected.scope.scopeKind,
+          materialLibraryKey: selected.materialResolution.matchedMaterialKey,
+        }],
+      });
+
+      const completedWorkspace = await getJson(`${baseUrl}/api/jobs/${created.jobId}`);
+      expect(completedWorkspace.architectActions.assemblies[0]).toEqual(expect.objectContaining({
+        readinessState: "ready",
+        evidenceState: expect.objectContaining({ status: "library_assisted" }),
+      }));
+      expect(completedWorkspace.architectActions.assemblies[0].layers[0]).toEqual(expect.objectContaining({
+        materialLibraryKey: "plywood",
+        datapointSources: expect.arrayContaining(["material_library"]),
+      }));
+    } finally {
+      app.server.close();
+      app.jobs.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("applies recognized Material Library decisions on the server when Library mode is submitted", async () => {
+    const root = join(tmpdir(), `m4-api-library-mode-${Date.now()}`);
+    const recognized = workerCalculationInputEvidence();
+    const layer = {
+      layerIndex: 0,
+      layerStepId: 8801,
+      materialName: "Project_06_Contreplaqu\u00e9 trait\u00e9_18mm",
+    };
+    recognized.fixedInputs = recognized.fixedInputs.map((entry) => ({
+      ...entry,
+      value: entry.field === "layer_material_name" ? layer.materialName : entry.value,
+      layer,
+    }));
+    recognized.missingInputs = recognized.missingInputs.map((entry) => ({ ...entry, layer }));
+    const app = createLocalhostApp({
+      databasePath: join(root, "data", "app.db"),
+      storageRoot: join(root, "storage"),
+      outputRoot: join(root, "outputs"),
+      workerOverrides: { extractCalculationInputEvidence: async () => [recognized] },
+    });
+    try {
+      app.server.listen(0, "127.0.0.1");
+      await once(app.server, "listening");
+      const baseUrl = boundUrl(app.server);
+      const form = new FormData();
+      form.set("ifc", new Blob(["ISO-10303-21; bilingual fixture; END-ISO-10303-21;"]), "fixture.ifc");
+
+      const created = await postJson(`${baseUrl}/api/jobs`, form);
+      await waitForJob(baseUrl, created.jobId, "needs_review");
+
+      const completed = await postJson(`${baseUrl}/api/jobs/${created.jobId}/review-inputs`, {
+        reviewMode: "library",
+        inputs: [],
+      });
+
+      expect(completed.jobStatus).toBe("completed");
+      const revision = JSON.parse(await readFile(
+        join(root, "outputs", created.jobId, "revisions", completed.revisionId + ".json"),
+        "utf8",
+      ));
+      expect(revision.userInputs).toEqual([
+        expect.objectContaining({
+          value: 0.13,
+          valueSource: "material_library",
+          materialLibraryKey: "plywood",
+        }),
+      ]);
+    } finally {
+      app.server.close();
+      app.jobs.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("uploads an IFC, reaches Review, accepts input, and serves report", async () => {
+
     const root = join(tmpdir(), `m4-api-${Date.now()}`);
     const app = createLocalhostApp({
       databasePath: join(root, "data", "app.db"),

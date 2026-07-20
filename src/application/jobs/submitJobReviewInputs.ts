@@ -5,6 +5,8 @@ import { materialLibraryEntryForKey } from "../../domain/materials/resolveLayerL
 import { readActiveRevisionArtifact } from "../../infrastructure/storage/local-files/jobReviewArtifactStore.js";
 import { completeJobWithReviewInputs, type ProcessIfcJobDeps } from "./processIfcJob.js";
 
+type ReviewMode = "library" | "manual" | "mixed";
+
 export async function submitJobReviewInputs(command: {
   jobId: string;
   body: unknown;
@@ -19,6 +21,9 @@ export async function submitJobReviewInputs(command: {
     throw new Error(`Job is ${job.jobStatus}; Review inputs require needs_review or completed.`);
   }
   const submission = validateReviewInputBody(command.jobs, command.jobId, command.body);
+  if (job.jobStatus === "needs_review" && submission.requestedInputs.length === 0) {
+    throw new Error("This Job requires additional IFC evidence or a special-physics model before calculation.");
+  }
   const activeRevision = await readActiveRevisionArtifact({
     artifactStore: command.deps.artifactStore,
     outputRoot: command.deps.outputRoot,
@@ -27,7 +32,13 @@ export async function submitJobReviewInputs(command: {
   });
   const userInputs = mergeReviewInputs({
     requestedInputs: submission.requestedInputs,
-    submittedInputs: submission.userInputs,
+    submittedInputs: [
+      ...libraryInputsForReviewMode({
+        reviewMode: submission.reviewMode,
+        requestedInputs: submission.requestedInputs,
+      }),
+      ...submission.userInputs,
+    ],
     activeRevisionInputs: activeRevision?.userInputs ?? [],
   });
   const result = await completeJobWithReviewInputs({
@@ -46,7 +57,7 @@ function validateReviewInputBody(
   jobs: JobRepository,
   jobId: string,
   body: unknown,
-): { requestedInputs: RequestedInput[]; userInputs: UserInput[] } {
+): { requestedInputs: RequestedInput[]; userInputs: UserInput[]; reviewMode: ReviewMode | undefined } {
   if (!isRecord(body) || !Array.isArray(body.inputs)) {
     throw new Error("Expected inputs array.");
   }
@@ -99,9 +110,49 @@ function validateReviewInputBody(
       materialLibraryKey: materialLibraryEntry?.materialKey,
     };
   });
-  return { requestedInputs: reviewState.requestedInputs, userInputs };
+  return {
+    requestedInputs: reviewState.requestedInputs,
+    userInputs,
+    reviewMode: reviewModeFrom(body.reviewMode),
+  };
 }
 
+function libraryInputsForReviewMode(command: {
+  reviewMode: ReviewMode | undefined;
+  requestedInputs: RequestedInput[];
+}): UserInput[] {
+  if (command.reviewMode !== "library" && command.reviewMode !== "mixed") {
+    return [];
+  }
+  return command.requestedInputs.flatMap((requested) => {
+    if (requested.required === false || requested.materialResolution?.status !== "resolved") {
+      return [];
+    }
+    const materialKey = requested.materialResolution.matchedMaterialKey;
+    const material = materialKey === null
+      ? null
+      : materialLibraryEntryForKey(defaultMaterialLibraryV1, materialKey);
+    if (material === null) {
+      throw new Error(`Resolved Material Library entry is unavailable: ${materialKey ?? "unknown"}.`);
+    }
+    return [{
+      userInputId: `ui_library_${requested.requestedInputId}`,
+      requestedInputId: requested.requestedInputId,
+      datapoint: requested.datapoint,
+      value: material.lambdaWPerMK,
+      unit: requested.unit,
+      overrideScope: requested.scope.scopeKind,
+      valueSource: "material_library",
+      materialLibraryKey: material.materialKey,
+    }];
+  });
+}
+
+function reviewModeFrom(value: unknown): ReviewMode | undefined {
+  if (value === undefined) return undefined;
+  if (value === "library" || value === "manual" || value === "mixed") return value;
+  throw new Error("Invalid reviewMode.");
+}
 function mergeReviewInputs(command: {
   requestedInputs: RequestedInput[];
   submittedInputs: UserInput[];

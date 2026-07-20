@@ -5,6 +5,7 @@ import type { CalculationInputEvidence } from "../../domain/evidence/calculation
 import { planRequestedInputs } from "../../domain/review/planRequestedInputs.js";
 import type { UserInput } from "../../domain/review/reviewTypes.js";
 import { defaultMaterialLibraryV1 } from "../../domain/materials/library.v1.js";
+import { specialPhysicsIssuesForEvidence } from "../../domain/materials/materialResolution.js";
 import { runCoreReviewCalculationReport } from "../review/runCoreReviewCalculationReport.js";
 import type { JobRepository } from "../../domain/jobs/jobRepository.js";
 import type { JobRecord } from "../../domain/jobs/jobTypes.js";
@@ -43,12 +44,19 @@ export async function processIfcJob(command: {
     const requestedInputs = planRequestedInputs({
       calculationInputEvidence,
       materialLibrary: defaultMaterialLibraryV1,
+      deferResolvedMaterialsToReview: true,
     }).requestedInputs;
     command.deps.jobs.saveReviewState({ jobId: command.jobId, requestedInputs });
     await writeJobJson(artifactStore, command.jobId, "requested-inputs.json", requestedInputs);
 
     const requiredRequestedInputs = requestedInputs.filter((input) => input.required !== false);
-    if (requiredRequestedInputs.length > 0) {
+    const hasSpecialPhysicsBlocker = calculationInputEvidence.some((evidence) =>
+      specialPhysicsIssuesForEvidence({
+        evidence,
+        materialLibrary: defaultMaterialLibraryV1,
+      }).length > 0,
+    );
+    if (requiredRequestedInputs.length > 0 || hasSpecialPhysicsBlocker) {
       command.deps.jobs.updateJob(command.jobId, {
         jobStatus: "needs_review",
       });

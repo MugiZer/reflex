@@ -19,10 +19,12 @@ export type PlanRequestedInputsResult = {
 export function planRequestedInputs(command: {
   calculationInputEvidence: CalculationInputEvidence[];
   materialLibrary?: MaterialLibrary;
+  deferResolvedMaterialsToReview?: boolean;
 }): PlanRequestedInputsResult {
   const materialDecisionInputs = materialDecisionGroupsFor(command)
     .filter((group) => !isSpecialMaterialGroup(group, command) &&
       (command.materialLibrary === undefined ||
+        command.deferResolvedMaterialsToReview === true ||
         resolveMaterialName(group.materialName, command.materialLibrary).status !== "resolved"))
     .map(
     (group): RequestedInput => ({
@@ -62,7 +64,12 @@ export function planRequestedInputs(command: {
     evidence.missingInputs
       .filter((input) =>
         isAskable(input.field) &&
-        !shouldSkipLayerDecision(input, evidence, command.materialLibrary) &&
+        !shouldSkipLayerDecision(
+          input,
+          evidence,
+          command.materialLibrary,
+          command.deferResolvedMaterialsToReview === true,
+        ) &&
         !(
           input.field === "layer_lambda" &&
           input.layer !== undefined &&
@@ -156,6 +163,7 @@ function shouldSkipLayerDecision(
   input: CalculationInputEvidence["missingInputs"][number],
   evidence: CalculationInputEvidence,
   materialLibrary: MaterialLibrary | undefined,
+  deferResolvedMaterialsToReview: boolean,
 ): boolean {
   const library = materialLibrary ?? { version: "materials.library.v1" as const, entries: [] };
   if (specialPhysicsIssuesForEvidence({ evidence, materialLibrary: library }).length > 0) {
@@ -168,6 +176,7 @@ function shouldSkipLayerDecision(
     return false;
   }
   return materialLibrary !== undefined &&
+    !deferResolvedMaterialsToReview &&
     input.field === "layer_lambda" &&
     input.layer.materialName !== null &&
     resolveMaterialName(input.layer.materialName, materialLibrary).status === "resolved";

@@ -65,6 +65,26 @@ describe("automatic bilingual material resolution", () => {
     expect(built.physicsAssemblies[0]?.assumptions?.[0]).toContain("Library-assisted / assumed");
   });
 
+  it("keeps a recognized material as a prefillable Review decision when startup mode must choose the source", () => {
+    const evidence = layeredEvidence("Project_06_Contreplaqu\u00e9 trait\u00e9_18mm", "IfcWall");
+    const requestedInputs = planRequestedInputs({
+      calculationInputEvidence: [evidence],
+      materialLibrary: defaultMaterialLibraryV1,
+      deferResolvedMaterialsToReview: true,
+    }).requestedInputs;
+
+    expect(requestedInputs.filter((input) => input.required !== false)).toEqual([
+      expect.objectContaining({
+        datapoint: "layer_lambda",
+        scope: expect.objectContaining({ scopeKind: "material_decision" }),
+        materialResolution: expect.objectContaining({
+          status: "resolved",
+          matchedMaterialKey: "plywood",
+        }),
+      }),
+    ]);
+  });
+
   it("keeps ambiguous families unresolved and routes special physics honestly", () => {
     const ambiguous = layeredEvidence("insulation", "IfcWall");
     const requested = planRequestedInputs({

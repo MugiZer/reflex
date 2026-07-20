@@ -175,7 +175,7 @@ export function specialIssueForMaterialName(materialName: string | null): Specia
       nextAction: "Model the cavity using a cavity or surface-resistance treatment.",
     };
   }
-  if (/\b(metal stud|metal furring|metal framing|steel stud|z bar|metal cladding|metal fixing|metal fastener|aluminum|aluminium)\b/.test(normalized)) {
+  if (/\b(metal stud|metal furring|metal framing|steel stud|metallic stud|montant metallique|z bar|metal cladding|metal fixing|metal fastener|aluminum|aluminium|resilient bar|resilient bars|barres resilientes)\b/.test(normalized)) {
     return {
       code: "metal_path",
       label: "Metal framing or fixing path",

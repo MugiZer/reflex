@@ -322,6 +322,7 @@ function renderArchitectWorkspace(job, workspace) {
         const message = document.getElementById("reviewMsg");
         message.textContent = "Calculating every reviewed assembly...";
         const payload = {
+          reviewMode,
           inputs: allInputs.map((input) => ({
             requestedInputId: input.requestedInputId,
             value: drafts[input.requestedInputId],
@@ -457,6 +458,9 @@ function renderQuestion(job, input, drafts, index) {
 
 function librarySuggestion(job, input, context) {
   if (input.datapoint !== "layer_lambda") return null;
+  const matchedMaterialKey = input.materialResolution && input.materialResolution.matchedMaterialKey;
+  const resolved = ((job.materialLibrary && job.materialLibrary.entries) || []).find((entry) => entry.materialKey === matchedMaterialKey);
+  if (resolved) return resolved;
   const materialName = input.scope && input.scope.scopeKind === "material_decision" ? input.scope.materialName : context && context.evidenceSummary && context.evidenceSummary.materialLabel;
   const key = normalizeMaterialName(materialName);
   return ((job.materialLibrary && job.materialLibrary.entries) || []).find((entry) => [entry.displayName].concat(entry.aliases || []).some((alias) => normalizeMaterialName(alias) === key)) || null;
