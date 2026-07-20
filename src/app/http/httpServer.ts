@@ -77,7 +77,8 @@ export function createLocalhostApp(command: {
 
       const reviewJobId = matchPath(url.pathname, /^\/api\/jobs\/([^/]+)\/review-inputs$/);
       if (req.method === "POST" && reviewJobId) {
-        const body = await readJson(req);        const result = await submitJobReviewInputs({
+        const body = await readJson(req);
+        const result = await submitJobReviewInputs({
           jobId: reviewJobId,
           body,
           jobs,

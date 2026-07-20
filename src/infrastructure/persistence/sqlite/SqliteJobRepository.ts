@@ -124,14 +124,16 @@ export class SqliteJobRepository implements ClosableJobRepository {
       insert into job_review_state (job_id, requested_inputs_json)
       values (?, ?)
       on conflict(job_id) do update set requested_inputs_json = excluded.requested_inputs_json
-    `).run(state.jobId, JSON.stringify(state.requestedInputs));
+    `).run(state.jobId, JSON.stringify(state));
   }
 
   getReviewState(jobId: string): JobReviewState | null {
     const row = this.db.prepare(
       "select requested_inputs_json from job_review_state where job_id = ?",
     ).get(jobId) as { requested_inputs_json: string } | undefined;
-    return row ? { jobId, requestedInputs: JSON.parse(row.requested_inputs_json) as JobReviewState["requestedInputs"] } : null;
+    if (!row) return null;
+    const parsed = JSON.parse(row.requested_inputs_json) as JobReviewState["requestedInputs"] | JobReviewState;
+    return Array.isArray(parsed) ? { jobId, requestedInputs: parsed } : parsed;
   }
 }
 

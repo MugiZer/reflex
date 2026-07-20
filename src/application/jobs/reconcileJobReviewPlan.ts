@@ -21,27 +21,30 @@ export async function reconcileJobReviewPlan(command: {
   const priorState = command.deps.jobs.getReviewState(command.jobId);
   if (!priorState) throw new Error("No Review state exists for Job.");
   const materialLibrary = command.deps.materialLibrary ?? defaultMaterialLibraryV1;
-  if (priorState.planVersion === reviewPlanVersion && priorState.materialLibraryVersion === materialLibrary.version) {
-    return { jobId: command.jobId, jobStatus: "needs_review", reconciled: false };
-  }
-
   const artifactStore = command.deps.artifactStore ?? new LocalJobArtifactStore(command.deps.outputRoot);
   const calculationInputEvidence = await readEvidenceJson<CalculationInputEvidence[]>(artifactStore, command.jobId);
-  const requestedInputs = planRequestedInputs({ calculationInputEvidence, materialLibrary }).requestedInputs;
-  command.deps.jobs.saveReviewState({
-    jobId: command.jobId,
-    requestedInputs,
-    planVersion: reviewPlanVersion,
-    materialLibraryVersion: materialLibrary.version,
-  });
-  await writeRequestedInputs(artifactStore, command.jobId, requestedInputs);
+  const isCurrentPlan =
+    priorState.planVersion === reviewPlanVersion &&
+    priorState.materialLibraryVersion === materialLibrary.version;
+  const requestedInputs = isCurrentPlan
+    ? priorState.requestedInputs
+    : planRequestedInputs({ calculationInputEvidence, materialLibrary }).requestedInputs;
+  if (!isCurrentPlan) {
+    command.deps.jobs.saveReviewState({
+      jobId: command.jobId,
+      requestedInputs,
+      planVersion: reviewPlanVersion,
+      materialLibraryVersion: materialLibrary.version,
+    });
+    await writeRequestedInputs(artifactStore, command.jobId, requestedInputs);
+  }
 
   const hasRequiredInputs = requestedInputs.some((input) => input.required !== false);
   const hasSpecialPhysicsBlocker = calculationInputEvidence.some((evidence) =>
     specialPhysicsIssuesForEvidence({ evidence, materialLibrary }).length > 0,
   );
   if (hasRequiredInputs || hasSpecialPhysicsBlocker) {
-    return { jobId: command.jobId, jobStatus: "needs_review", reconciled: true };
+    return { jobId: command.jobId, jobStatus: "needs_review", reconciled: !isCurrentPlan };
   }
 
   const completed = await completeJobWithReviewInputs({

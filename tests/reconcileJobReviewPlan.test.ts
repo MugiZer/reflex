@@ -54,7 +54,7 @@ describe("review-plan reconciliation", () => {
       expect(result).toMatchObject({ jobStatus: "completed", reconciled: true });
       expect(result.revisionId).toMatch(/^rev_/);
       await expect(readFile(join(fixture.root, "outputs", fixture.jobId, "evidence", "calculation-input-evidence.json"), "utf8")).resolves.toContain("Mineral wool");
-      expect(fixture.app.jobs.getReviewState(fixture.jobId)).toEqual(expect.objectContaining({ planVersion: "review-plan.v1", materialLibraryVersion: "materials.library.v1", requestedInputs: [] }));
+      expect(fixture.app.jobs.getReviewState(fixture.jobId)).toEqual(expect.objectContaining({ planVersion: "review-plan.v1", materialLibraryVersion: "materials.library.v1", requestedInputs: [expect.objectContaining({ required: false })] }));
     } finally {
       fixture.app.server.close(); fixture.app.jobs.close(); await rm(fixture.root, { recursive: true, force: true });
     }
