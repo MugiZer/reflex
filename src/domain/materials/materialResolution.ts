@@ -167,7 +167,15 @@ export function specialPhysicsIssuesForEvidence(command: {
 export function specialIssueForMaterialName(materialName: string | null): SpecialPhysicsIssue | null {
   const normalized = normalizeMaterialName(materialName);
   if (normalized.length === 0) return null;
-  if (/\b(air cavity|air space|cavite air|cavity|void air|vide air)\b/.test(normalized)) {
+  if (/^(?:unnamed|sans nom)$/.test(normalized)) {
+    return {
+      code: "unnamed_layer",
+      label: "Unnamed IFC layer",
+      message: "This layer has no auditable IFC material name.",
+      nextAction: "Name the IFC material layer or provide source-backed material evidence.",
+    };
+  }
+  if (/\b(air cavity|air space|cavite air|cavity|void air|vide air|espacement air|lame d air)\b/.test(normalized)) {
     return {
       code: "air_cavity",
       label: "Air cavity",
@@ -175,7 +183,7 @@ export function specialIssueForMaterialName(materialName: string | null): Specia
       nextAction: "Model the cavity using a cavity or surface-resistance treatment.",
     };
   }
-  if (/\b(metal stud|metal furring|metal framing|steel stud|metallic stud|montant metallique|z bar|metal cladding|metal fixing|metal fastener|aluminum|aluminium|resilient bar|resilient bars|barres resilientes)\b/.test(normalized)) {
+  if (/\b(metal stud|metal furring|metal framing|steel stud|metallic stud|montant metallique|z bar|barres z|fixation en z|fourrure metallique|metal cladding|metal fixing|metal fastener|aluminum|aluminium|resilient bar|resilient bars|barres resilientes)\b/.test(normalized)) {
     return {
       code: "metal_path",
       label: "Metal framing or fixing path",

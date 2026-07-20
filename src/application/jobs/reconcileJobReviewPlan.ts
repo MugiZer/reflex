@@ -23,12 +23,19 @@ export async function reconcileJobReviewPlan(command: {
   const materialLibrary = command.deps.materialLibrary ?? defaultMaterialLibraryV1;
   const artifactStore = command.deps.artifactStore ?? new LocalJobArtifactStore(command.deps.outputRoot);
   const calculationInputEvidence = await readEvidenceJson<CalculationInputEvidence[]>(artifactStore, command.jobId);
+  const hasSpecialPhysicsBlocker = calculationInputEvidence.some((evidence) =>
+    specialPhysicsIssuesForEvidence({ evidence, materialLibrary }).length > 0,
+  );
   const isCurrentPlan =
     priorState.planVersion === reviewPlanVersion &&
     priorState.materialLibraryVersion === materialLibrary.version;
   const requestedInputs = isCurrentPlan
     ? priorState.requestedInputs
-    : planRequestedInputs({ calculationInputEvidence, materialLibrary }).requestedInputs;
+    : planRequestedInputs({
+        calculationInputEvidence,
+        materialLibrary,
+        deferResolvedMaterialsToReview: hasSpecialPhysicsBlocker,
+      }).requestedInputs;
   if (!isCurrentPlan) {
     command.deps.jobs.saveReviewState({
       jobId: command.jobId,
@@ -40,9 +47,7 @@ export async function reconcileJobReviewPlan(command: {
   }
 
   const hasRequiredInputs = requestedInputs.some((input) => input.required !== false);
-  const hasSpecialPhysicsBlocker = calculationInputEvidence.some((evidence) =>
-    specialPhysicsIssuesForEvidence({ evidence, materialLibrary }).length > 0,
-  );
+
   if (hasRequiredInputs || hasSpecialPhysicsBlocker) {
     return { jobId: command.jobId, jobStatus: "needs_review", reconciled: !isCurrentPlan };
   }

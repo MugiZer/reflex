@@ -150,13 +150,7 @@ function isSpecialMaterialGroup(
   },
 ): boolean {
   const library = command.materialLibrary ?? { version: "materials.library.v1" as const, entries: [] };
-  return group.affectedLayers.some((layer) => {
-    const evidence = command.calculationInputEvidence.find(
-      (candidate) => candidate.elementStepId === layer.elementStepId,
-    );
-    return evidence !== undefined &&
-      specialPhysicsIssuesForEvidence({ evidence, materialLibrary: library }).length > 0;
-  });
+  return resolveMaterialName(group.materialName, library).status === "special_physics";
 }
 
 function shouldSkipLayerDecision(
@@ -166,7 +160,12 @@ function shouldSkipLayerDecision(
   deferResolvedMaterialsToReview: boolean,
 ): boolean {
   const library = materialLibrary ?? { version: "materials.library.v1" as const, entries: [] };
-  if (specialPhysicsIssuesForEvidence({ evidence, materialLibrary: library }).length > 0) {
+  if (
+    input.field === "layer_lambda" &&
+    input.layer?.materialName !== null &&
+    input.layer?.materialName !== undefined &&
+    resolveMaterialName(input.layer.materialName, library).status === "special_physics"
+  ) {
     return true;
   }
   if (

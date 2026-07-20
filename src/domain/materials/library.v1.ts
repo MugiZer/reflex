@@ -14,7 +14,7 @@ export const defaultMaterialLibraryV1: MaterialLibrary = {
     {
       materialKey: "concrete",
       displayName: "Concrete",
-      aliases: ["concrete", "cast concrete", "cast-in-place concrete", "cast in place concrete", "beton", "beton coule sur place", "beton coule en place", "ordinary concrete"],
+      aliases: ["concrete", "cast concrete", "cast-in-place concrete", "cast in place concrete", "beton", "beton coule sur place", "beton coule en place", "ordinary concrete", "beton plancher"],
       lambdaWPerMK: 1.7,
       sourceLabel: "Milestone 3 seed library",
       confidence: "medium",

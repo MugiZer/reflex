@@ -24,7 +24,7 @@ export type ProcessIfcJobDeps = {
   materialLibrary?: MaterialLibrary;
 };
 
-export const reviewPlanVersion = "review-plan.v1";
+export const reviewPlanVersion = "review-plan.v3";
 
 export async function processIfcJob(command: {
   jobId: string;

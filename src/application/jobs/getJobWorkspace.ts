@@ -33,6 +33,27 @@ export async function getJobWorkspace(command: {
   if (!job) {
     return null;
   }
+  if (job.jobStatus === "queued" || job.jobStatus === "processing") {
+    return {
+      job,
+      review: null,
+      architectActions: buildArchitectActionViewModel({
+        jobId: command.jobId,
+        jobStatus: job.jobStatus,
+        calculationInputEvidence: [],
+        requestedInputs: [],
+        activeRevision: null,
+        target: command.targetUValueWPerM2K === null
+          ? null
+          : {
+              maxUValueWPerM2K: command.targetUValueWPerM2K,
+              label: "Working project target",
+            },
+        materialLibrary: defaultMaterialLibraryV1,
+      }),
+      materialLibrary: defaultMaterialLibraryV1,
+    };
+  }
   const reviewState = command.jobs.getReviewState(command.jobId);
   const calculationInputEvidence = await readCalculationInputEvidenceArtifact({
     artifactStore: command.artifactStore,
