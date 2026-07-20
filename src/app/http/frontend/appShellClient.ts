@@ -1,8 +1,12 @@
+import { renderLocalReviewProgressClientSource } from "./projectLocalReviewProgress.js";
+
 export function renderAppShellClientScript(): string {
+  const localReviewProgressClientSource = renderLocalReviewProgressClientSource();
   return `
 const app = document.getElementById("app");
 const path = location.pathname;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+${localReviewProgressClientSource}
 
 async function api(url, options) {
   const response = await fetch(url, options);
@@ -131,8 +135,9 @@ function renderReviewSetup(job, workspace) {
 
   const targetU = workspace.state.targetU;
   const inputs = reviewInputsFor(job);
+  const localProgress = projectLocalReviewProgress(inputs, {});
   const matchedCount = inputs.filter((input) => input.defaultValue !== null).length;
-  app.innerHTML = projectHeader(job, targetU) + '<section class="review-setup panel"><div class="review-setup-intro"><span class="eyebrow">Before you review</span><h1>How should we resolve missing values?</h1><p>Choose how you want to fill the calculation inputs. You can change any individual value later.</p><p class="review-setup-count"><strong>' + esc(matchedCount) + ' of ' + esc(inputs.length) + '</strong> inputs have an exact Material Library match. The rest need a manual value or a different material selection.</p></div><div class="review-mode-grid"><button type="button" class="review-mode-card" data-review-mode="library"><span class="mode-kicker">Fastest start</span><strong>Use Material Library values</strong><span>Prefill exact matches from the reference library and show the selected material and lambda for every input.</span></button><button type="button" class="review-mode-card" data-review-mode="manual"><span class="mode-kicker">Full control</span><strong>Enter values manually</strong><span>Start with blank inputs and provide the thermal values yourself.</span></button><button type="button" class="review-mode-card" data-review-mode="mixed"><span class="mode-kicker">Recommended</span><strong>Use a mix</strong><span>Prefill credible library matches and manually complete the remaining inputs.</span></button></div><p class="review-setup-note">Material Library values are reference data. Confirm them against the product or specification before relying on the final report.</p></section>';
+  app.innerHTML = projectHeader(job, targetU, localProgress) + '<section class="review-setup panel"><div class="review-setup-intro"><span class="eyebrow">Before you review</span><h1>How should we resolve missing values?</h1><p>Choose how you want to fill the calculation inputs. You can change any individual value later.</p><p class="review-setup-count"><strong>' + esc(matchedCount) + ' of ' + esc(inputs.length) + '</strong> inputs have an exact Material Library match. The rest need a manual value or a different material selection.</p></div><div class="review-mode-grid"><button type="button" class="review-mode-card" data-review-mode="library"><span class="mode-kicker">Fastest start</span><strong>Use Material Library values</strong><span>Prefill exact matches from the reference library and show the selected material and lambda for every input.</span></button><button type="button" class="review-mode-card" data-review-mode="manual"><span class="mode-kicker">Full control</span><strong>Enter values manually</strong><span>Start with blank inputs and provide the thermal values yourself.</span></button><button type="button" class="review-mode-card" data-review-mode="mixed"><span class="mode-kicker">Recommended</span><strong>Use a mix</strong><span>Prefill credible library matches and manually complete the remaining inputs.</span></button></div><p class="review-setup-note">Material Library values are reference data. Confirm them against the product or specification before relying on the final report.</p></section>';
   wireTargetForm();
   document.querySelectorAll("[data-review-mode]").forEach((button) => {
     button.onclick = () => {
@@ -177,12 +182,14 @@ function renderArchitectWorkspace(job, workspace) {
   const allInputs = reviewInputsFor(job);
   const drafts = workspace.state.drafts;
   const draftSources = workspace.state.sources;
+  const localProgress = projectLocalReviewProgress(allInputs, drafts);
+  let decisionAssemblyIds = new Set(localProgress.affectedAssemblyGroupIds);
   let viewerVisible = true;
   const hasUnresolvedReview = allInputs.length > 0;
-  let activeAssemblyGroupId = (assemblies.find(needsAction) || assemblies[0] || {}).assemblyGroupId || null;
+  let activeAssemblyGroupId = (assemblies.find((assembly) => decisionAssemblyIds.has(assembly.assemblyGroupId)) || assemblies[0] || {}).assemblyGroupId || null;
   let activeFilter = workspace.state.filter;
 
-  app.innerHTML = projectHeader(job, targetU) + summaryBar(model.summary) +
+  app.innerHTML = projectHeader(job, targetU, localProgress) + summaryBar(model.summary, localProgress) +
     '<div class="architect-workspace"><div class="model-column">' + (job.links && job.links.viewerGeometry ? '<button type="button" id="viewerToggle" class="viewer-toggle">Hide 3D model</button>' : "") + viewerShell(job) + '</div><aside id="actionAside" class="action-aside"></aside></div>';
   wireTargetForm(function (nextTarget) {
     workspace.setTarget(nextTarget);
@@ -197,7 +204,7 @@ function renderArchitectWorkspace(job, workspace) {
     viewerToggle.textContent = viewerVisible ? "Hide 3D model" : "Show 3D model";
   };
 
-  const actionStepIds = uniqueNumbers(assemblies.filter(needsAction).flatMap((assembly) => assembly.displayStepIds || []));
+  const actionStepIds = uniqueNumbers(assemblies.filter((assembly) => decisionAssemblyIds.has(assembly.assemblyGroupId)).flatMap((assembly) => assembly.displayStepIds || []));
   initViewer(job.links && job.links.viewerGeometry, actionStepIds, assemblies, function (_stepId, info) {
     if (info && info.groupId) selectAssembly(info.groupId, true);
   }).then(function (createdViewer) {
@@ -209,7 +216,7 @@ function renderArchitectWorkspace(job, workspace) {
   });
 
   function visibleAssemblies() {
-    if (activeFilter === "action") return assemblies.filter(needsAction);
+    if (activeFilter === "action") return assemblies.filter((assembly) => decisionAssemblyIds.has(assembly.assemblyGroupId));
     if (activeFilter === "over") return assemblies.filter((assembly) => assembly.performance.verdict === "misses_target");
     if (activeFilter === "meets") return assemblies.filter((assembly) => assembly.performance.verdict === "meets_target");
     return assemblies;
@@ -232,6 +239,7 @@ function renderArchitectWorkspace(job, workspace) {
   }
 
   function renderAside() {
+    decisionAssemblyIds = new Set(projectLocalReviewProgress(allInputs, drafts).affectedAssemblyGroupIds);
     const aside = document.getElementById("actionAside");
     const visible = visibleAssemblies();
     if (!visible.some((assembly) => assembly.assemblyGroupId === activeAssemblyGroupId)) {
@@ -239,7 +247,7 @@ function renderArchitectWorkspace(job, workspace) {
     }
     const active = assemblies.find((assembly) => assembly.assemblyGroupId === activeAssemblyGroupId) || null;
     aside.innerHTML = '<div class="action-aside-head"><div><span class="eyebrow">Architect action view</span><h2>Assemblies, ordered by risk</h2></div><span class="action-count">' + esc(assemblies.length) + '</span></div>' +
-      filterBar(activeFilter, model.summary) +
+      filterBar(activeFilter, model.summary, projectLocalReviewProgress(allInputs, drafts)) +
       '<nav class="action-list" aria-label="Thermal assembly actions">' + (visible.map((assembly) => actionCard(assembly, assembly === active, drafts, allInputs)).join("") || '<p class="empty-state">No assemblies match this view.</p>') + '</nav>' +
       (active ? actionDetail(active, job, allInputs, drafts, hasUnresolvedReview, reviewMode) : '<section class="empty-state"><h3>No assembly data</h3><p>The IFC did not produce an assembly action yet.</p></section>');
 
@@ -343,12 +351,12 @@ function renderArchitectWorkspace(job, workspace) {
   }
 }
 
-function projectHeader(job, targetU) {
+function projectHeader(job, targetU, localProgress) {
   const hasUnresolved = job.architectActions && (job.architectActions.summary.needsReviewCount + job.architectActions.summary.blockedCount) > 0;
   const displayStatus = hasUnresolved ? "needs_review" : job.jobStatus;
   const reportLabel = hasUnresolved ? "Open previous report ->" : "Open Ubakus-style report ->";
   const reportLink = job.links && job.links.report ? '<a class="button" href="' + esc(job.links.report) + '">' + reportLabel + '</a>' : '';
-  return '<section class="project-header"><div class="project-title"><span class="eyebrow">Thermal design review</span><h2>' + esc(job.originalFilename) + '</h2><div class="project-meta"><span class="' + statusClass(displayStatus) + '">' + esc(statusLabel(displayStatus)) + '</span><span>' + esc(jobStateNote(job)) + '</span></div></div><div class="project-actions"><form id="targetForm" class="target-form"><label for="targetU">Working U-value target</label><div><input id="targetU" type="number" min="0.01" max="10" step="0.01" value="' + esc(targetU) + '"><span>W/m2K</span><button class="secondary">Apply</button></div><small>Editable design benchmark - not a code-compliance verdict.</small></form>' + reportLink + '<a class="button secondary" href="/">All analyses</a></div></section>';
+  return '<section class="project-header"><div class="project-title"><span class="eyebrow">Thermal design review</span><h2>' + esc(job.originalFilename) + '</h2><div class="project-meta"><span class="' + statusClass(displayStatus) + '">' + esc(statusLabel(displayStatus)) + '</span><span id="projectStatusNote">' + esc(localProgress ? localReviewStateNote(localProgress) : jobStateNote(job)) + '</span></div></div><div class="project-actions"><form id="targetForm" class="target-form"><label for="targetU">Working U-value target</label><div><input id="targetU" type="number" min="0.01" max="10" step="0.01" value="' + esc(targetU) + '"><span>W/m2K</span><button class="secondary">Apply</button></div><small>Editable design benchmark - not a code-compliance verdict.</small></form>' + reportLink + '<a class="button secondary" href="/">All analyses</a></div></section>';
 }
 
 function wireTargetForm(onApply) {
@@ -368,25 +376,25 @@ function wireTargetForm(onApply) {
   };
 }
 
-function summaryBar(summary) {
+function summaryBar(summary, localProgress) {
   return '<section class="architect-summary">' +
-    summaryMetric(summary.needsActionCount, "Need action", "critical") +
-    summaryMetric(summary.blockedCount, "Blocked", "danger") +
-    summaryMetric(summary.failingTargetCount, "Over target", "danger") +
-    summaryMetric(summary.needsReviewCount, "Needs input", "warning") +
-    summaryMetric(summary.passingTargetCount, "Meet target", "success") +
-    summaryMetric(summary.assemblyCount, "Assemblies", "neutral") +
+    summaryMetric(localProgress.readyDecisionCount, "Decisions ready", "success", "readyDecisionCount") +
+    summaryMetric(localProgress.remainingDecisionCount, "Decisions left", "critical", "remainingDecisionCount") +
+    summaryMetric(localProgress.remainingMaterialDecisionCount, "Material values", "warning", "remainingMaterialDecisionCount") +
+    summaryMetric(localProgress.remainingEvidenceDecisionCount, "Evidence gaps", "danger", "remainingEvidenceDecisionCount") +
+    summaryMetric(localProgress.affectedAssemblyGroupIds.length, "Affected assemblies", "warning", "affectedAssemblyCount") +
+    summaryMetric(summary.assemblyCount, "Assemblies", "neutral", "assemblyCount") +
     '</section>';
 }
 
-function summaryMetric(value, label, tone) {
-  return '<div class="summary-metric ' + tone + '"><strong>' + esc(value || 0) + '</strong><span>' + esc(label) + '</span></div>';
+function summaryMetric(value, label, tone, key) {
+  return '<div class="summary-metric ' + tone + '" data-review-metric="' + esc(key) + '"><strong>' + esc(value || 0) + '</strong><span>' + esc(label) + '</span></div>';
 }
 
-function filterBar(activeFilter, summary) {
+function filterBar(activeFilter, summary, localProgress) {
   return '<div class="action-filters" role="toolbar" aria-label="Assembly filters">' +
     filterButton("all", "All", summary.assemblyCount, activeFilter) +
-    filterButton("action", "Need action", summary.needsActionCount, activeFilter) +
+    filterButton("action", "Needs decision", localProgress.affectedAssemblyGroupIds.length, activeFilter) +
     filterButton("over", "Over target", summary.failingTargetCount, activeFilter) +
     filterButton("meets", "Meets", summary.passingTargetCount, activeFilter) +
     '</div>';
@@ -398,15 +406,20 @@ function filterButton(value, label, count, activeFilter) {
 
 function actionCard(assembly, selected, drafts, allInputs) {
   const assemblyInputs = allInputs.filter((input) => input.affectedAssemblyGroupIds.includes(assembly.assemblyGroupId));
-  const readyLocally = assemblyInputs.length > 0 && assemblyInputs.every((input) => hasValidDraft(input, drafts[input.requestedInputId]));
-  return '<button type="button" data-action-id="' + esc(assembly.assemblyGroupId) + '" class="action-card ' + (selected ? "selected " : "") + stateClass(assembly) + '"><div class="action-card-top"><span class="state-dot"></span><span class="action-state-label">' + esc(readyLocally ? "Ready locally" : actionStateLabel(assembly)) + '</span><strong>' + esc(resultText(assembly.performance.result)) + '</strong></div><span class="action-card-title">' + esc(assembly.label) + '</span><small>' + esc(assembly.locationLabel) + '</small><span class="action-card-meta">Target: ' + esc(targetText(assembly.performance.target)) + ' | ' + esc(confidenceText(assembly)) + '</span><span class="action-card-problem">' + esc(assembly.problem) + '</span><span class="action-card-next">' + esc(assembly.nextAction.label) + '</span></button>';
+  const readyLocally = assembly.readinessState !== "blocked" && assemblyInputs.length > 0 && assemblyInputs.every((input) => hasValidDraft(input, drafts[input.requestedInputId]));
+  const problem = readyLocally ? "All required decision values are filled locally." : assembly.problem;
+  const nextAction = readyLocally ? "Run the thermal calculation to apply these values." : assembly.nextAction.label;
+  return '<button type="button" data-action-id="' + esc(assembly.assemblyGroupId) + '" class="action-card ' + (selected ? "selected " : "") + stateClass(assembly) + '"><div class="action-card-top"><span class="state-dot"></span><span class="action-state-label">' + esc(readyLocally ? "Ready locally" : actionStateLabel(assembly)) + '</span><strong>' + esc(resultText(assembly.performance.result)) + '</strong></div><span class="action-card-title">' + esc(assembly.label) + '</span><small>' + esc(assembly.locationLabel) + '</small><span class="action-card-meta">Target: ' + esc(targetText(assembly.performance.target)) + ' | ' + esc(confidenceText(assembly)) + '</span><span class="action-card-problem">' + esc(problem) + '</span><span class="action-card-next">' + esc(nextAction) + '</span></button>';
 }
 
 function actionDetail(assembly, job, allInputs, drafts, hasUnresolvedReview, reviewMode) {
   const actionInputs = allInputs.filter((input) => input.affectedAssemblyGroupIds.includes(assembly.assemblyGroupId));
-  return '<section class="action-detail"><header class="action-detail-head"><div><span class="eyebrow">Selected assembly</span><h2>' + esc(assembly.label) + '</h2><p>' + esc(assembly.locationLabel) + '</p></div><span class="state-pill ' + stateClass(assembly) + '">' + esc(actionStateLabel(assembly)) + '</span></header>' +
+  const readyLocally = assembly.readinessState !== "blocked" && actionInputs.length > 0 && actionInputs.every((input) => hasValidDraft(input, drafts[input.requestedInputId]));
+  const problem = readyLocally ? "All required decision values are filled locally." : assembly.problem;
+  const nextAction = readyLocally ? "Run the thermal calculation to apply these values." : assembly.nextAction.label;
+  return '<section class="action-detail"><header class="action-detail-head"><div><span class="eyebrow">Selected assembly</span><h2>' + esc(assembly.label) + '</h2><p>' + esc(assembly.locationLabel) + '</p></div><span class="state-pill ' + stateClass(assembly) + '">' + esc(readyLocally ? "Ready locally" : actionStateLabel(assembly)) + '</span></header>' +
     '<div class="result-grid">' + resultMetric(resultText(assembly.performance.result), "Calculated U-value") + resultMetric(targetText(assembly.performance.target), "Working target") + resultMetric(confidenceText(assembly), "Evidence") + resultMetric(String(assembly.sourceElementCount), "IFC elements") + '</div>' +
-    '<div class="diagnosis"><span>Problem</span><strong>' + esc(assembly.problem) + '</strong><span>Next action</span><strong>' + esc(assembly.nextAction.label) + '</strong></div>' +
+    '<div class="diagnosis"><span>Problem</span><strong>' + esc(problem) + '</strong><span>Next action</span><strong>' + esc(nextAction) + '</strong></div>' +
     layerComposition(assembly.layers || []) +
     optionalMaterialOverride(job, assembly) +
     (actionInputs.length ? '<section class="decision-inputs"><div class="section-heading"><div><span class="eyebrow">Required evidence</span><h3>Complete this assembly decision</h3></div><span class="draft-state" id="activeDraftState">Needs input</span></div>' + actionInputs.map((input, index) => renderQuestion(job, input, drafts, index)).join("") + '</section>' : '') +
@@ -469,6 +482,23 @@ function updateDraftProgress(aside, allInputs, drafts, activeAssembly) {
     activeState.textContent = complete ? "Ready locally" : "Needs input";
     activeState.className = "draft-state " + (complete ? "ready" : "");
   }
+  updateLocalReviewProgressIndicators(projectLocalReviewProgress(allInputs, drafts));
+}
+
+function updateLocalReviewProgressIndicators(progress) {
+  const values = {
+    readyDecisionCount: progress.readyDecisionCount,
+    remainingDecisionCount: progress.remainingDecisionCount,
+    remainingMaterialDecisionCount: progress.remainingMaterialDecisionCount,
+    remainingEvidenceDecisionCount: progress.remainingEvidenceDecisionCount,
+    affectedAssemblyCount: progress.affectedAssemblyGroupIds.length,
+  };
+  Object.entries(values).forEach(([key, value]) => {
+    const metric = document.querySelector('[data-review-metric="' + key + '"] strong');
+    if (metric) metric.textContent = String(value);
+  });
+  const note = document.getElementById("projectStatusNote");
+  if (note) note.textContent = localReviewStateNote(progress);
 }
 
 function viewerShell(job) {
@@ -553,10 +583,6 @@ function validTarget(value) {
   return value !== null && Number.isFinite(numberValue) && numberValue > 0 && numberValue <= 10;
 }
 
-function needsAction(assembly) {
-  return assembly.nextAction && assembly.nextAction.kind !== "none";
-}
-
 function actionStateLabel(assembly) {
   if (assembly.readinessState === "blocked") return "Blocked";
   if (assembly.readinessState === "needs_review") return "Needs input";
@@ -613,6 +639,13 @@ function jobStateNote(job) {
   if (job.jobStatus === "failed") return "Analysis failed before report generation. Failure: " + (job.errorMessage || "Unknown processing error");
   if (job.jobStatus === "processing" || job.jobStatus === "queued") return "IFC analysis in progress.";
   return "No next action is available for this analysis.";
+}
+
+function localReviewStateNote(progress) {
+  if (progress.remainingDecisionCount === 0) {
+    return "All " + progress.totalDecisionCount + " review decisions are ready. Run the thermal calculation to update the assemblies.";
+  }
+  return progress.remainingDecisionCount + " review decisions remain: " + progress.remainingMaterialDecisionCount + " material values and " + progress.remainingEvidenceDecisionCount + " evidence gaps. " + progress.readyDecisionCount + " of " + progress.totalDecisionCount + " decisions are ready.";
 }
 
 function hasDraftValue(value) { return value !== undefined && String(value).trim() !== ""; }
