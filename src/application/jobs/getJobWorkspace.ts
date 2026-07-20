@@ -1,6 +1,5 @@
 import { buildArchitectActionViewModel } from "./buildArchitectActionViewModel.js";
 import { defaultMaterialLibraryV1 } from "../../domain/materials/library.v1.js";
-import { planRequestedInputs } from "../../domain/review/planRequestedInputs.js";
 import type { JobRepository } from "../../domain/jobs/jobRepository.js";
 import type { JobRecord, JobReviewState } from "../../domain/jobs/jobTypes.js";
 import type { LocalJobArtifactStore } from "../../infrastructure/storage/local-files/jobArtifactStore.js";
@@ -39,29 +38,17 @@ export async function getJobWorkspace(command: {
     throw new Error("Calculation input evidence artifact is missing for this Review.");
   }
   const evidence = calculationInputEvidence ?? [];
-  let currentReviewState = reviewState;
-  if (currentReviewState && job.jobStatus === "needs_review") {
-    const refreshedRequestedInputs = planRequestedInputs({
-      calculationInputEvidence: evidence,
-      materialLibrary: defaultMaterialLibraryV1,
-      deferResolvedMaterialsToReview: true,
-    }).requestedInputs;
-    if (JSON.stringify(refreshedRequestedInputs) !== JSON.stringify(currentReviewState.requestedInputs)) {
-      command.jobs.saveReviewState({ jobId: command.jobId, requestedInputs: refreshedRequestedInputs });
-      currentReviewState = { ...currentReviewState, requestedInputs: refreshedRequestedInputs };
-    }
-  }
   const activeRevision = await readActiveRevisionArtifact({
     artifactStore: command.artifactStore,
     jobId: command.jobId,
     activeRevisionId: job.activeRevisionId,
   });
-  const review = currentReviewState
+  const review = reviewState
     ? {
-        ...currentReviewState,
+        ...reviewState,
         context: buildReviewContextViewModel({
           jobId: command.jobId,
-          requestedInputs: currentReviewState.requestedInputs,
+          requestedInputs: reviewState.requestedInputs,
           calculationInputEvidence: evidence,
         }),
       }
@@ -74,7 +61,7 @@ export async function getJobWorkspace(command: {
       jobId: command.jobId,
       jobStatus: job.jobStatus,
       calculationInputEvidence: evidence,
-      requestedInputs: currentReviewState?.requestedInputs ?? [],
+      requestedInputs: reviewState?.requestedInputs ?? [],
       activeRevision,
       target: command.targetUValueWPerM2K === null
         ? null
