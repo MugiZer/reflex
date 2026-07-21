@@ -8,7 +8,8 @@
 | **Job** | One IFC upload and its processing lifecycle. | Upload, task, run |
 | **Review** | User workflow for resolving missing or uncertain datapoints. | Fixing, editing, manual entry |
 | **Architect Action View** | Risk-prioritized projection of Assembly Groups that connects IFC location, calculation result, evidence state, target comparison, and one explicit next action. | Dashboard, scorecard, compliance verdict |
-| **Report** | Clean HTML artifact generated from a calculation snapshot. | Output page, PDF, result |
+| **Report** | Clean HTML artifact generated from report inventory views and their active calculation snapshots. | Output page, PDF, result |
+| **Report Inventory** | Application projection that preserves every grouped calculation-input composition, its source elements, known layers, readiness, and optional calculation snapshot. | Report data, report model |
 | **Verifier** | End-to-end check proving upload, extraction, review, revision, recalculation, and report behavior. | Test suite, smoke test, QA script |
 
 ## IFC evidence

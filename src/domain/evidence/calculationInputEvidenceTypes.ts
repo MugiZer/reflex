@@ -38,6 +38,8 @@ export type CalculationInput = {
 export type CalculationInputEvidence = {
   elementStepId: StepId;
   elementGlobalId: string | null;
+  elementName?: string | null;
+  elementObjectType?: string | null;
   elementClass: ElementClass;
   calculationInputBasis: CalculationInputBasis;
   fixedInputs: CalculationInput[];

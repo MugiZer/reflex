@@ -15,6 +15,8 @@ export type EffectiveMaterialEvidenceSource =
 export type EffectiveElementEvidence = {
   elementStepId: StepId;
   elementGlobalId: string | null;
+  elementName?: string | null;
+  elementObjectType?: string | null;
   elementClass: ElementClass;
   ifcTypeObjectStepId: StepId | null;
   materialEvidenceSource: EffectiveMaterialEvidenceSource;

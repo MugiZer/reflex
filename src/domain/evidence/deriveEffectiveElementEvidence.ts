@@ -45,6 +45,8 @@ export function deriveEffectiveElementEvidence(command: {
       return {
         elementStepId: element.identity.stepId,
         elementGlobalId: element.identity.globalId,
+        elementName: element.identity.name,
+        elementObjectType: element.identity.objectType,
         elementClass: element.identity.elementClass,
         ifcTypeObjectStepId: element.identity.ifcTypeObjectStepId,
         materialEvidenceSource,

@@ -58,6 +58,8 @@ function deriveElementCalculationInputEvidence(
     return {
       elementStepId: effectiveElementEvidence.elementStepId,
       elementGlobalId: effectiveElementEvidence.elementGlobalId,
+      elementName: effectiveElementEvidence.elementName,
+      elementObjectType: effectiveElementEvidence.elementObjectType,
       elementClass: effectiveElementEvidence.elementClass,
       calculationInputBasis: "non_layered_estimate_possible",
       fixedInputs: [],
@@ -192,6 +194,8 @@ function layeredCalculationInputEvidence(command: {
   return {
     elementStepId: command.effectiveElementEvidence.elementStepId,
     elementGlobalId: command.effectiveElementEvidence.elementGlobalId,
+    elementName: command.effectiveElementEvidence.elementName,
+    elementObjectType: command.effectiveElementEvidence.elementObjectType,
     elementClass: command.effectiveElementEvidence.elementClass,
     calculationInputBasis:
       missingInputs.some((input) => input.field === "layer_lambda") ||

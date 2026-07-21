@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 
 import type { CalculationSnapshot, LayerCalculation } from "../../domain/calculations/calculationTypes.js";
 import type { Revision } from "../../domain/revisions/revisionTypes.js";
+import type { ReportInventoryView } from "./buildReportInventory.js";
 import { LocalJobArtifactStore } from "../../infrastructure/storage/local-files/jobArtifactStore.js";
 
 export async function generateHtmlReport(command: {
@@ -12,6 +13,7 @@ export async function generateHtmlReport(command: {
   fileHash: string;
   revision: Revision;
   calculationSnapshots: CalculationSnapshot[];
+  reportInventory?: ReportInventoryView[];
 }): Promise<{ reportFilePath: string }> {
   const artifactStore = command.artifactStore ?? new LocalJobArtifactStore(command.outputRoot);
   const reportFilePath = artifactStore.pathsFor(command.jobId ?? legacyJobId(command.fileHash)).reportFile(command.revision.revisionId);
@@ -28,12 +30,25 @@ function renderReport(command: {
   fileHash: string;
   revision: Revision;
   calculationSnapshots: CalculationSnapshot[];
+  reportInventory?: ReportInventoryView[];
 }): string {
-  const snapshots = command.calculationSnapshots;
-  const views = snapshots.map((snapshot, index) => renderAssembly(snapshot, index)).join("");
-  const options = snapshots.map((snapshot, index) => {
-    const material = snapshot.layers[0]?.materialName ?? "Unresolved assembly";
-    return "<option value=\"" + index + "\">" + twoDigits(index + 1) + " · " + escapeHtml(material) + " · " + escapeHtml(shortId(snapshot.assemblyGroupId)) + " · " + escapeHtml(formatUValue(snapshot)) + "</option>";
+  const inventory = command.reportInventory ?? command.calculationSnapshots.map((snapshot) => ({
+    assemblyGroupId: snapshot.assemblyGroupId,
+    elementClass: "IfcWall" as const,
+    sources: [],
+    layers: snapshot.layers.map((layer, layerIndex) => ({ layerIndex, rawMaterialName: layer.rawMaterialName ?? layer.materialName, thicknessM: layer.thicknessM, lambdaWPerMK: layer.lambdaWPerMK, materialResolution: layer.materialResolution, provenance: [] })),
+    snapshot,
+    readinessState: snapshot.readinessState,
+    nextActions: [],
+    specialIssues: [],
+  }));
+  const views = inventory.map((view, index) => renderInventoryAssembly(view, index)).join("");
+  const multiLayerInventory = inventory.filter((view) => view.layers.length > 1);
+  const multiLayerSourceCount = multiLayerInventory.reduce((count, view) => count + view.sources.length, 0);
+  const options = inventory.map((view, index) => {
+    const material = view.layers[0]?.rawMaterialName ?? "Unresolved assembly";
+    const result = view.snapshot === null ? humanizeToken(view.readinessState) : formatUValue(view.snapshot);
+    return "<option value=\"" + index + "\">" + twoDigits(index + 1) + " · " + escapeHtml(material) + " · " + escapeHtml(shortId(view.assemblyGroupId)) + " · " + escapeHtml(result) + "</option>";
   }).join("");
 
   return "<!doctype html>" +
@@ -41,14 +56,25 @@ function renderReport(command: {
     "<title>Thermal Calculation Report " + escapeHtml(command.revision.revisionId) + "</title>" +
     "<style>" + reportStyles() + "</style></head><body>" +
     "<header class=\"brandbar\"><div class=\"brand\"><span class=\"brand-icon\">C</span>Conformity</div><div class=\"product\">THERMAL ASSEMBLY ANALYSIS</div><div class=\"revision\">REV " + escapeHtml(shortId(command.revision.revisionId)) + "</div></header>" +
-    "<div class=\"toolbar\"><button type=\"button\" id=\"previous\" aria-label=\"Previous assembly\">‹</button><label for=\"assembly-picker\">Assembly</label><select id=\"assembly-picker\">" + options + "</select><button type=\"button\" id=\"next\" aria-label=\"Next assembly\">›</button><span id=\"assembly-count\">" + (snapshots.length ? "1 / " + snapshots.length : "0 / 0") + "</span><button type=\"button\" class=\"print\" onclick=\"window.print()\">Print</button></div>" +
+    "<div class=\"toolbar\"><button type=\"button\" id=\"previous\" aria-label=\"Previous assembly\">‹</button><label for=\"assembly-picker\">Assembly</label><select id=\"assembly-picker\">" + options + "</select><button type=\"button\" id=\"next\" aria-label=\"Next assembly\">›</button><span id=\"assembly-count\">" + (inventory.length ? "1 / " + inventory.length : "0 / 0") + "</span><button type=\"button\" class=\"print\" onclick=\"window.print()\">Print</button></div>" +
     "<div class=\"app-frame\"><nav class=\"rail\"><a id=\"nav-layers\" href=\"#layers-0\"><b>≡</b>Layers</a><a id=\"nav-thermal\" href=\"#thermal-0\"><b>ϑ</b>U-value</a><a id=\"nav-temperature\" href=\"#temperature-0\"><b>⌁</b>Heat</a><a id=\"nav-evidence\" href=\"#evidence-0\"><b>✓</b>Evidence</a></nav>" +
     "<main class=\"workspace\"><h1 class=\"sr-only\">Thermal Calculation Report</h1>" +
     (views || "<section class=\"empty\"><h2>No calculable assemblies</h2><p>Resolve the missing inputs to generate a thermal result.</p></section>") +
     "</main></div>" +
-    "<script>" + reportScript(snapshots.length) + "</script></body></html>";
+    "<script>" + reportScript(inventory.length) + "</script></body></html>";
 }
 
+function renderInventoryAssembly(view: ReportInventoryView, index: number): string {
+  const sourceMembership = renderSourceMembership(view);
+  if (view.snapshot !== null) return renderAssembly(view.snapshot, index).replace("</article>", sourceMembership + "</article>");
+  const layers = view.layers.map((layer) => "<tr><td>" + (layer.layerIndex + 1) + "</td><td>" + escapeHtml(layer.rawMaterialName ?? "Unnamed layer") + "</td><td>" + escapeHtml(layer.materialResolution?.matchedMaterialName ?? "Unresolved") + "</td><td>" + escapeHtml(layer.materialResolution?.matchBasis ?? "none") + "</td><td>" + (layer.thicknessM === null ? "Unknown" : formatNumber(layer.thicknessM * 1000, 1) + " mm") + "</td><td>" + (layer.lambdaWPerMK === null ? "Unresolved" : formatNumber(layer.lambdaWPerMK, 3) + " W/mK") + "</td></tr>").join("");
+  const active = index === 0 ? " active" : "";
+  return "<article class=\"assembly-view" + active + "\" data-assembly-index=\"" + index + "\"><header class=\"assembly-heading\"><div><span class=\"eyebrow\">Assembly " + twoDigits(index + 1) + "</span><h2>Evidence-first layer build-up</h2><code>" + escapeHtml(view.assemblyGroupId) + "</code></div><div class=\"heading-result\"><span class=\"status " + view.readinessState + "\">" + escapeHtml(humanizeToken(view.readinessState)) + "</span><strong>Calculation pending</strong></div></header><section class=\"material-values\"><div class=\"section-title\"><div><span class=\"eyebrow\">Known IFC evidence</span><h3>Ordered layers</h3></div><span>No serial U-value has been fabricated.</span></div><div class=\"table-scroll\"><table><thead><tr><th>#</th><th>Raw IFC material</th><th>Matched material</th><th>Match basis</th><th>Thickness</th><th>Resolved lambda</th></tr></thead><tbody>" + layers + "</tbody></table></div></section><section class=\"technical\"><details open><summary>Required next actions</summary>" + renderList(view.nextActions, "No further action recorded.") + "</details><details><summary>Special physics</summary>" + renderList(view.specialIssues.map((issue) => issue.label + ": " + issue.message), "None.") + "</details></section>" + sourceMembership + "</article>";
+}
+function renderSourceMembership(view: ReportInventoryView): string {
+  const rows = view.sources.map((source) => "<tr><td>#" + source.elementStepId + "</td><td>" + escapeHtml(source.elementGlobalId ?? "�") + "</td><td>" + escapeHtml(source.elementName ?? "�") + "</td><td>" + escapeHtml(source.elementObjectType ?? "�") + "</td><td>" + escapeHtml(source.elementClass) + "</td></tr>").join("");
+  return "<section class=\"material-values source-membership\"><div class=\"section-title\"><div><span class=\"eyebrow\">Source-wall coverage</span><h3>" + view.sources.length + " represented source element" + (view.sources.length === 1 ? "" : "s") + "</h3></div></div><div class=\"table-scroll\"><table><thead><tr><th>IFC step id</th><th>GlobalId</th><th>Name</th><th>ObjectType</th><th>Class</th></tr></thead><tbody>" + rows + "</tbody></table></div></section>";
+}
 function renderAssembly(snapshot: CalculationSnapshot, index: number): string {
   const layers = snapshot.layers;
   const totalThickness = layers.reduce((sum, layer) => sum + layer.thicknessM, 0);

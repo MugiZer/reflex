@@ -13,6 +13,7 @@ import type { Revision } from "../../domain/revisions/revisionTypes.js";
 import { LocalJobArtifactStore } from "../../infrastructure/storage/local-files/jobArtifactStore.js";
 import { writeRevisionArtifacts } from "../../infrastructure/storage/local-files/writeRevisionArtifacts.js";
 import { generateHtmlReport } from "../reports/generateHtmlReport.js";
+import { buildReportInventory } from "../reports/buildReportInventory.js";
 
 export type RunCoreReviewCalculationReportResult = {
   requestedInputs: ReturnType<typeof planRequestedInputs>["requestedInputs"];
@@ -78,6 +79,12 @@ export async function runCoreReviewCalculationReport(command: {
     fileHash: command.fileHash,
     revision,
   });
+  const reportInventory = buildReportInventory({
+    calculationInputEvidence: command.calculationInputEvidence,
+    calculationSnapshots,
+    materialLibrary: command.materialLibrary,
+    userInputs: command.userInputs,
+  });
   const report = await generateHtmlReport({
     artifactStore,
     outputRoot: command.outputRoot,
@@ -85,6 +92,7 @@ export async function runCoreReviewCalculationReport(command: {
     fileHash: command.fileHash,
     revision,
     calculationSnapshots,
+    reportInventory,
   });
 
   return {
