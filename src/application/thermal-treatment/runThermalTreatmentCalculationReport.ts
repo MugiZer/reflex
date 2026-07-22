@@ -4,14 +4,14 @@ import type { CalculationSnapshot } from "../../domain/calculations/calculationT
 import { createRevision } from "../../domain/revisions/createRevision.js";
 import type { Revision } from "../../domain/revisions/revisionTypes.js";
 import { runThermalTreatment } from "../../domain/thermal-treatment/runThermalTreatment.js";
-import type { ThermalTreatmentCalculationWorker, ThermalTreatmentFamily, ThermalTreatmentSelection } from "../../domain/thermal-treatment/thermalTreatmentTypes.js";
+import type { ThermalTreatmentCalculationWorker, ThermalTreatmentFamilyRegistry, ThermalTreatmentSelection } from "../../domain/thermal-treatment/thermalTreatmentTypes.js";
 import { LocalJobArtifactStore } from "../../infrastructure/storage/local-files/jobArtifactStore.js";
 import { writeRevisionArtifacts } from "../../infrastructure/storage/local-files/writeRevisionArtifacts.js";
 import { generateHtmlReport } from "../reports/generateHtmlReport.js";
 
 export type ThermalTreatmentReportWorkflowDependencies = {
   outputRoot: string;
-  families: readonly ThermalTreatmentFamily[];
+  registry: ThermalTreatmentFamilyRegistry;
   worker: ThermalTreatmentCalculationWorker;
   now?: Date;
 };
@@ -46,7 +46,7 @@ export function createThermalTreatmentReportWorkflow(dependencies: ThermalTreatm
       const treatment = await runThermalTreatment({
         assemblyGroupId: command.assemblyGroup.assemblyGroupId,
         selection: command.assemblyGroup.thermalTreatmentSelection,
-        families: dependencies.families,
+        registry: dependencies.registry,
         worker: dependencies.worker,
         now: dependencies.now,
       });

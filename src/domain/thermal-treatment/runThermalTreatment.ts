@@ -1,4 +1,4 @@
-import type { ThermalTreatmentCalculationWorker, ThermalTreatmentFamily, ThermalTreatmentRecord, ThermalTreatmentSelection, ThermalTreatmentWorkerResult } from "./thermalTreatmentTypes.js";
+import type { ThermalTreatmentCalculationWorker, ThermalTreatmentFamilyRegistry, ThermalTreatmentRecord, ThermalTreatmentSelection, ThermalTreatmentWorkerResult } from "./thermalTreatmentTypes.js";
 
 export type RunThermalTreatmentResult = { result: ThermalTreatmentWorkerResult; record: ThermalTreatmentRecord };
 
@@ -6,11 +6,11 @@ export type RunThermalTreatmentResult = { result: ThermalTreatmentWorkerResult; 
 export async function runThermalTreatment(command: {
   assemblyGroupId: string;
   selection: ThermalTreatmentSelection;
-  families: readonly ThermalTreatmentFamily[];
+  registry: ThermalTreatmentFamilyRegistry;
   worker: ThermalTreatmentCalculationWorker;
   now?: Date;
 }): Promise<RunThermalTreatmentResult> {
-  const family = command.families.find((candidate) => candidate.identity.familyId === command.selection.familyId && candidate.identity.familyVersion === command.selection.familyVersion);
+  const family = command.registry.findByIdentity(command.selection);
   if (!family) throw new Error(`No registered Thermal Treatment family matches '${command.selection.familyId}' version '${command.selection.familyVersion}'.`);
   const issues = family.validateConfirmedInputs({ confirmedInputs: command.selection.confirmedInputs });
   if (issues.length > 0) throw new Error("Thermal Treatment inputs are invalid: " + issues.map((issue) => issue.message).join(" "));

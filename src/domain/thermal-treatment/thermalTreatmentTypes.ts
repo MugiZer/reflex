@@ -1,4 +1,5 @@
 export type ThermalTreatmentInputValue = string | number | boolean | null;
+export type ThermalTreatmentAnalysisValue = ThermalTreatmentInputValue | ThermalTreatmentAnalysisValue[] | { [key: string]: ThermalTreatmentAnalysisValue };
 
 export type ThermalTreatmentFamilyIdentity = { familyId: string; familyVersion: string };
 export type ThermalTreatmentSelection = ThermalTreatmentFamilyIdentity & { confirmedInputs: Record<string, ThermalTreatmentInputValue> };
@@ -10,7 +11,7 @@ export type ThermalTreatmentAnalysisModel = {
   assemblyGroupId: string;
   treatmentFamily: ThermalTreatmentFamilyIdentity;
   confirmedInputs: Record<string, ThermalTreatmentInputValue>;
-  model: Record<string, ThermalTreatmentInputValue>;
+  model: Record<string, ThermalTreatmentAnalysisValue>;
   assumptions: string[];
   provenance: string[];
 };
@@ -24,6 +25,10 @@ export interface ThermalTreatmentFamily {
   requiredInputs(): ThermalTreatmentInputDefinition[];
   validateConfirmedInputs(command: { confirmedInputs: Record<string, ThermalTreatmentInputValue> }): ThermalTreatmentValidationIssue[];
   buildAnalysisModel(command: { assemblyGroupId: string; confirmedInputs: Record<string, ThermalTreatmentInputValue> }): ThermalTreatmentAnalysisModel;
+}
+export interface ThermalTreatmentFamilyRegistry {
+  availableFamilies(): readonly ThermalTreatmentFamily[];
+  findByIdentity(identity: ThermalTreatmentFamilyIdentity): ThermalTreatmentFamily | null;
 }
 export interface ThermalTreatmentCalculationWorker extends ThermalTreatmentWorkerIdentity {
   calculate(command: { analysisModel: ThermalTreatmentAnalysisModel }): Promise<ThermalTreatmentWorkerResult>;
