@@ -1,5 +1,6 @@
 import type { Confidence, ElementClass } from "../evidence/evidenceTypes.js";
 import type { MaterialResolution } from "../materials/materialTypes.js";
+import type { ThermalTreatmentRecord } from "../thermal-treatment/thermalTreatmentTypes.js";
 
 export type DatapointSource =
   | "ifc_extracted"
@@ -84,4 +85,5 @@ export type CalculationSnapshot = {
   assumptions: string[];
   warnings: string[];
   provenance: string[];
+  thermalTreatment?: ThermalTreatmentRecord;
 };

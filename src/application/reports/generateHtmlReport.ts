@@ -83,6 +83,7 @@ function renderAssembly(snapshot: CalculationSnapshot, index: number): string {
   const assumptionItems = unique(snapshot.assumptions);
   const warningItems = unique(snapshot.warnings);
   const provenanceItems = unique(snapshot.provenance);
+  const thermalTreatment = snapshot.thermalTreatment;
   const resolutionItems = unique(layers.flatMap((layer) => layer.materialResolution
     ? [
         "Raw IFC material: " + (layer.rawMaterialName ?? layer.materialName),
@@ -111,6 +112,7 @@ function renderAssembly(snapshot: CalculationSnapshot, index: number): string {
     "<div class=\"table-scroll\"><table><thead><tr><th>Material</th><th>Thickness</th><th>Assembly share</th><th>λ</th><th>Layer R</th><th>R contribution</th><th>Source</th></tr></thead><tbody>" + materialRows + "</tbody></table></div></section>" +
     "<section class=\"technical\" id=\"evidence-" + index + "\"><details><summary>Inputs and assumptions</summary>" + renderList(assumptionItems, "No additional assumptions.") + "</details>" +
     "<details><summary>Warnings</summary>" + renderList(warningItems, "No warnings.") + "</details>" +
+    (thermalTreatment ? "<details><summary>Thermal Treatment</summary><h3>Family</h3><p>" + escapeHtml(thermalTreatment.selection.familyId + " v" + thermalTreatment.selection.familyVersion) + "</p><h3>Trust state</h3><p>" + escapeHtml(thermalTreatment.trustState) + "</p><h3>Baseline versus effective U-value</h3><p>" + thermalTreatment.baselineUValueWPerM2K.toFixed(3) + " -> " + thermalTreatment.effectiveUValueWPerM2K.toFixed(3) + " W/m2K</p><h3>Confirmed inputs</h3>" + renderList(Object.entries(thermalTreatment.confirmedInputs).map(([key, value]) => key + ": " + String(value)), "No confirmed inputs.") + "<h3>Worker</h3><p>" + escapeHtml(thermalTreatment.worker.workerId + " v" + thermalTreatment.worker.workerVersion) + " / " + escapeHtml(thermalTreatment.calculatedAt) + "</p></details>" : "") +
     "<details><summary>Evidence details</summary><h3>Material resolution</h3>" + renderList(resolutionItems, "No library material resolution was applied.") + "<h3>Provenance</h3>" + renderList(provenanceItems, "No evidence references.") + "</details></section>" +
     renderResultDock(snapshot, totalThickness, provenanceItems.length, warningItems.length) +
     "</article>";

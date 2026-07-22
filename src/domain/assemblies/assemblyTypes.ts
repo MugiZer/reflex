@@ -1,4 +1,10 @@
 import type { Confidence, Diagnostic, EvidenceReference, StepId } from "../evidence/evidenceTypes.js";
+import type { ThermalTreatmentSelection } from "../thermal-treatment/thermalTreatmentTypes.js";
+
+export type AssemblyGroup = {
+  assemblyGroupId: string;
+  thermalTreatmentSelection?: ThermalTreatmentSelection;
+};
 
 export type AssemblyEvidenceSummary = {
   hasLayeredMaterialEvidence: boolean;
