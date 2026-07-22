@@ -9,16 +9,91 @@ import { LocalJobArtifactStore } from "../../infrastructure/storage/local-files/
 import { writeRevisionArtifacts } from "../../infrastructure/storage/local-files/writeRevisionArtifacts.js";
 import { generateHtmlReport } from "../reports/generateHtmlReport.js";
 
-export async function runThermalTreatmentCalculationReport(command: {
-  fileHash: string; jobId: string; outputRoot: string; assemblyGroup: AssemblyGroup & { thermalTreatmentSelection: ThermalTreatmentSelection }; baselineSnapshot: CalculationSnapshot;
-  families: readonly ThermalTreatmentFamily[]; worker: ThermalTreatmentCalculationWorker; parentRevisionId?: string | null; artifactStore?: LocalJobArtifactStore; now?: Date;
-}): Promise<{ revision: Revision; calculationSnapshot: CalculationSnapshot; reportFilePath: string; revisionFilePath: string }> {
-  const treatment = await runThermalTreatment({ assemblyGroupId: command.assemblyGroup.assemblyGroupId, selection: command.assemblyGroup.thermalTreatmentSelection, families: command.families, worker: command.worker, now: command.now });
-  const thermalTreatment = { ...treatment.record, baselineUValueWPerM2K: command.baselineSnapshot.uValueWPerM2K ?? 0 };
-  const calculationSnapshot = { ...command.baselineSnapshot, calculationSnapshotId: `snapshot_${randomUUID()}`, assemblyGroupId: command.assemblyGroup.assemblyGroupId, uValueWPerM2K: treatment.result.effectiveUValueWPerM2K, uValueRangeWPerM2K: null, assumptions: [...command.baselineSnapshot.assumptions, ...thermalTreatment.assumptions], provenance: [...command.baselineSnapshot.provenance, ...thermalTreatment.provenance], thermalTreatment };
-  const revision = createRevision({ revisionId: `rev_${randomUUID()}`, parentRevisionId: command.parentRevisionId ?? null, reason: "Thermal Treatment calculation", userInputs: [], overrides: [], calculationSnapshots: [calculationSnapshot], diagnostics: [], now: command.now });
-  const artifactStore = command.artifactStore ?? new LocalJobArtifactStore(command.outputRoot);
-  const artifacts = await writeRevisionArtifacts({ artifactStore, jobId: command.jobId, fileHash: command.fileHash, revision });
-  const report = await generateHtmlReport({ artifactStore, outputRoot: command.outputRoot, jobId: command.jobId, fileHash: command.fileHash, revision, calculationSnapshots: [calculationSnapshot] });
-  return { revision, calculationSnapshot, reportFilePath: report.reportFilePath, revisionFilePath: artifacts.revisionFilePath };
+export type ThermalTreatmentReportWorkflowDependencies = {
+  outputRoot: string;
+  families: readonly ThermalTreatmentFamily[];
+  worker: ThermalTreatmentCalculationWorker;
+  now?: Date;
+};
+
+export type RunThermalTreatmentReportCommand = {
+  fileHash: string;
+  jobId: string;
+  assemblyGroup: AssemblyGroup & { thermalTreatmentSelection: ThermalTreatmentSelection };
+  baselineSnapshot: CalculationSnapshot;
+  parentRevisionId?: string | null;
+};
+
+export type RunThermalTreatmentReportResult = {
+  revision: Revision;
+  calculationSnapshot: CalculationSnapshot;
+  reportFilePath: string;
+  revisionFilePath: string;
+};
+
+/**
+ * Application module for applying a confirmed Thermal Treatment and publishing
+ * its immutable Revision and Report. Infrastructure adapters are fixed at this
+ * seam; callers supply only facts unique to a calculation.
+ */
+export function createThermalTreatmentReportWorkflow(dependencies: ThermalTreatmentReportWorkflowDependencies): {
+  run(command: RunThermalTreatmentReportCommand): Promise<RunThermalTreatmentReportResult>;
+} {
+  const artifactStore = new LocalJobArtifactStore(dependencies.outputRoot);
+
+  return {
+    async run(command) {
+      const treatment = await runThermalTreatment({
+        assemblyGroupId: command.assemblyGroup.assemblyGroupId,
+        selection: command.assemblyGroup.thermalTreatmentSelection,
+        families: dependencies.families,
+        worker: dependencies.worker,
+        now: dependencies.now,
+      });
+      const thermalTreatment = {
+        ...treatment.record,
+        baselineUValueWPerM2K: command.baselineSnapshot.uValueWPerM2K ?? 0,
+      };
+      const calculationSnapshot: CalculationSnapshot = {
+        ...command.baselineSnapshot,
+        calculationSnapshotId: `snapshot_${randomUUID()}`,
+        assemblyGroupId: command.assemblyGroup.assemblyGroupId,
+        uValueWPerM2K: treatment.result.effectiveUValueWPerM2K,
+        uValueRangeWPerM2K: null,
+        assumptions: [...command.baselineSnapshot.assumptions, ...thermalTreatment.assumptions],
+        provenance: [...command.baselineSnapshot.provenance, ...thermalTreatment.provenance],
+        thermalTreatment,
+      };
+      const revision = createRevision({
+        revisionId: `rev_${randomUUID()}`,
+        parentRevisionId: command.parentRevisionId ?? null,
+        reason: "Thermal Treatment calculation",
+        userInputs: [],
+        overrides: [],
+        calculationSnapshots: [calculationSnapshot],
+        diagnostics: [],
+        now: dependencies.now,
+      });
+      const artifacts = await writeRevisionArtifacts({
+        artifactStore,
+        jobId: command.jobId,
+        fileHash: command.fileHash,
+        revision,
+      });
+      const report = await generateHtmlReport({
+        artifactStore,
+        outputRoot: dependencies.outputRoot,
+        jobId: command.jobId,
+        fileHash: command.fileHash,
+        revision,
+        calculationSnapshots: [calculationSnapshot],
+      });
+      return {
+        revision,
+        calculationSnapshot,
+        reportFilePath: report.reportFilePath,
+        revisionFilePath: artifacts.revisionFilePath,
+      };
+    },
+  };
 }
