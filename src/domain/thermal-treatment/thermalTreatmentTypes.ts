@@ -81,6 +81,8 @@ export type ThermalTreatmentRecord = {
   confirmedInputs: Record<string, ThermalTreatmentInputValue>;
   assumptions: string[];
   provenance: string[];
+  numericalResult?: ThermalTreatmentWorkerResult["numericalResult"];
+  artifactReferences?: readonly string[];
 };
 export type ThermalTreatmentEvidenceCandidate = {
   assemblyGroupId: string;

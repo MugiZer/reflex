@@ -52,7 +52,7 @@ export const continuousZGirtFamily: ThermalTreatmentFamily = {
 export const continuousZGirtFamilyRegistry = createThermalTreatmentFamilyRegistry([continuousZGirtFamily]);
 
 function matchOpportunity(materialNames: readonly string[], evidence: readonly { fixedInputs: readonly { field: string; value: unknown; layer?: { layerIndex: number; materialName: string | null } }[]; candidateInputs: readonly { field: string; value: unknown; layer?: { layerIndex: number; materialName: string | null } }[] }[]): ThermalTreatmentFamilyMatch | null {
-  const matched = materialNames.filter((name) => /\b(z[ -]?(?:girt|bar|rail)|girt|rail)\b/i.test(name));
+  const matched = materialNames.filter((name) => /\b(z[ -]?(?:girt|bar|rail|fixation)|girt|rail)\b/i.test(name));
   if (!matched.length) return null;
   const layers = layersFromEvidence(evidence);
   const proposedInputs: Record<string, ThermalTreatmentInputValue> = { ...referenceConfirmedInputs, wallLayerStackJson: layers ? JSON.stringify(layers) : null };

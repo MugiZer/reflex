@@ -45,6 +45,8 @@ export async function runThermalTreatment(command: {
       confirmedInputs: command.selection.confirmedInputs,
       assumptions: [...analysisModel.assumptions, ...result.assumptions],
       provenance: [...analysisModel.provenance, ...result.provenance],
+      numericalResult: result.numericalResult,
+      artifactReferences: result.artifactReferences,
     },
   };
 }

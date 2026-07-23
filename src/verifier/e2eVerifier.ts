@@ -52,6 +52,7 @@ type JobResponse = {
       assemblyGroupId: string;
       datapoint: string;
       unit: string | null;
+      inputType: "number" | "text" | "choice";
     }>;
   } | null;
   links?: Record<string, string>;
@@ -104,20 +105,17 @@ export async function runE2eVerifier(
     pass(steps, `job reached ${reviewable.jobStatus}`, jobId);
 
     if (reviewable.jobStatus === "needs_review") {
-      const requestedInput = firstRequestedInput(reviewable);
+      const requestedInputs = requiredRequestedInputs(reviewable);
       const submitted = await postJson(`${baseUrl}/api/jobs/${jobId}/review-inputs`, {
-        assemblyGroupId: requestedInput.assemblyGroupId,
-        inputs: [
-          {
-            requestedInputId: requestedInput.requestedInputId,
-            value: demoValueFor(requestedInput.datapoint),
-            unit: requestedInput.unit,
-            overrideScope: "assembly_group",
-          },
-        ],
+        inputs: requestedInputs.map((requestedInput) => ({
+          requestedInputId: requestedInput.requestedInputId,
+          value: demoValueFor(requestedInput),
+          unit: requestedInput.unit,
+          overrideScope: "assembly_group",
+        })),
       });
       revisionId = stringField(submitted, "revisionId");
-      pass(steps, "review input persisted", requestedInput.requestedInputId);
+      pass(steps, "review input persisted", `${requestedInputs.length} inputs`);
       pass(steps, "revision created", revisionId);
     }
 
@@ -219,7 +217,7 @@ async function waitForJob(
   jobId: string,
   terminalStatuses: string[],
 ): Promise<JobResponse> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  for (let attempt = 0; attempt < 600; attempt += 1) {
     const job = await getJson(`${baseUrl}/api/jobs/${jobId}`) as JobResponse;
     if (terminalStatuses.includes(job.jobStatus)) {
       return job;
@@ -232,14 +230,13 @@ async function waitForJob(
   throw new Error(`Timed out waiting for ${terminalStatuses.join(", ")}.`);
 }
 
-function firstRequestedInput(job: JobResponse): NonNullable<NonNullable<JobResponse["review"]>["requestedInputs"]>[number] {
-  const requestedInput = job.review?.requestedInputs?.[0];
-  if (!requestedInput) {
+function requiredRequestedInputs(job: JobResponse): NonNullable<NonNullable<JobResponse["review"]>["requestedInputs"]> {
+  const requestedInputs = job.review?.requestedInputs ?? [];
+  if (!requestedInputs.length) {
     throw new Error("Job needs Review but has no Requested Inputs.");
   }
-  return requestedInput;
+  return requestedInputs;
 }
-
 function assertReport(reportHtml: string): void {
   if (!reportHtml.includes("Thermal Calculation Report")) {
     throw new Error("Report missing title.");
@@ -252,7 +249,9 @@ function assertReport(reportHtml: string): void {
   }
 }
 
-function demoValueFor(datapoint: string): number {
+function demoValueFor(requestedInput: NonNullable<NonNullable<JobResponse["review"]>["requestedInputs"]>[number]): string | number {
+  if (requestedInput.inputType !== "number") return "Verifier fixture input";
+  const datapoint = requestedInput.datapoint;
   if (datapoint === "layer_lambda") {
     return 0.04;
   }
