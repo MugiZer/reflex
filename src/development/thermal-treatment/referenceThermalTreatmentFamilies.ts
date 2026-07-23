@@ -34,7 +34,7 @@ export const developmentReferenceThermalTreatmentFamilies: readonly DevelopmentR
       assemblyGroupId,
       treatmentFamily: { familyId: "development-continuous-rail", familyVersion: "1.0.0" },
       confirmedInputs,
-      model: { rail: { spacingMm: confirmedInputs.railSpacingMm!, depthMm: confirmedInputs.railDepthMm! }, boundary: { direction: "through-wall" } },
+      model: { rail: { spacingMm: confirmedInputs.railSpacingMm!, depthMm: confirmedInputs.railDepthMm! }, boundary: { direction: "through-wall" }, twoDimensionalThermalModel: reference2dModel(0.04) },
       assumptions: ["Development-only continuous rail reference model."],
       provenance: ["Development reference rail adapter."],
     }),
@@ -52,7 +52,7 @@ export const developmentReferenceThermalTreatmentFamilies: readonly DevelopmentR
       assemblyGroupId,
       treatmentFamily: { familyId: "development-insulated-steel-stud", familyVersion: "1.0.0" },
       confirmedInputs,
-      model: { stud: { spacingMm: confirmedInputs.studSpacingMm!, flangeWidthMm: confirmedInputs.studFlangeWidthMm! }, cavity: { insulationLambdaWPerMK: confirmedInputs.cavityInsulationLambdaWPerMK! }, boundaryFaces: ["interior", "exterior"] },
+      model: { stud: { spacingMm: confirmedInputs.studSpacingMm!, flangeWidthMm: confirmedInputs.studFlangeWidthMm! }, cavity: { insulationLambdaWPerMK: confirmedInputs.cavityInsulationLambdaWPerMK! }, boundaryFaces: ["interior", "exterior"], twoDimensionalThermalModel: reference2dModel(Number(confirmedInputs.cavityInsulationLambdaWPerMK)) },
       assumptions: ["Development-only insulated steel stud reference model."],
       provenance: ["Development reference steel stud adapter."],
     }),
@@ -97,5 +97,14 @@ function matchReferenceFamily(materialNames: readonly string[], token: string, i
     boundaryConditions: { heatFlow: "through-wall" },
     proposedInputs: Object.fromEntries(inputs.map((input) => [input.key, input.fallbackEstimate?.value ?? null])),
     proposedInputEvidence: Object.fromEntries(inputs.map((input) => [input.key, { status: "estimated" as const, detail: input.fallbackEstimate?.basis ?? "No direct IFC fabrication evidence." }])),
+  };
+}
+function reference2dModel(conductivityWPerMK: number) {
+  return {
+    domain: { widthM: 0.1, heightM: 0.1 },
+    regions: [{ regionId: "development-reference-region", xMinM: 0, xMaxM: 0.1, yMinM: 0, yMaxM: 0.1, conductivityWPerMK }],
+    boundaries: [{ boundaryId: "inside", edge: "left" as const, kind: "temperature" as const, temperatureK: 293.15 }, { boundaryId: "outside", edge: "right" as const, kind: "temperature" as const, temperatureK: 273.15 }],
+    periodicEdges: ["top", "bottom"] as const,
+    solverControls: { maxCellSizeM: 0.02, refinementLevels: 2, convergenceToleranceRelative: 0.005, maxIterations: 50_000, timeoutMilliseconds: 2_000 },
   };
 }

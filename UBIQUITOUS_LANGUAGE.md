@@ -144,3 +144,11 @@
 | **Thermal Treatment Opportunity** | Advisory, evidence-backed suggestion that a supported family may apply; it never creates a calculation or selection. | Auto-calculation, detected result |
 | **Thermal Construction Signature** | Exact stable representation of the family, ordered layers, thicknesses, proposed parameters, boundary conditions, and assumptions that controls confirmation scope. | Wall hash, loose grouping key |
 | **Thermal Treatment Confirmation Card** | Compact review projection showing one suggested family, affected walls, critical inputs, trust consequence, and explicit actions. | Family form, calculator panel |
+
+## Two-dimensional thermal worker
+
+| Term | Definition | Aliases to avoid |
+| --- | --- | --- |
+| **Two-Dimensional Thermal Model** | Family-neutral rectangular regions, material conductivity, boundary conditions, periodic edges, and mesh controls supplied to the local worker. | Solver geometry, FEM input |
+| **Numerical Result** | Heat-flow, effective conductance, mesh-refinement evidence, warnings, and runtime versions produced by a worker. | Raw result, solver output |
+| **Reproducibility Artifact** | Immutable solver input or result file retained for a calculation run. | Debug file, temporary output |

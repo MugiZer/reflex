@@ -1,7 +1,12 @@
 import type { CalculationInputEvidence } from "../evidence/calculationInputEvidenceTypes.js";
 import type { Confidence, EvidenceReference, StepId } from "../evidence/evidenceTypes.js";
 export type ThermalTreatmentInputValue = string | number | boolean | null;
-export type ThermalTreatmentAnalysisValue = ThermalTreatmentInputValue | ThermalTreatmentAnalysisValue[] | { [key: string]: ThermalTreatmentAnalysisValue };
+export type ThermalTreatmentAnalysisValue = ThermalTreatmentInputValue | readonly ThermalTreatmentAnalysisValue[] | { [key: string]: ThermalTreatmentAnalysisValue };
+export type ThermalTreatmentTwoDimensionalRegion = { regionId: string; xMinM: number; xMaxM: number; yMinM: number; yMaxM: number; conductivityWPerMK: number };
+export type ThermalTreatmentTwoDimensionalBoundary =
+  | { boundaryId: string; edge: "left" | "right" | "top" | "bottom"; kind: "temperature"; temperatureK: number }
+  | { boundaryId: string; edge: "left" | "right" | "top" | "bottom"; kind: "surface_resistance"; airTemperatureK: number; resistanceM2KPerW: number };
+export type ThermalTreatmentTwoDimensionalModel = { domain: { widthM: number; heightM: number }; regions: readonly ThermalTreatmentTwoDimensionalRegion[]; boundaries: readonly ThermalTreatmentTwoDimensionalBoundary[]; periodicEdges: readonly ("left" | "right" | "top" | "bottom")[]; solverControls: { maxCellSizeM: number; refinementLevels: number; convergenceToleranceRelative: number; maxIterations: number; timeoutMilliseconds: number } };
 
 export type ThermalTreatmentFamilyIdentity = { familyId: string; familyVersion: string };
 export type ThermalTreatmentInputEvidenceStatus = "confirmed" | "estimated" | "missing" | "conflicting";
@@ -48,7 +53,7 @@ export type ThermalTreatmentAnalysisModel = {
   assemblyGroupId: string;
   treatmentFamily: ThermalTreatmentFamilyIdentity;
   confirmedInputs: Record<string, ThermalTreatmentInputValue>;
-  model: Record<string, ThermalTreatmentAnalysisValue>;
+  model: { [key: string]: ThermalTreatmentAnalysisValue | ThermalTreatmentTwoDimensionalModel | undefined; twoDimensionalThermalModel?: ThermalTreatmentTwoDimensionalModel };
   assumptions: string[];
   provenance: string[];
 };
@@ -58,6 +63,8 @@ export type ThermalTreatmentWorkerResult = {
   assumptions: string[];
   provenance: string[];
   validity?: { isValid: boolean; diagnostics: string[] };
+  numericalResult?: { totalHeatFlowWPerM: number; effectiveConductanceWPerM2K: number; convergence: { passed: boolean; relativeDifference: number | null; refinementLevels: number; meshCellCounts: readonly { x: number; y: number }[] }; warnings: readonly string[]; workerVersions: Readonly<Record<string, string>> };
+  artifactReferences?: readonly string[];
 };
 export type ThermalTreatmentWorkerIdentity = { workerId: string; workerVersion: string };
 export type ThermalTreatmentRecord = {
@@ -103,3 +110,4 @@ export interface ThermalTreatmentFamilyRegistry {
 export interface ThermalTreatmentCalculationWorker extends ThermalTreatmentWorkerIdentity {
   calculate(command: { analysisModel: ThermalTreatmentAnalysisModel }): Promise<ThermalTreatmentWorkerResult>;
 }
+
