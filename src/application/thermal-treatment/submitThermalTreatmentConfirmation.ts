@@ -36,13 +36,13 @@ export async function submitThermalTreatmentConfirmation(command: { jobId: strin
   validateEnvelope(family.packs.validationPack.supportedParameterEnvelope, confirmation.selection.confirmedInputs);
   const affectedSnapshots = activeRevision.calculationSnapshots.filter((snapshot) => affectedAssemblyGroupIds.includes(snapshot.assemblyGroupId));
   if (!affectedSnapshots.length) throw new Error("No active calculation snapshot exists for the selected Assembly Group.");
-  if (affectedSnapshots.some((snapshot) => snapshot.thermalTreatment?.selection.familyId === suggestion.family.familyId && snapshot.thermalTreatment?.selection.familyVersion === suggestion.family.familyVersion)) throw new Error("This Thermal Treatment has already been confirmed for the active Revision.");
+  if (affectedSnapshots.some((snapshot) => snapshot.thermalTreatment?.selection.familyId === suggestion.family.familyId && snapshot.thermalTreatment?.selection.familyVersion === suggestion.family.familyVersion && snapshot.thermalTreatment.thermalConstructionSignature === suggestion.thermalConstructionSignature)) throw new Error("This Thermal Treatment has already been confirmed for the active Revision.");
   const calculated = new Map<string, Awaited<ReturnType<typeof runThermalTreatment>>>();
   for (const snapshot of affectedSnapshots) calculated.set(snapshot.assemblyGroupId, await runThermalTreatment({ assemblyGroupId: snapshot.assemblyGroupId, selection: confirmation.selection, registry: command.registry, worker: command.worker }));
   const calculationSnapshots = activeRevision.calculationSnapshots.map((snapshot) => {
     const treatment = calculated.get(snapshot.assemblyGroupId);
     if (!treatment) return snapshot;
-    const record = { ...treatment.record, baselineUValueWPerM2K: snapshot.uValueWPerM2K ?? 0 };
+    const record = { ...treatment.record, thermalConstructionSignature: confirmation.thermalConstructionSignature, baselineUValueWPerM2K: snapshot.uValueWPerM2K ?? 0 };
     return { ...snapshot, calculationSnapshotId: `snapshot_${randomUUID()}`, uValueWPerM2K: treatment.result.effectiveUValueWPerM2K, uValueRangeWPerM2K: null, assumptions: [...snapshot.assumptions, ...record.assumptions], provenance: [...snapshot.provenance, ...record.provenance], thermalTreatment: record };
   });
   const revision = createRevision({ revisionId: `rev_${randomUUID()}`, parentRevisionId: activeRevision.revisionId, reason: "Thermal Treatment confirmation", userInputs: activeRevision.userInputs, overrides: activeRevision.overrides, calculationSnapshots, diagnostics: activeRevision.diagnostics });

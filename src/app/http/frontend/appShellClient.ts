@@ -182,7 +182,7 @@ function wireThermalTreatmentConfirmations(job, workspace, drafts, draftSources,
       try {
         await api("/api/jobs/" + encodeURIComponent(job.jobId) + "/thermal-treatment", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ suggestionId: card.dataset.suggestionId, thermalConstructionSignature: card.dataset.signature, familyId: card.dataset.familyId, familyVersion: card.dataset.familyVersion, assemblyGroupId: card.dataset.assemblyGroupId, inputs }) });
         workspacePage(job.jobId, workspace.state.targetU, drafts, draftSources, reviewMode).catch(showError);
-      } catch (error) { showError(error); }
+      } catch (error) { button.disabled = false; button.removeAttribute("aria-busy"); const message = card.querySelector("[role=status]"); if (message) message.textContent = error.message || String(error); else showError(error); }
     };
   });
 }

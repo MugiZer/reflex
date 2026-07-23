@@ -267,6 +267,10 @@ function performanceFor(
   snapshot: CalculationSnapshot | null,
   target: ArchitectTarget | null,
 ): ArchitectAssemblyAction["performance"] {
+  if (snapshot?.thermalTreatment && snapshot.thermalTreatment.trustState !== "verified") {
+    const result = snapshot.uValueWPerM2K === null || snapshot.uValueWPerM2K === undefined ? { kind: "unavailable" as const } : { kind: "value" as const, uValueWPerM2K: snapshot.uValueWPerM2K };
+    return { result, target: null, verdict: "not_assessed", marginWPerM2K: null };
+  }
   const result: ArchitectAssemblyAction["performance"]["result"] = snapshot?.uValueWPerM2K !== null &&
     snapshot?.uValueWPerM2K !== undefined
     ? { kind: "value", uValueWPerM2K: snapshot.uValueWPerM2K }

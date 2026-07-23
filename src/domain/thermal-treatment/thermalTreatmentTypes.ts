@@ -71,6 +71,8 @@ export type ThermalTreatmentWorkerResult = {
 };
 export type ThermalTreatmentWorkerIdentity = { workerId: string; workerVersion: string };
 export type ThermalTreatmentRecord = {
+  /** Signature of the IFC-derived construction that was confirmed for this immutable result. */
+  thermalConstructionSignature?: string;
   trustState: ThermalTreatmentTrustState;
   trustReasons: ThermalTreatmentTrustReason[];
   actionsRequiredForVerification: string[];
