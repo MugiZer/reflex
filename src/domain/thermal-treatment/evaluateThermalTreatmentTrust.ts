@@ -37,7 +37,7 @@ export function evaluateThermalTreatmentTrust(command: {
   const reasons: ThermalTreatmentTrustReason[] = [];
   if (!command.family.packs.validationPack.approvedForVerification) reasons.push({ code: "validation_pack_not_approved", inputKey: null, message: "The validation pack is not approved for Verified results." });
   const actions: string[] = [];
-  for (const parameter of command.family.packs.knowledgePack.parameters.filter((item) => item.critical)) {
+  for (const parameter of command.family.packs.knowledgePack.parameters.filter((item) => item.critical && isApplicable(item, command.confirmedInputs))) {
     const evidence = command.inputEvidence?.[parameter.key];
     const status = evidence?.status ?? "confirmed";
     if (status === "confirmed") continue;
@@ -69,8 +69,10 @@ function validateBounds(key: string, bounds: { minimum?: number; maximum?: numbe
 }
 
 function isWithinBounds(value: ThermalTreatmentInputValue | undefined, bounds: { minimum?: number; maximum?: number; allowedValues?: readonly ThermalTreatmentInputValue[] }): boolean {
-  if (bounds.allowedValues && !bounds.allowedValues.includes(value ?? null)) return false;
+  if (bounds.allowedValues?.includes(value ?? null)) return true;
+  if (bounds.allowedValues && typeof value !== "number") return false;
   if (bounds.minimum !== undefined && (typeof value !== "number" || value < bounds.minimum)) return false;
   if (bounds.maximum !== undefined && (typeof value !== "number" || value > bounds.maximum)) return false;
   return true;
 }
+function isApplicable(input: { applicableWhen?: { inputKey: string; equals: ThermalTreatmentInputValue } }, values: Record<string, ThermalTreatmentInputValue>): boolean { return !input.applicableWhen || values[input.applicableWhen.inputKey] === input.applicableWhen.equals; }

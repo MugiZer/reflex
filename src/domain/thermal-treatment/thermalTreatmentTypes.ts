@@ -22,6 +22,7 @@ export type ThermalTreatmentInputDefinition = {
   critical: boolean;
   evidenceRequirements: readonly string[];
   fallbackEstimate?: { value: ThermalTreatmentInputValue; basis: string };
+  applicableWhen?: { inputKey: string; equals: ThermalTreatmentInputValue };
 };
 export type ThermalTreatmentParameterBounds = { minimum?: number; maximum?: number; allowedValues?: readonly ThermalTreatmentInputValue[] };
 export type ThermalTreatmentKnowledgePack = {

@@ -72,14 +72,14 @@ export function detectThermalTreatmentOpportunities(command: {
 export function buildThermalTreatmentConfirmationCards(command: { suggestions: readonly ThermalTreatmentOpportunitySuggestion[]; registry?: ThermalTreatmentFamilyRegistry }): ThermalTreatmentConfirmationCard[] {
   return command.suggestions.map((suggestion) => {
     const family = command.registry?.findByIdentity(suggestion.family);
-    const criticalInputs = family?.packs.knowledgePack.parameters.filter((input) => input.critical).map((input) => ({ key: input.key, label: input.label, unit: input.unit, status: suggestion.proposedInputEvidence[input.key]?.status ?? "missing" })) ?? [];
+    const criticalInputs = family?.packs.knowledgePack.parameters.filter((input) => input.critical && isApplicable(input, suggestion.proposedInputs) && (suggestion.proposedInputEvidence[input.key]?.status ?? "missing") !== "confirmed").map((input) => ({ key: input.key, label: input.label, unit: input.unit, status: suggestion.proposedInputEvidence[input.key]?.status ?? "missing" })) ?? [];
     return {
       suggestionId: suggestion.suggestionId,
       familyLabel: `${suggestion.family.familyId} v${suggestion.family.familyVersion}`,
       affectedWallCount: suggestion.affectedElementStepIds.length,
       affectedLocations: [...suggestion.affectedElementNames],
       criticalInputs,
-      trustConsequence: "Suggestion only — confirmation and resolved critical inputs are required before a result can be Verified.",
+      trustConsequence: "Suggestion only ï¿½ confirmation and resolved critical inputs are required before a result can be Verified.",
       primaryAction: "Confirm and calculate",
       secondaryAction: "Change family or parameters",
       advancedEvidenceCollapsed: true,
@@ -139,3 +139,4 @@ export function confirmThermalTreatmentOpportunity(command: {
     selection: { familyId: command.suggestion.family.familyId, familyVersion: command.suggestion.family.familyVersion, confirmedInputs: { ...command.suggestion.proposedInputs, ...command.confirmedInputs }, inputEvidence },
   };
 }
+function isApplicable(input: { applicableWhen?: { inputKey: string; equals: ThermalTreatmentInputValue } }, values: Record<string, ThermalTreatmentInputValue>): boolean { return !input.applicableWhen || values[input.applicableWhen.inputKey] === input.applicableWhen.equals; }
