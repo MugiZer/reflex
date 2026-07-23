@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runThermalTreatment } from "../src/domain/thermal-treatment/runThermalTreatment.js";
+import { createThermalTreatmentFamilyRegistry } from "../src/domain/thermal-treatment/createThermalTreatmentFamilyRegistry.js";
 import type { ThermalTreatmentCalculationWorker } from "../src/domain/thermal-treatment/thermalTreatmentTypes.js";
 import {
   developmentReferenceThermalTreatmentFamilies,
@@ -18,6 +19,7 @@ const fakeWorker: ThermalTreatmentCalculationWorker = {
       effectiveUValueWPerM2K: 0.31,
       assumptions: ["Deterministic reference worker."],
       provenance: ["Reference worker contract fixture."],
+      validity: { isValid: true, diagnostics: [] },
     };
   },
 };
@@ -62,6 +64,15 @@ function runFamilyContractSuite(family: DevelopmentReferenceThermalTreatmentFami
       expect(result.record.provenance).toEqual(expect.arrayContaining(["Reference worker contract fixture.", expect.stringMatching(/^Development reference /)]));
       expect(receivedAnalysisModels).toHaveLength(1);
       expect(receivedAnalysisModels[0]).toMatchObject({ treatmentFamily: family.identity });
+      expect(result.record).toMatchObject({
+        trustState: "preliminary_unsafe_estimate",
+        packVersions: {
+          codeAdapterVersion: "1.0.0",
+          knowledgePackVersion: "1.0.0",
+          validationPackVersion: "1.0.0",
+        },
+      });
+
     });
 
     it("rejects invalid adapter inputs before the worker runs", async () => {
@@ -73,6 +84,41 @@ function runFamilyContractSuite(family: DevelopmentReferenceThermalTreatmentFami
         worker: fakeWorker,
       })).rejects.toThrow("Thermal Treatment inputs are invalid:");
       expect(receivedAnalysisModels).toHaveLength(0);
+
+    });
+    it("marks an otherwise calculable case preliminary when a critical input is estimated", async () => {
+      const [criticalInput] = family.requiredInputs();
+      const result = await runThermalTreatment({
+        assemblyGroupId: "ag_reference_estimate",
+        selection: {
+          ...family.identity,
+          confirmedInputs: validInputsFor(family),
+          inputEvidence: { [criticalInput!.key]: { status: "estimated", detail: "IFC did not contain the fabrication dimension." } },
+        },
+        registry: developmentReferenceThermalTreatmentRegistry,
+        worker: fakeWorker,
+      });
+
+      expect(result.record).toMatchObject({
+        trustState: "preliminary_unsafe_estimate",
+        trustReasons: expect.arrayContaining([expect.objectContaining({ code: "critical_input_estimated", inputKey: criticalInput!.key })]),
+        actionsRequiredForVerification: [expect.stringContaining(criticalInput!.label)],
+      });
+    });
+
+    it("applies envelope boundaries and records changed pack versions through the same kernel", async () => {
+      const [firstParameter] = family.packs.knowledgePack.parameters;
+      const bounds = family.packs.validationPack.supportedParameterEnvelope[firstParameter!.key]!;
+      const atBoundary = { ...validInputsFor(family), [firstParameter!.key]: bounds.maximum! };
+      const boundaryResult = await runThermalTreatment({ assemblyGroupId: "ag_boundary", selection: { ...family.identity, confirmedInputs: atBoundary }, registry: developmentReferenceThermalTreatmentRegistry, worker: fakeWorker });
+      expect(boundaryResult.record.trustReasons).toContainEqual(expect.objectContaining({ code: "validation_pack_not_approved" }));
+
+      const outsideResult = await runThermalTreatment({ assemblyGroupId: "ag_outside", selection: { ...family.identity, confirmedInputs: { ...atBoundary, [firstParameter!.key]: bounds.maximum! + 1 } }, registry: developmentReferenceThermalTreatmentRegistry, worker: fakeWorker });
+      expect(outsideResult.record.trustReasons).toContainEqual(expect.objectContaining({ code: "outside_validation_envelope", inputKey: firstParameter!.key }));
+
+      const versionedFamily = { ...family, packs: { ...family.packs, knowledgePack: { ...family.packs.knowledgePack, version: "2.0.0" } } };
+      const versionedResult = await runThermalTreatment({ assemblyGroupId: "ag_versioned", selection: { ...versionedFamily.identity, confirmedInputs: validInputsFor(versionedFamily) }, registry: createThermalTreatmentFamilyRegistry([versionedFamily]), worker: fakeWorker });
+      expect(versionedResult.record.packVersions.knowledgePackVersion).toBe("2.0.0");
     });
   });
 }

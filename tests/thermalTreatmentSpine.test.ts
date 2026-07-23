@@ -9,12 +9,12 @@ import type { ThermalTreatmentCalculationWorker, ThermalTreatmentFamily } from "
 
 const syntheticFamily: ThermalTreatmentFamily = {
   identity: { familyId: "synthetic-development", familyVersion: "1.0.0" },
-  trustState: "preliminary",
-  requiredInputs: () => [{ key: "multiplier", label: "Synthetic multiplier", required: true }],
+  packs: { codeAdapterVersion: "1.0.0", knowledgePack: { version: "1.0.0", parameters: [{ key: "multiplier", label: "Synthetic multiplier", unit: "ratio", required: true, critical: true, evidenceRequirements: ["test fixture"] }] }, validationPack: { version: "1.0.0", supportedParameterEnvelope: { multiplier: { minimum: 0.1, maximum: 10 } }, referenceCases: [{ caseId: "synthetic", parameters: { multiplier: 1 }, expectedEffectiveUValueWPerM2K: 0.42, toleranceWPerM2K: 0.001 }], compatibleCodeAdapterVersions: ["1.0.0"], compatibleWorkers: [{ workerId: "fake-worker", workerVersion: "1.0.0" }], approvedForVerification: true } },
+  requiredInputs: () => [{ key: "multiplier", label: "Synthetic multiplier", unit: "ratio", required: true, critical: true, evidenceRequirements: ["test fixture"] }],
   validateConfirmedInputs: ({ confirmedInputs }) => typeof confirmedInputs.multiplier === "number" && confirmedInputs.multiplier > 0 ? [] : [{ inputKey: "multiplier", message: "Synthetic multiplier must be positive." }],
   buildAnalysisModel: ({ assemblyGroupId, confirmedInputs }) => ({ assemblyGroupId, treatmentFamily: { familyId: "synthetic-development", familyVersion: "1.0.0" }, confirmedInputs, model: { multiplier: confirmedInputs.multiplier }, assumptions: ["Synthetic family assumption."], provenance: ["Synthetic family provenance."] }),
 };
-const fakeWorker: ThermalTreatmentCalculationWorker = { workerId: "fake-worker", workerVersion: "1.0.0", async calculate({ analysisModel }) { return { effectiveUValueWPerM2K: 0.42 * Number(analysisModel.model.multiplier), assumptions: ["Fake worker assumption."], provenance: ["Fake worker provenance."] }; } };
+const fakeWorker: ThermalTreatmentCalculationWorker = { workerId: "fake-worker", workerVersion: "1.0.0", async calculate({ analysisModel }) { return { effectiveUValueWPerM2K: 0.42 * Number(analysisModel.model.multiplier), assumptions: ["Fake worker assumption."], provenance: ["Fake worker provenance."], validity: { isValid: true, diagnostics: [] } }; } };
 
 describe("Generic Thermal Treatment spine", () => {
   it("persists a selected family calculation and renders it in the Report", async () => {
@@ -23,9 +23,11 @@ describe("Generic Thermal Treatment spine", () => {
       const workflow = createThermalTreatmentReportWorkflow({ outputRoot, registry: createThermalTreatmentFamilyRegistry([syntheticFamily]), worker: fakeWorker, now: new Date("2026-07-22T12:00:00.000Z") });
       const result = await workflow.run({ fileHash: "fixture-hash", jobId: "job_thermal", assemblyGroup: { assemblyGroupId: "ag_thermal", thermalTreatmentSelection: { familyId: "synthetic-development", familyVersion: "1.0.0", confirmedInputs: { multiplier: 2 } } }, baselineSnapshot: baselineSnapshot() });
       expect(result.calculationSnapshot.uValueWPerM2K).toBeCloseTo(0.84);
-      expect(result.revision.calculationSnapshots[0]?.thermalTreatment).toMatchObject({ selection: { familyId: "synthetic-development" }, trustState: "preliminary", worker: { workerId: "fake-worker" }, confirmedInputs: { multiplier: 2 } });
+      expect(result.revision.calculationSnapshots[0]?.thermalTreatment).toMatchObject({ selection: { familyId: "synthetic-development" }, trustState: "verified", worker: { workerId: "fake-worker" }, confirmedInputs: { multiplier: 2 } });
       await expect(readFile(result.revisionFilePath, "utf8")).resolves.toContain("synthetic-development");
       await expect(readFile(result.reportFilePath, "utf8")).resolves.toContain("Thermal Treatment");
+      await expect(readFile(result.reportFilePath, "utf8")).resolves.toContain("Pack versions");
+      await expect(readFile(result.reportFilePath, "utf8")).resolves.toContain("Verified");
     } finally { await rm(outputRoot, { recursive: true, force: true }); }
   });
   it("rejects invalid confirmed inputs before calling the worker", async () => {
