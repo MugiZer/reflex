@@ -173,6 +173,19 @@ function thermalTreatmentCards(job) {
   const cards = job.thermalTreatmentCards || [];
   return cards.map((card) => '<section class="panel thermal-treatment-card" data-thermal-treatment-card data-suggestion-id="' + esc(card.suggestionId) + '" data-signature="' + esc(card.thermalConstructionSignature) + '" data-family-id="' + esc(card.family.familyId) + '" data-family-version="' + esc(card.family.familyVersion) + '" data-assembly-group-id="' + esc(card.assemblyGroupIds[0] || "") + '"><span class="eyebrow">Thermal Treatment</span><h3>' + esc(card.family.label) + '</h3><p>' + esc(card.family.summary) + '</p><p><strong>' + esc(card.affectedWallCount) + '</strong> walls: ' + esc(card.affectedLocations.join(", ")) + '</p><p>' + esc(card.trustConsequence) + '</p>' + card.inputs.map((input) => '<label>' + esc(input.label) + ' <input data-thermal-treatment-input data-thermal-treatment-input="' + esc(input.key) + '" type="' + (input.inputType === "boolean" ? "checkbox" : input.inputType === "number" ? "number" : "text") + '" value="' + esc(input.value ?? "") + '"><small>' + esc(input.unit) + ' · ' + esc(input.status) + '</small></label>').join("") + '<details><summary>Advanced IFC evidence and assumptions</summary><p>' + esc(card.advanced.assumptions.join(" ")) + '</p></details><button type="button" data-thermal-treatment-confirm>Confirm and calculate</button></section>').join("");
 }
+function wireThermalTreatmentConfirmations(job, workspace, drafts, draftSources, reviewMode) {
+  document.querySelectorAll("[data-thermal-treatment-confirm]").forEach((button) => {
+    button.onclick = async () => {
+      const card = button.closest("[data-thermal-treatment-card]");
+      const inputs = {};
+      card.querySelectorAll("[data-thermal-treatment-input]").forEach((field) => { inputs[field.dataset.thermalTreatmentInput] = field.type === "checkbox" ? field.checked : field.type === "number" ? Number(field.value) : field.value; });
+      try {
+        await api("/api/jobs/" + encodeURIComponent(job.jobId) + "/thermal-treatment", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ suggestionId: card.dataset.suggestionId, thermalConstructionSignature: card.dataset.signature, familyId: card.dataset.familyId, familyVersion: card.dataset.familyVersion, assemblyGroupId: card.dataset.assemblyGroupId, inputs }) });
+        workspacePage(job.jobId, workspace.state.targetU, drafts, draftSources, reviewMode).catch(showError);
+      } catch (error) { showError(error); }
+    };
+  });
+}
 function renderProcessing(job, targetU) {
   app.innerHTML = projectHeader(job, targetU) + '<section class="panel processing-panel"><span class="loading-dot"></span><div><h2>Reading IFC evidence</h2><p class="muted">The model is being grouped into thermal assemblies. This page updates automatically.</p></div></section>';
   wireTargetForm();
@@ -200,7 +213,7 @@ function renderArchitectWorkspace(job, workspace) {
     workspacePage(job.jobId, workspace.state.targetU, drafts, draftSources, reviewMode).catch(showError);
   });
   renderAside();
-  document.querySelectorAll("[data-thermal-treatment-confirm]").forEach((button) => { button.onclick = async () => { const card = button.closest("[data-thermal-treatment-card]"); const inputs = {}; card.querySelectorAll("[data-thermal-treatment-input]").forEach((field) => { inputs[field.dataset.thermalTreatmentInput] = field.type === "checkbox" ? field.checked : field.type === "number" ? Number(field.value) : field.value; }); try { await api("/api/jobs/" + encodeURIComponent(job.jobId) + "/thermal-treatment", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ suggestionId: card.dataset.suggestionId, thermalConstructionSignature: card.dataset.signature, familyId: card.dataset.familyId, familyVersion: card.dataset.familyVersion, assemblyGroupId: card.dataset.assemblyGroupId, inputs }) }); workspacePage(job.jobId, workspace.state.targetU, drafts, draftSources, reviewMode).catch(showError); } catch (error) { showError(error); } }; });
+  wireThermalTreatmentConfirmations(job, workspace, drafts, draftSources, reviewMode);
   const viewerToggle = document.getElementById("viewerToggle");
   const viewerPanel = document.getElementById("ifcViewer");
   if (viewerToggle && viewerPanel) viewerToggle.onclick = () => {
@@ -235,7 +248,7 @@ function renderArchitectWorkspace(job, workspace) {
     }
     activeAssemblyGroupId = assemblyGroupId;
     renderAside();
-  document.querySelectorAll("[data-thermal-treatment-confirm]").forEach((button) => { button.onclick = async () => { const card = button.closest("[data-thermal-treatment-card]"); const inputs = {}; card.querySelectorAll("[data-thermal-treatment-input]").forEach((field) => { inputs[field.dataset.thermalTreatmentInput] = field.type === "checkbox" ? field.checked : field.type === "number" ? Number(field.value) : field.value; }); try { await api("/api/jobs/" + encodeURIComponent(job.jobId) + "/thermal-treatment", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ suggestionId: card.dataset.suggestionId, thermalConstructionSignature: card.dataset.signature, familyId: card.dataset.familyId, familyVersion: card.dataset.familyVersion, assemblyGroupId: card.dataset.assemblyGroupId, inputs }) }); workspacePage(job.jobId, workspace.state.targetU, drafts, draftSources, reviewMode).catch(showError); } catch (error) { showError(error); } }; });
+  wireThermalTreatmentConfirmations(job, workspace, drafts, draftSources, reviewMode);
     const active = assemblies.find((assembly) => assembly.assemblyGroupId === assemblyGroupId);
     if (workspace.hasViewer() && active) workspace.selectViewer(active.displayStepIds || []);
     if (scrollCard) {
@@ -265,7 +278,7 @@ function renderArchitectWorkspace(job, workspace) {
         workspace.setFilter(button.dataset.actionFilter);
         activeFilter = workspace.state.filter;
         renderAside();
-  document.querySelectorAll("[data-thermal-treatment-confirm]").forEach((button) => { button.onclick = async () => { const card = button.closest("[data-thermal-treatment-card]"); const inputs = {}; card.querySelectorAll("[data-thermal-treatment-input]").forEach((field) => { inputs[field.dataset.thermalTreatmentInput] = field.type === "checkbox" ? field.checked : field.type === "number" ? Number(field.value) : field.value; }); try { await api("/api/jobs/" + encodeURIComponent(job.jobId) + "/thermal-treatment", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ suggestionId: card.dataset.suggestionId, thermalConstructionSignature: card.dataset.signature, familyId: card.dataset.familyId, familyVersion: card.dataset.familyVersion, assemblyGroupId: card.dataset.assemblyGroupId, inputs }) }); workspacePage(job.jobId, workspace.state.targetU, drafts, draftSources, reviewMode).catch(showError); } catch (error) { showError(error); } }; });
+  wireThermalTreatmentConfirmations(job, workspace, drafts, draftSources, reviewMode);
         const selected = assemblies.find((assembly) => assembly.assemblyGroupId === activeAssemblyGroupId);
         if (workspace.hasViewer() && selected) workspace.selectViewer(selected.displayStepIds || []);
       };
@@ -280,7 +293,7 @@ function renderArchitectWorkspace(job, workspace) {
       button.onclick = () => {
         workspace.setDraft(button.dataset.libraryInputId, button.dataset.libraryValue, { source: "material_library", materialLibraryKey: button.dataset.libraryKey });
         renderAside();
-  document.querySelectorAll("[data-thermal-treatment-confirm]").forEach((button) => { button.onclick = async () => { const card = button.closest("[data-thermal-treatment-card]"); const inputs = {}; card.querySelectorAll("[data-thermal-treatment-input]").forEach((field) => { inputs[field.dataset.thermalTreatmentInput] = field.type === "checkbox" ? field.checked : field.type === "number" ? Number(field.value) : field.value; }); try { await api("/api/jobs/" + encodeURIComponent(job.jobId) + "/thermal-treatment", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ suggestionId: card.dataset.suggestionId, thermalConstructionSignature: card.dataset.signature, familyId: card.dataset.familyId, familyVersion: card.dataset.familyVersion, assemblyGroupId: card.dataset.assemblyGroupId, inputs }) }); workspacePage(job.jobId, workspace.state.targetU, drafts, draftSources, reviewMode).catch(showError); } catch (error) { showError(error); } }; });
+  wireThermalTreatmentConfirmations(job, workspace, drafts, draftSources, reviewMode);
       };
     });
     aside.querySelectorAll("[data-library-picker]").forEach((picker) => {
@@ -289,7 +302,7 @@ function renderArchitectWorkspace(job, workspace) {
         if (!entry) return;
         workspace.setDraft(picker.dataset.libraryInputId, String(entry.lambdaWPerMK), { source: "material_library", materialLibraryKey: entry.materialLibraryKey });
         renderAside();
-  document.querySelectorAll("[data-thermal-treatment-confirm]").forEach((button) => { button.onclick = async () => { const card = button.closest("[data-thermal-treatment-card]"); const inputs = {}; card.querySelectorAll("[data-thermal-treatment-input]").forEach((field) => { inputs[field.dataset.thermalTreatmentInput] = field.type === "checkbox" ? field.checked : field.type === "number" ? Number(field.value) : field.value; }); try { await api("/api/jobs/" + encodeURIComponent(job.jobId) + "/thermal-treatment", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ suggestionId: card.dataset.suggestionId, thermalConstructionSignature: card.dataset.signature, familyId: card.dataset.familyId, familyVersion: card.dataset.familyVersion, assemblyGroupId: card.dataset.assemblyGroupId, inputs }) }); workspacePage(job.jobId, workspace.state.targetU, drafts, draftSources, reviewMode).catch(showError); } catch (error) { showError(error); } }; });
+  wireThermalTreatmentConfirmations(job, workspace, drafts, draftSources, reviewMode);
       };
     });
     aside.querySelectorAll("[data-apply-optional]").forEach((button) => {
