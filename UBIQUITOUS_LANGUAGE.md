@@ -136,3 +136,11 @@
 - "parser" can mean raw `web-ifc`, `WebIfcModelReader`, or `WebIfcEvidenceExtractor`. Use exact names.
 - "index" should mean **IfcExtractionIndex** only when referring to targeted IFC relationship links.
 - "signature" should mean **Evidence Signature** only when referring to versioned grouping evidence.
+
+## Thermal Treatment opportunity review
+
+| Term | Definition | Aliases to avoid |
+| --- | --- | --- |
+| **Thermal Treatment Opportunity** | Advisory, evidence-backed suggestion that a supported family may apply; it never creates a calculation or selection. | Auto-calculation, detected result |
+| **Thermal Construction Signature** | Exact stable representation of the family, ordered layers, thicknesses, proposed parameters, boundary conditions, and assumptions that controls confirmation scope. | Wall hash, loose grouping key |
+| **Thermal Treatment Confirmation Card** | Compact review projection showing one suggested family, affected walls, critical inputs, trust consequence, and explicit actions. | Family form, calculator panel |

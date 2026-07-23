@@ -9,6 +9,7 @@ import type { ThermalTreatmentCalculationWorker, ThermalTreatmentFamily } from "
 
 const syntheticFamily: ThermalTreatmentFamily = {
   identity: { familyId: "synthetic-development", familyVersion: "1.0.0" },
+  matchOpportunity: () => null,
   packs: { codeAdapterVersion: "1.0.0", knowledgePack: { version: "1.0.0", parameters: [{ key: "multiplier", label: "Synthetic multiplier", unit: "ratio", required: true, critical: true, evidenceRequirements: ["test fixture"] }] }, validationPack: { version: "1.0.0", supportedParameterEnvelope: { multiplier: { minimum: 0.1, maximum: 10 } }, referenceCases: [{ caseId: "synthetic", parameters: { multiplier: 1 }, expectedEffectiveUValueWPerM2K: 0.42, toleranceWPerM2K: 0.001 }], compatibleCodeAdapterVersions: ["1.0.0"], compatibleWorkers: [{ workerId: "fake-worker", workerVersion: "1.0.0" }], approvedForVerification: true } },
   requiredInputs: () => [{ key: "multiplier", label: "Synthetic multiplier", unit: "ratio", required: true, critical: true, evidenceRequirements: ["test fixture"] }],
   validateConfirmedInputs: ({ confirmedInputs }) => typeof confirmedInputs.multiplier === "number" && confirmedInputs.multiplier > 0 ? [] : [{ inputKey: "multiplier", message: "Synthetic multiplier must be positive." }],

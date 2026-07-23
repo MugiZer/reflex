@@ -27,6 +27,7 @@ export const developmentReferenceThermalTreatmentFamilies: readonly DevelopmentR
     developmentOnly: true,
     matchingEvidence: ["material label contains rail", "repeating conductive component evidence"],
     referenceConfirmedInputs: { railSpacingMm: 600, railDepthMm: 100 },
+    matchOpportunity: ({ evidence }) => matchReferenceFamily(evidence.materialNames, "rail", railInputs, "material_name_matches_rail"),
     requiredInputs: () => [...railPacks.knowledgePack.parameters],
     validateConfirmedInputs: ({ confirmedInputs }) => boundedPositiveNumberIssues(confirmedInputs, railInputs, { railSpacingMm: 2000, railDepthMm: 400 }),
     buildAnalysisModel: ({ assemblyGroupId, confirmedInputs }) => ({
@@ -44,6 +45,7 @@ export const developmentReferenceThermalTreatmentFamilies: readonly DevelopmentR
     developmentOnly: true,
     matchingEvidence: ["material label contains stud", "cavity insulation evidence"],
     referenceConfirmedInputs: { studSpacingMm: 600, studFlangeWidthMm: 50, cavityInsulationLambdaWPerMK: 0.04 },
+    matchOpportunity: ({ evidence }) => matchReferenceFamily(evidence.materialNames, "stud", steelStudInputs, "material_name_matches_stud"),
     requiredInputs: () => [...steelStudPacks.knowledgePack.parameters],
     validateConfirmedInputs: ({ confirmedInputs }) => boundedPositiveNumberIssues(confirmedInputs, steelStudInputs, { studSpacingMm: 1200, studFlangeWidthMm: 150, cavityInsulationLambdaWPerMK: 0.2 }),
     buildAnalysisModel: ({ assemblyGroupId, confirmedInputs }) => ({
@@ -83,4 +85,17 @@ function boundedPositiveNumberIssues(confirmedInputs: Record<string, ThermalTrea
       ? []
       : [{ inputKey: input.key, message: `${input.label} must be greater than zero and no greater than ${upperBound}.` }];
   });
+}
+function matchReferenceFamily(materialNames: readonly string[], token: string, inputs: readonly ThermalTreatmentInputDefinition[], reasonCode: string) {
+  const matchingNames = materialNames.filter((name) => name.toLowerCase().includes(token));
+  if (!matchingNames.length) return null;
+  const ambiguous = materialNames.some((name) => name.toLowerCase().includes("rail") && name.toLowerCase().includes("stud"));
+  return {
+    confidence: ambiguous ? "low" as const : "medium" as const,
+    reasonCodes: [reasonCode],
+    assumptions: ["Family suggestion is based on IFC material naming and remains unconfirmed."],
+    boundaryConditions: { heatFlow: "through-wall" },
+    proposedInputs: Object.fromEntries(inputs.map((input) => [input.key, input.fallbackEstimate?.value ?? null])),
+    proposedInputEvidence: Object.fromEntries(inputs.map((input) => [input.key, { status: "estimated" as const, detail: input.fallbackEstimate?.basis ?? "No direct IFC fabrication evidence." }])),
+  };
 }

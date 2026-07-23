@@ -1,3 +1,5 @@
+import type { CalculationInputEvidence } from "../evidence/calculationInputEvidenceTypes.js";
+import type { Confidence, EvidenceReference, StepId } from "../evidence/evidenceTypes.js";
 export type ThermalTreatmentInputValue = string | number | boolean | null;
 export type ThermalTreatmentAnalysisValue = ThermalTreatmentInputValue | ThermalTreatmentAnalysisValue[] | { [key: string]: ThermalTreatmentAnalysisValue };
 
@@ -72,9 +74,24 @@ export type ThermalTreatmentRecord = {
   assumptions: string[];
   provenance: string[];
 };
+export type ThermalTreatmentEvidenceCandidate = {
+  assemblyGroupId: string;
+  calculationInputEvidence: readonly CalculationInputEvidence[];
+  materialNames: readonly string[];
+  evidenceReferences: readonly EvidenceReference[];
+};
+export type ThermalTreatmentFamilyMatch = {
+  confidence: Confidence;
+  reasonCodes: readonly string[];
+  assumptions: readonly string[];
+  boundaryConditions: Readonly<Record<string, string>>;
+  proposedInputs: Record<string, ThermalTreatmentInputValue>;
+  proposedInputEvidence: Record<string, { status: ThermalTreatmentInputEvidenceStatus; detail: string }>;
+};
 export interface ThermalTreatmentFamily {
   readonly identity: ThermalTreatmentFamilyIdentity;
   readonly packs: ThermalTreatmentPackSet;
+  matchOpportunity(command: { evidence: ThermalTreatmentEvidenceCandidate }): ThermalTreatmentFamilyMatch | null;
   requiredInputs(): ThermalTreatmentInputDefinition[];
   validateConfirmedInputs(command: { confirmedInputs: Record<string, ThermalTreatmentInputValue> }): ThermalTreatmentValidationIssue[];
   buildAnalysisModel(command: { assemblyGroupId: string; confirmedInputs: Record<string, ThermalTreatmentInputValue> }): ThermalTreatmentAnalysisModel;
