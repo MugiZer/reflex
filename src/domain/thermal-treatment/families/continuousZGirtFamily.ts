@@ -13,10 +13,10 @@ const inputs: readonly ThermalTreatmentInputDefinition[] = [
   { key: "repeatSpacingMm", label: "Z-girt repeat spacing", unit: "mm", required: true, critical: true, evidenceRequirements: ["framing schedule", "architect confirmation"] },
   { key: "steelConductivityWPerMK", label: "Steel conductivity", unit: "W/mK", required: true, critical: true, evidenceRequirements: ["material specification", "architect confirmation"] },
   { key: "placementOrientation", label: "Placement and orientation", unit: "inside-to-outside", required: true, critical: true, evidenceRequirements: ["detail drawing", "architect confirmation"] },
-  { key: "insideAirTemperatureC", label: "Inside air temperature", unit: "°C", required: true, critical: true, evidenceRequirements: ["project boundary condition", "architect confirmation"] },
-  { key: "outsideAirTemperatureC", label: "Outside air temperature", unit: "°C", required: true, critical: true, evidenceRequirements: ["project boundary condition", "architect confirmation"] },
-  { key: "insideSurfaceResistanceM2KPerW", label: "Inside surface resistance", unit: "m²K/W", required: true, critical: true, evidenceRequirements: ["project boundary condition", "architect confirmation"] },
-  { key: "outsideSurfaceResistanceM2KPerW", label: "Outside surface resistance", unit: "m²K/W", required: true, critical: true, evidenceRequirements: ["project boundary condition", "architect confirmation"] },
+  { key: "insideAirTemperatureC", label: "Inside air temperature", unit: "Â°C", required: true, critical: true, evidenceRequirements: ["project boundary condition", "architect confirmation"] },
+  { key: "outsideAirTemperatureC", label: "Outside air temperature", unit: "Â°C", required: true, critical: true, evidenceRequirements: ["project boundary condition", "architect confirmation"] },
+  { key: "insideSurfaceResistanceM2KPerW", label: "Inside surface resistance", unit: "mÂ²K/W", required: true, critical: true, evidenceRequirements: ["project boundary condition", "architect confirmation"] },
+  { key: "outsideSurfaceResistanceM2KPerW", label: "Outside surface resistance", unit: "mÂ²K/W", required: true, critical: true, evidenceRequirements: ["project boundary condition", "architect confirmation"] },
   { key: "thermalBreakPresent", label: "Thermal break present", unit: "yes/no", required: true, critical: true, evidenceRequirements: ["detail drawing", "architect confirmation"] },
   { key: "thermalBreakLengthMm", label: "Thermal break length", unit: "mm", required: false, critical: true, evidenceRequirements: ["thermal-break detail", "architect confirmation"], applicableWhen: { inputKey: "thermalBreakPresent", equals: true } },
   { key: "thermalBreakConductivityWPerMK", label: "Thermal break conductivity", unit: "W/mK", required: false, critical: true, evidenceRequirements: ["thermal-break specification", "architect confirmation"], applicableWhen: { inputKey: "thermalBreakPresent", equals: true } },
@@ -24,7 +24,7 @@ const inputs: readonly ThermalTreatmentInputDefinition[] = [
 
 const packs: ThermalTreatmentPackSet = {
   codeAdapterVersion: "1.0.0",
-  knowledgePack: { version: "1.0.0", parameters: inputs.map((input) => ({ ...input, range: input.key === "placementOrientation" || input.key === "thermalBreakPresent" || input.key === "wallLayerStackJson" ? undefined : { minimum: 0.0001, maximum: 100_000 } })) },
+  knowledgePack: { version: "1.0.0", presentation: { familyLabel: "Continuous Z-girt / rail", summary: "A repeating steel Z-girt or rail is suggested by the IFC layer evidence." }, parameters: inputs.map((input) => ({ ...input, range: input.key === "placementOrientation" || input.key === "thermalBreakPresent" || input.key === "wallLayerStackJson" ? undefined : { minimum: 0.0001, maximum: 100_000 } })) },
   validationPack: {
     version: "1.0.0",
     supportedParameterEnvelope: {

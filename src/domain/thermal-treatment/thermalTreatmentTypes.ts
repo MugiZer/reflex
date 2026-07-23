@@ -27,6 +27,8 @@ export type ThermalTreatmentInputDefinition = {
 export type ThermalTreatmentParameterBounds = { minimum?: number; maximum?: number; allowedValues?: readonly ThermalTreatmentInputValue[] };
 export type ThermalTreatmentKnowledgePack = {
   version: string;
+  /** Browser-safe labels supplied by the validated family pack, never inferred from a family id. */
+  presentation?: { familyLabel: string; summary: string };
   parameters: readonly (ThermalTreatmentInputDefinition & { allowedValues?: readonly ThermalTreatmentInputValue[]; range?: ThermalTreatmentParameterBounds })[];
 };
 export type ThermalTreatmentValidationPack = {
@@ -113,4 +115,3 @@ export interface ThermalTreatmentFamilyRegistry {
 export interface ThermalTreatmentCalculationWorker extends ThermalTreatmentWorkerIdentity {
   calculate(command: { analysisModel: ThermalTreatmentAnalysisModel }): Promise<ThermalTreatmentWorkerResult>;
 }
-

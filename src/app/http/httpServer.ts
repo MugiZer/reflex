@@ -1,11 +1,15 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import { createJob } from "../../application/jobs/createJob.js";
 import { reconcileJobReviewPlan } from "../../application/jobs/reconcileJobReviewPlan.js";
 import { getJobWorkspace } from "../../application/jobs/getJobWorkspace.js";
 import type { ProcessIfcJobDeps } from "../../application/jobs/processIfcJob.js";
 import { submitJobReviewInputs } from "../../application/jobs/submitJobReviewInputs.js";
+import { submitThermalTreatmentConfirmation } from "../../application/thermal-treatment/submitThermalTreatmentConfirmation.js";
+import { continuousZGirtFamilyRegistry } from "../../domain/thermal-treatment/families/continuousZGirtFamily.js";
+import { OpenSource2dCalculationWorker } from "../../infrastructure/thermal-treatment/OpenSource2dCalculationWorker.js";
 import type { ClosableJobRepository, JobRepository } from "../../domain/jobs/jobRepository.js";
 import type { JobRecord } from "../../domain/jobs/jobTypes.js";
 import { WebIfcViewerGeometryExtractor } from "../../infrastructure/ifc/web-ifc/WebIfcViewerGeometryExtractor.js";
@@ -40,6 +44,7 @@ export function createLocalhostApp(command: {
     artifactStore,
     ...command.workerOverrides,
   };
+  const thermalTreatmentWorker = new OpenSource2dCalculationWorker({ artifactRoot: join(command.outputRoot, "thermal-treatment-worker") });
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
@@ -72,6 +77,12 @@ export function createLocalhostApp(command: {
       const reconcileJobId = matchPath(url.pathname, /^\/api\/jobs\/([^/]+)\/reconcile-review-plan$/);
       if (req.method === "POST" && reconcileJobId) {
         const result = await reconcileJobReviewPlan({ jobId: reconcileJobId, deps: workerDeps });
+        return json(res, 202, result);
+      }
+
+      const thermalTreatmentJobId = matchPath(url.pathname, /^\/api\/jobs\/([^/]+)\/thermal-treatment$/);
+      if (req.method === "POST" && thermalTreatmentJobId) {
+        const result = await submitThermalTreatmentConfirmation({ jobId: thermalTreatmentJobId, body: await readJson(req), jobs, deps: workerDeps, registry: continuousZGirtFamilyRegistry, worker: thermalTreatmentWorker });
         return json(res, 202, result);
       }
 
@@ -151,6 +162,7 @@ async function sendJob(
     review: workspace.review,
     architectActions: workspace.architectActions,
     materialLibrary: workspace.materialLibrary,
+    thermalTreatmentCards: workspace.thermalTreatmentCards,
     links: linksFor(workspace.job),
   });
 }
