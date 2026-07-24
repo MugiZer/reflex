@@ -139,7 +139,7 @@ interface PrimitiveRegistration {
   parameterSchema: JsonSchema;
   capabilities: { dimension: "2d-cross-section"; supportsThermalBreak: boolean;
     supportsPeriodicTranslation: boolean; referencePoint: string };
-  compile(parameters: unknown, context: PrimitiveCompileContext): PrimitiveDraft;
+  compile(parameters: unknown, context: PrimitiveCompileContext): PrimitiveGeometry;
 }
 interface PrimitiveRegistry {
   resolve(kind: string, primitiveVersion: string): PrimitiveRegistration | RegistryError;
@@ -150,6 +150,28 @@ interface TopologyModule {
   compile(recipe: Recipe, registry: PrimitiveRegistry): CompileResult;
 }
 ```
+
+`PrimitiveGeometry` contains only tolerance-normalized local polygonal Material
+Regions and declared contact boundaries in the primitive reference frame. It
+contains no row placement, repetition, host-layer Boolean result, mesh, or
+solver object. The Topology Module transforms that output into versioned
+`CanonicalAnalysisGeometry`: cell polygon, placed non-overlapping Material
+Regions, exact interfaces/contacts, matched periodic edges, Topology Audit, and
+the primitive-registry manifest. Solver adapters consume only this canonical
+form. Its serialized coordinate system is the Recipe coordinate system without
+transposition: `x` is periodic left-to-right and `y` is exterior-to-interior
+depth; exterior/interior are horizontal edges and the periodic pair is vertical.
+
+`offsetX` fixes relative phase between rows, not an immutable global cut through
+the periodic construction. The compiler may select a deterministic cell-origin
+shift when necessary to keep all continuous members away from the paired cell
+edges. It must record the shift, preserve every relative phase modulo the period,
+and reject compositions for which no conforming cut exists.
+
+The numerical result carries H(div) fluxes for exterior, interior, and both
+periodic boundaries. Primary effective heat flow is the volume-energy integral,
+checked against equal-and-opposite Dirichlet reactions; the interpolated H(div)
+face mean remains an inspectable diagnostic rather than the U-value authority.
 
 Primitive-specific parameters live only under `member.primitive.parameters`; each is an authority-tagged numeric value and is validated by the resolved registration's schema.  The common Recipe knows
 the placement, material, row, and authority vocabulary, not flange/lip names.
@@ -167,6 +189,13 @@ consumer; a semantic reinterpretation requires a major version.  A primitive
 registration is compatible only when its exact major version and declared
 capabilities are supported by the module.  A missing registration, unknown
 parameter, or capability mismatch is predictably `unsupported`, never ignored.
+
+The reproducibility manifest also hashes each primitive implementation and
+capability declaration, compiler and solver source, Recipe schema, material pack
+(values, units, provenance, and version), boundary/validation pack, dependency
+lock, and runtime identity. Verification compares canonical result hashes and
+rejection diagnostics to a separately reviewed frozen manifest; a run may not
+regenerate and bless its own expected hashes.
 
 * Register a **new primitive** when the same 2-D periodic cell semantics,
   placement, contacts, and physics apply and only the local member cross-section

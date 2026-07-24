@@ -1,0 +1,13 @@
+{
+  "expect": {
+    "category": "invalid",
+    "outcome": "rejected",
+    "reason": "Primitive geometry extends outside the host depth."
+  },
+  "recipe": {
+    "fixtureBase": "valid-single-c-row.json",
+    "patch": {
+      "rows[0].originY.value": 0.02
+    }
+  }
+}

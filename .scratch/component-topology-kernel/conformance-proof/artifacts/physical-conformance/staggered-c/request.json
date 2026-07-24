@@ -1,0 +1,158 @@
+{
+  "boundaries": {
+    "exterior": {
+      "authority": {
+        "sourceRefs": [
+          "surface-profile:external-wall"
+        ],
+        "state": "validated-default"
+      },
+      "value": "external-wall"
+    },
+    "interior": {
+      "authority": {
+        "sourceRefs": [
+          "surface-profile:external-wall"
+        ],
+        "state": "validated-default"
+      },
+      "value": "internal"
+    },
+    "left": "periodic",
+    "right": "periodic"
+  },
+  "cavities": [],
+  "layers": [
+    {
+      "id": "service-zone",
+      "material": {
+        "authority": {
+          "sourceRefs": [
+            "IfcMaterialLayer[0].Material.Name"
+          ],
+          "state": "ifc-derived"
+        },
+        "value": "mineral-wool"
+      },
+      "thickness": {
+        "authority": {
+          "sourceRefs": [
+            "review:wall-depth"
+          ],
+          "state": "user-confirmed"
+        },
+        "value": 0.2
+      }
+    }
+  ],
+  "periodicity": {
+    "authority": {
+      "sourceRefs": [
+        "review:double-c-spacing"
+      ],
+      "state": "user-confirmed"
+    },
+    "value": 0.6
+  },
+  "projectedArea": {
+    "authority": {
+      "sourceRefs": [
+        "contract:unit-out-of-plane-length"
+      ],
+      "state": "validated-default"
+    },
+    "value": 0.6
+  },
+  "rows": [
+    {
+      "id": "outer-c",
+      "member": {
+        "material": {
+          "authority": {
+            "sourceRefs": [
+              "review:steel"
+            ],
+            "state": "user-confirmed"
+          },
+          "value": "galvanized-steel"
+        },
+        "primitive": {
+          "kind": "standard.c",
+          "parameters": {
+            "depth": 0.09,
+            "flangeWidth": 0.04,
+            "gauge": 0.0015,
+            "lipWidth": 0.01
+          },
+          "version": "1.0.0"
+        }
+      },
+      "offsetX": {
+        "authority": {
+          "sourceRefs": [
+            "review:outer-offset"
+          ],
+          "state": "user-confirmed"
+        },
+        "value": 0
+      },
+      "originY": {
+        "authority": {
+          "sourceRefs": [
+            "review:outer-depth"
+          ],
+          "state": "user-confirmed"
+        },
+        "value": 0
+      }
+    },
+    {
+      "id": "inner-c",
+      "member": {
+        "material": {
+          "authority": {
+            "sourceRefs": [
+              "review:steel"
+            ],
+            "state": "user-confirmed"
+          },
+          "value": "galvanized-steel"
+        },
+        "primitive": {
+          "kind": "standard.c",
+          "parameters": {
+            "depth": 0.09,
+            "flangeWidth": 0.04,
+            "gauge": 0.0015,
+            "lipWidth": 0.01
+          },
+          "version": "1.0.0"
+        }
+      },
+      "offsetX": {
+        "authority": {
+          "sourceRefs": [
+            "review:stagger-offset"
+          ],
+          "state": "user-confirmed"
+        },
+        "value": 0.3
+      },
+      "originY": {
+        "authority": {
+          "sourceRefs": [
+            "review:inner-depth"
+          ],
+          "state": "user-confirmed"
+        },
+        "value": 0.11
+      }
+    }
+  ],
+  "schemaVersion": "1.0.0-draft",
+  "thermalBreaks": [],
+  "topologyModule": {
+    "id": "repeating-parallel-profile-wall-2d",
+    "version": "1.0.0-draft"
+  }
+}

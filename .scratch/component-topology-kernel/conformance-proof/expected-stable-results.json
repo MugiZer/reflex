@@ -1,0 +1,47 @@
+{
+  "acceptedStableResultSha256": {
+    "aligned-c": "c1f0fbcd039659d78a2a5babac68bed453b13299485a5ee3cc403343448619b3",
+    "single-c": "6522afdcbaf8e8d2a154766319d0f55a78dc31dd67601a9ab87137f462c4c4bc",
+    "staggered-c": "adea6103fe49e28e4da2acf387ba8e2b9faba2b14013069907a1824a6e6b5f05",
+    "timber": "3d28415da7264b66f5acd9f979f79e224252463deff8360dc116c417adb367b2",
+    "z-regression": "8692a787fbb816b9ebcea3b9730300f3c6a7b3a03e501501e22a14c81ff17d40"
+  },
+  "environmentScope": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "pythonImplementation": "CPython",
+    "pythonVersion": "3.12.10"
+  },
+  "rejectedDiagnostics": {
+    "crossed-framing": {
+      "category": "unsupported",
+      "reason": "Crossed framing is not representable by a continuous parallel-member 2-D representative cell.",
+      "status": "rejected"
+    },
+    "disconnected-member": {
+      "category": "invalid",
+      "reason": "Primitive 'fixture.disconnected' emitted invalid local geometry.",
+      "status": "rejected"
+    },
+    "missing-critical-input": {
+      "category": "incomplete",
+      "reason": "Member depth is missing and cannot be compiled.",
+      "status": "blocked"
+    },
+    "out-of-host": {
+      "category": "invalid",
+      "reason": "Primitive geometry extends outside the host depth.",
+      "status": "rejected"
+    },
+    "point-fixing": {
+      "category": "unsupported",
+      "reason": "Discrete point placements require a 3-D topology module.",
+      "status": "rejected"
+    },
+    "unknown-primitive": {
+      "category": "unsupported",
+      "reason": "standard.omega is absent from the pinned registry snapshot.",
+      "status": "rejected"
+    }
+  },
+  "sourceManifestSha256": "ce2329bd4ccbac71729addcd11f328ef4b35478767e3089d10bd290d772a3718"
+}

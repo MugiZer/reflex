@@ -2,68 +2,130 @@
 
 ## Decision
 
-**Not proven.** The isolated conformance compiler demonstrates schema and
-topology-audit generality, but not the required physical/numerical conformance
-claim. The Ticket 01 worker remains C-profile-only and does not emit the L2
-geometry, convergence, heat-balance, repeat-cell, and reproducibility evidence
-required by the validation strategy for every registered primitive.
+**Generality proven with named contract changes.** One registry-driven recipe
+path compiles and solves timber framing, one C row, aligned and staggered C
+rows, and the Z regression without primitive or construction-family names in
+the shared compiler. All five cases pass topology conservation, four mesh
+refinements, solver residual, conservative hot/cold balance, H(div) periodic
+balance, and one/two-cell stability gates.
 
-## Reproducible evidence
+This is a software/numerical generality decision, not a production `Verified`
+claim. Independent comparator, standards cases, validation-envelope approval,
+and specialist review remain Ticket 05 inputs.
 
-Run:
+## Reproduction
+
+Create the pinned environment and run the proof from the repository root:
 
 ```powershell
-python .scratch/component-topology-kernel/conformance-proof/verify.py
+uv python install 3.12.10
+uv venv --python 3.12.10 .scratch/component-topology-kernel/conformance-proof/.venv
+.scratch/component-topology-kernel/conformance-proof/.venv/Scripts/python.exe -m pip install -r .scratch/component-topology-kernel/worker-spike/requirements.txt
+.scratch/component-topology-kernel/conformance-proof/.venv/Scripts/python.exe .scratch/component-topology-kernel/conformance-proof/verify.py
 ```
 
-The script compiles these recipes using one row/primitive loop with registry
-dispatch—no construction-family branches:
+The command exits non-zero on compilation, rejection-diagnostic, topology, mesh,
+residual, heat-balance, periodic-balance, repeat-cell, hash, or source-neutrality
+regression. Machine-readable artifacts are under
+`.scratch/component-topology-kernel/conformance-proof/artifacts/physical-conformance/`.
+The default run compares against `expected-stable-results.json`; source,
+primitive implementation/capability, material-pack, validation-pack, runtime,
+accepted-result, and rejection-diagnostic drift cannot generate and approve its
+own replacement hash.
 
-| Recipe | Kernel composition | Primitive registration | Outcome |
-| --- | --- | --- | --- |
-| Timber framing | one row, periodic cell | `standard.rectangle` | accepted |
-| C-stud | one row, periodic cell | `standard.c` | accepted |
-| Double C-stud | two aligned rows | `standard.c` | accepted |
-| Double C-stud | two staggered rows | `standard.c` | accepted |
-| Z regression | one row, periodic cell | `standard.z` | accepted |
+## Interface proof
 
-The same run rejects crossed framing, missing member depth, and an unregistered
-primitive with stable `unsupported`/`incomplete` diagnostics. The generated
-machine-readable report includes cell/member/filler area, conservation
-residual, interface count, periodic-pair count, U-value proxy, and runtime.
+```text
+Recipe
+  -> Primitive Registry.resolve(kind, version)
+  -> Primitive Plugin emits local polygon + contact boundary
+  -> generic compiler places/repeats geometry
+  -> Boolean cell composition and material partition
+  -> Canonical Analysis Geometry
+  -> Ticket 01 Netgen/NGSolve finite-element adapter
+  -> numerical evidence and reproducibility artifacts
+```
 
-## What the prototype proves
+The shared compiler knows rows, placement, relative phase, representative-cell
+selection, layers, materials, contacts, regions, periodicity, and supported 2-D
+composition. Only the plugin module contains primitive identifiers or local
+parameter names. A behavioral extension test registers `vendor.block` and
+compiles it without changing the shared compiler; capability-mismatch tests
+prove incompatible registrations reject.
 
-- The draft recipe can express one/two row alignment and phase entirely as
-  `originY`/`offsetX` recipe data.
-- The compiler’s shared path requires no timber, stud, or Z-girt name.
-- Conservative host bounds, same-phase overlap, cavity conservation, crossed
-  framing, missing dimensions, and unknown primitive checks can live at the
-  generic compiler/validation seam.
+## Feature ownership matrix
 
-## What it does not prove
+| Capability | Shared compiler | Primitive plugin | Solver adapter | Validation policy |
+| --- | --- | --- | --- | --- |
+| Local rectangle/C/Z/hat polygon | — | owns | — | version/envelope |
+| Row placement, phase, repetition | owns | — | — | supported vocabulary |
+| Periodic cell-origin selection | owns | exposes local bounds | consumes paired edges | repeat-cell gate |
+| Boolean overlap/gap/sliver audit | owns | emits valid polygon | — | quantitative tolerances |
+| Material regions and contacts | owns | contact boundary | material domains | conservation gate |
+| Mesh and finite-element solve | — | — | owns | refinement/residual gates |
+| H(div) boundary diagnostics | — | — | owns | periodic gate |
+| U-value heat-flow basis | — | — | energy + reaction check | convergence/balance gates |
+| Verified eligibility | — | — | emits evidence | owns |
 
-The U-value is a clearly labelled deterministic parallel-path proxy, not a
-solver output. Therefore mesh convergence and heat balance are intentionally
-reported as not proven, not fabricated. The existing Z fixture also differs
-from the validation-strategy dimensions, so it is only a recipe regression.
+## Results
 
-## Required contract and worker changes
+Thresholds are: final mesh change `≤ 0.5%`, residual `≤ 1e-8`, conservative
+hot/cold imbalance `≤ 0.5%`, H(div) periodic net `≤ 0.1%`, and one/two-cell U
+difference `≤ 0.5%`. Timber used the required fourth level after its first
+three refinements were non-monotone.
 
-1. Freeze Ticket 02’s draft contract as an immutable versioned specification;
-   it is currently only a fixture bundle.
-2. Expand the worker request from C-only geometry to primitive-registry output
-   (canonical polygons/regions/interfaces), not a family switch.
-3. Require every accepted result to carry topology audit, three or more mesh
-   refinements, solver residual, boundary/periodic heat balance, one/two-cell
-   stability, and pinned artifact hashes.
-4. Define two-row contact/separation semantics and validate real primitive
-   polygon intersections rather than this prototype’s same-phase guard.
-5. Rebuild the Z regression recipe against the exact declared legacy geometry
-   and an independent comparator before treating it as a numerical regression.
+| Case | Final elements | U (W/m²K) | Mesh change | H(div) periodic | One/two cell |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Timber | 34,362 | 0.322451 | 0.0030% | 0.00010% | <0.00001% |
+| Single C | 33,202 | 1.109605 | 0.0033% | <0.00001% | 0.0342% |
+| Aligned C rows | 43,966 | 0.343681 | 0.1164% | <0.00001% | 0.0015% |
+| Staggered C rows | 43,548 | 0.264934 | 0.0485% | 0.00425% | 0.0014% |
+| Z regression | 109,768 | 0.239986 | 0.0354% | <0.00001% | 0.0017% |
 
-## Ticket 05 blockers
+Every final conservative hot/cold imbalance is below `1.4e-12`; every final
+free-DOF residual is below `5e-12`. Every topology audit reports zero gap,
+overlap, area residual, out-of-host area, and slivers.
 
-Ticket 05 remains blocked: the numerical worker contract, validation-envelope
-owner decisions, comparator choice, and a passing physical conformance matrix
-for all five cases are still missing.
+Crossed framing, discrete point fixings, disconnected primitive geometry,
+out-of-host components, and an unregistered primitive reject before meshing
+with frozen diagnostics. Missing required primitive dimensions remain
+`incomplete`/`blocked` in compiler tests.
+
+## Named contract changes
+
+1. **Primitive output contract:** `PrimitiveRegistration.compile` returns local
+   polygonal regions and contact boundaries; it does not write solver geometry.
+2. **Canonical Analysis Geometry:** add a versioned compiler result containing
+   cell polygon, explicit material regions, interfaces, periodic metadata,
+   topology audit, and the exact primitive-registry manifest.
+3. **Representative-cell origin:** `offsetX` defines relative row phase. The
+   compiler may choose and record a deterministic global cell-origin shift to
+   avoid cutting a member; relative alignment must not change.
+4. **Heat-flow basis:** the Ticket 01 interpolated H(div) face mean is retained
+   as boundary evidence but is not sufficiently stable for primary U on thin,
+   high-conductivity regions. Primary heat flow is volume energy, checked
+   independently against equal-and-opposite Dirichlet reactions. H(div) remains
+   the periodic-flux diagnostic.
+5. **Refinement rule:** run at least three levels; add a fourth whenever the
+   first sequence is non-monotone, as the validation strategy requires.
+6. **Reproducibility manifest:** pin and hash primitive implementations and
+   capabilities, compiler/solver sources, recipe schema, material values/units,
+   validation thresholds/boundaries, requirements, and runtime versions. Compare
+   results to a separately reviewed frozen manifest on every verification run.
+
+## Remaining limits and Ticket 05 inputs
+
+- The Z case proves the generic numerical path but does not yet retire legacy Z
+  behavior as validated truth; an independent comparator/reference value is
+  still required.
+- Hat, cavities, thermal breaks, symmetry boundaries, and imperfect/contact
+  resistance need their own interaction fixtures before entering an approved
+  Validation Envelope.
+- The proof uses exact reviewed recipe parameters. IFC labels alone still do not
+  establish geometry, placement, gauge, material, or contact authority.
+- Crossed rows, discrete fasteners, brackets, junctions, disconnected members,
+  and other 3-D effects require a different Topology Module.
+
+Ticket 05 may now treat recipe/compiler generality as closed, subject to the six
+contract amendments above. Production `Verified` rollout remains blocked on the
+external validation and owner approvals already named in the validation strategy.

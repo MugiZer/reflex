@@ -161,7 +161,10 @@
 | **Topology Module** | Dimension- and physics-specific compiler/solver boundary. | Thermal family, solver mode |
 | **Primitive** | Registered parametric member cross-section with local parameters and capabilities. | Profile type |
 | **Primitive Registry** | Versioned resolution boundary for Primitive schemas, capabilities, and compilers. | Profile switch, family registry |
+| **Primitive Plugin** | Primitive Registry implementation that validates local parameters and emits local polygon/contact geometry without placement or solver concerns. | Family compiler, profile branch |
 | **Representative Cell** | One periodic analysis domain with a fixed repeat width and unit out-of-plane length. | Sample, slice |
+| **Canonical Analysis Geometry** | Versioned, family-neutral cell polygon, Material Regions, interfaces, periodic metadata, Topology Audit, and registry manifest consumed by a Topology Module's solver adapter. | Solver-specific geometry, primitive output |
+| **Topology Audit** | Deterministic conservation evidence covering cell/material area, overlaps, gaps, slivers, out-of-host geometry, interfaces, and periodic pairs before meshing. | Geometry log, visual check |
 | **Material Region** | Non-overlapping, positive-area analysis domain with one material reference. | Zone, shape |
 | **Thermal Break** | Explicit low-conductivity Material Region that interrupts a member path. | Gap, insulation default |
 | **Validation Envelope** | Versioned set of supported combinations eligible for Verified output. | Supported range |
