@@ -152,3 +152,17 @@
 | **Two-Dimensional Thermal Model** | Family-neutral rectangular regions, material conductivity, boundary conditions, periodic edges, and mesh controls supplied to the local worker. | Solver geometry, FEM input |
 | **Numerical Result** | Heat-flow, effective conductance, mesh-refinement evidence, warnings, and runtime versions produced by a worker. | Raw result, solver output |
 | **Reproducibility Artifact** | Immutable solver input or result file retained for a calculation run. | Debug file, temporary output |
+
+## Component topology
+
+| Term | Definition | Aliases to avoid |
+| --- | --- | --- |
+| **Declarative Construction Recipe** | Immutable, versioned, authority-tagged description of optional component-topology analysis. | Family model, CAD input |
+| **Topology Module** | Dimension- and physics-specific compiler/solver boundary. | Thermal family, solver mode |
+| **Primitive** | Registered parametric member cross-section with local parameters and capabilities. | Profile type |
+| **Primitive Registry** | Versioned resolution boundary for Primitive schemas, capabilities, and compilers. | Profile switch, family registry |
+| **Representative Cell** | One periodic analysis domain with a fixed repeat width and unit out-of-plane length. | Sample, slice |
+| **Material Region** | Non-overlapping, positive-area analysis domain with one material reference. | Zone, shape |
+| **Thermal Break** | Explicit low-conductivity Material Region that interrupts a member path. | Gap, insulation default |
+| **Validation Envelope** | Versioned set of supported combinations eligible for Verified output. | Supported range |
+| **Authority** | Provenance and trust state carried by every semantically used Recipe datum. | Source, confidence |
