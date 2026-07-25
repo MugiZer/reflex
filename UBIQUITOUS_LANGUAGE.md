@@ -169,3 +169,6 @@
 | **Thermal Break** | Explicit low-conductivity Material Region that interrupts a member path. | Gap, insulation default |
 | **Validation Envelope** | Versioned set of supported combinations eligible for Verified output. | Supported range |
 | **Authority** | Provenance and trust state carried by every semantically used Recipe datum. | Source, confidence |
+| **Topology Result** | Immutable separately classified outcome of optional topology analysis attached to a Revision; it never replaces the layer-only Calculation Snapshot. | Topology U-value, override |
+| **Correlation Identifier** | UUID joining one topology request across UI, orchestrator, worker, artifacts, and support logs. | Request id, trace id |
+| **Idempotency Key** | Hash-derived identity of an immutable topology request that prevents duplicate worker work and artifacts. | Job id, cache key |
