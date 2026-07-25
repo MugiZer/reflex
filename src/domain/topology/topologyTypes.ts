@@ -39,6 +39,8 @@ export type TopologyResult = {
   bundle: TopologyBundleIdentity;
   layerOnlySnapshot: JsonValue;
   effectiveUValueWPerM2K: number | null;
+  /** Compiler and solver evidence are opaque to the application but retained with the immutable result. */
+  workerEvidence?: JsonValue;
   artifactDirectory: string;
   errorCode: string | null;
 };
