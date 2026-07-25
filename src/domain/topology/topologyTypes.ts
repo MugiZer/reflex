@@ -13,7 +13,42 @@ export type TopologyAnalysisOutcome = "not-requested" | "preliminary-unsafe" | "
 export type TopologyWorkerRuntime = {
   /** Release-pinned executable or container identity. Never resolve a worker from PATH. */
   runtimeIdentity: { executable: string; runtimeHash: string };
-  runJsonl(message: string, options: { deadlineAt: string | null }): Promise<string>;
+  runJsonl(message: string, options: { deadlineAt: string | null; signal?: AbortSignal }): Promise<string>;
+  verifyArtifacts(evidence: TopologyEvidence, artifactDestination: string): Promise<void>;
+};
+
+export type TopologyEvidence = {
+  canonicalAnalysisGeometry: {
+    schemaVersion: "canonical-analysis-geometry/v1";
+    materialRegions: readonly JsonValue[];
+    interfaces: readonly JsonValue[];
+    [key: string]: JsonValue;
+  };
+  topologyAudit: {
+    gap_area_m2: number;
+    overlap_area_m2: number;
+    area_residual_m2: number;
+    out_of_host_area_m2: number;
+    sliver_count: number;
+    [key: string]: number;
+  };
+  numericalProof: {
+    refinements: readonly JsonValue[];
+    doubleCell: JsonValue;
+    oneTwoCellRelativeDifference: number;
+    gates: {
+      topology_audit: true;
+      mesh_convergence: true;
+      solver_residual: true;
+      hot_cold_balance: true;
+      periodic_balance: true;
+      repeat_cell_stability: true;
+    };
+    [key: string]: JsonValue;
+  };
+  reproducibilityManifest: JsonValue;
+  reproducibilityManifestHash: string;
+  artifactIndex: readonly { name: string; sha256: string; sizeBytes: number }[];
 };
 
 export type SubmitTopologyAnalysisRequest = {
@@ -27,6 +62,7 @@ export type SubmitTopologyAnalysisRequest = {
   /** Carried only to prove preservation at the application seam; topology never writes it. */
   layerOnlySnapshot: JsonValue;
   deadlineAt?: string;
+  cancellationSignal?: AbortSignal;
 };
 
 export type TopologyResult = {
@@ -39,6 +75,7 @@ export type TopologyResult = {
   bundle: TopologyBundleIdentity;
   layerOnlySnapshot: JsonValue;
   effectiveUValueWPerM2K: number | null;
+  evidence: TopologyEvidence | null;
   artifactDirectory: string;
   errorCode: string | null;
 };

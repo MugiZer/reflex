@@ -1,0 +1,6 @@
+--only-binary=:all:
+shapely==2.1.2
+ngsolve==6.2.2506
+# ngsolve declares this dependency without an upper bound.  2026.1.0 fails to
+# load ngslib.pyd on the Windows host used for this spike.
+mkl==2025.0.1
