@@ -42,7 +42,7 @@ export function createTopologyAnalysisRequestService(options: Options) {
           try {
             const rawOutput = await options.worker.runJsonl(JSON.stringify(request) + "\n", { deadlineAt: command.deadlineAt ?? null });
             const workerResult = validateWorkerResult(rawOutput, request);
-            result = await publishOutcome({ ...base, semanticPayload, outcome: workerResult.outcome, effectiveUValueWPerM2K: workerResult.effectiveUValueWPerM2K, errorCode: workerResult.errorCode, workerEvidence: workerResult.workerEvidence, layerOnlySnapshot: command.layerOnlySnapshot, temporaryDirectory, finalDirectory, request, workerResult });
+            result = await publishOutcome({ ...base, semanticPayload, outcome: workerResult.outcome, effectiveUValueWPerM2K: workerResult.effectiveUValueWPerM2K, errorCode: null, layerOnlySnapshot: command.layerOnlySnapshot, temporaryDirectory, finalDirectory, request, workerResult });
           } catch (error) {
             const failure = classifyFailure(error);
             result = await publishOutcome({ ...base, semanticPayload, outcome: failure.outcome, effectiveUValueWPerM2K: null, errorCode: failure.code, layerOnlySnapshot: command.layerOnlySnapshot, temporaryDirectory, finalDirectory, request, error: failure });
@@ -59,8 +59,8 @@ export function createTopologyAnalysisRequestService(options: Options) {
   };
 }
 
-async function publishOutcome(input: { requestId: string; sourceRevisionId: string; sourceAssemblyGroupId: string; correlationId: string; idempotencyKey: string; bundle: SubmitTopologyAnalysisRequest["bundle"]; semanticPayload: string; outcome: TopologyAnalysisOutcome; effectiveUValueWPerM2K: number | null; errorCode: string | null; workerEvidence?: JsonValue; layerOnlySnapshot: JsonValue; temporaryDirectory: string; finalDirectory: string; request: TopologyAnalysisRequestMessage | null; workerResult?: unknown; error?: WorkerFailure }): Promise<TopologyResult> {
-  const result: TopologyResult = { requestId: input.requestId, sourceRevisionId: input.sourceRevisionId, sourceAssemblyGroupId: input.sourceAssemblyGroupId, correlationId: input.correlationId, idempotencyKey: input.idempotencyKey, outcome: input.outcome, bundle: input.bundle, layerOnlySnapshot: input.layerOnlySnapshot, effectiveUValueWPerM2K: input.effectiveUValueWPerM2K, ...(input.workerEvidence ? { workerEvidence: input.workerEvidence } : {}), artifactDirectory: input.finalDirectory, errorCode: input.errorCode };
+async function publishOutcome(input: { requestId: string; sourceRevisionId: string; sourceAssemblyGroupId: string; correlationId: string; idempotencyKey: string; bundle: SubmitTopologyAnalysisRequest["bundle"]; semanticPayload: string; outcome: TopologyAnalysisOutcome; effectiveUValueWPerM2K: number | null; errorCode: string | null; layerOnlySnapshot: JsonValue; temporaryDirectory: string; finalDirectory: string; request: TopologyAnalysisRequestMessage | null; workerResult?: unknown; error?: WorkerFailure }): Promise<TopologyResult> {
+  const result: TopologyResult = { requestId: input.requestId, sourceRevisionId: input.sourceRevisionId, sourceAssemblyGroupId: input.sourceAssemblyGroupId, correlationId: input.correlationId, idempotencyKey: input.idempotencyKey, outcome: input.outcome, bundle: input.bundle, layerOnlySnapshot: input.layerOnlySnapshot, effectiveUValueWPerM2K: input.effectiveUValueWPerM2K, artifactDirectory: input.finalDirectory, errorCode: input.errorCode };
   if (input.error) await writeJson(join(input.temporaryDirectory, "error.json"), { schema: "topology-analysis.error.v1", ...input.error, requestId: input.requestId, correlationId: input.correlationId, idempotencyKey: input.idempotencyKey, bundle: input.bundle });
   else await writeJson(join(input.temporaryDirectory, "result.json"), { schema: "topology-analysis.result.v1", ...result, workerResult: input.workerResult ?? null });
   await writeJson(join(input.temporaryDirectory, "manifest.json"), { requestId: input.requestId, outcome: input.outcome, semanticPayload: input.semanticPayload, result, files: input.error ? ["error.json"] : ["result.json"] });
@@ -89,7 +89,7 @@ function validateCommand(command: SubmitTopologyAnalysisRequest, worker: Topolog
   if (!worker.runtimeIdentity.executable || worker.runtimeIdentity.runtimeHash !== command.bundle.runtimeHash) throw new Error("Topology request runtime is not pinned to the requested bundle.");
 }
 
-function validateWorkerResult(rawOutput: string, request: TopologyAnalysisRequestMessage): { outcome: "preliminary-unsafe" | "blocked" | "rejected"; effectiveUValueWPerM2K: number | null; errorCode: string | null; workerEvidence?: JsonValue; [key: string]: unknown } {
+function validateWorkerResult(rawOutput: string, request: TopologyAnalysisRequestMessage): { outcome: "preliminary-unsafe"; effectiveUValueWPerM2K: number; [key: string]: unknown } {
   const lines = rawOutput.trim().split(/\r?\n/).filter(Boolean);
   if (lines.length !== 1) throw failure("failed", "malformed_output", "Worker must emit exactly one JSONL result message.");
   let output: unknown;
@@ -97,14 +97,8 @@ function validateWorkerResult(rawOutput: string, request: TopologyAnalysisReques
   if (!isRecord(output)) throw failure("failed", "malformed_output", "Worker result must be an object.");
   if (output.schema !== "topology-analysis.result.v1") throw failure("rejected", "unsupported_protocol", "Worker returned an unsupported protocol major version.");
   if (output.requestId !== request.requestId || output.correlationId !== request.correlationId || output.idempotencyKey !== request.idempotencyKey || canonicalJson(output.bundle as JsonValue) !== canonicalJson(request.bundle)) throw failure("rejected", "identity_mismatch", "Worker result identities do not match the immutable request.");
-  if (output.outcome === "preliminary-unsafe") {
-    if (typeof output.effectiveUValueWPerM2K !== "number" || !Number.isFinite(output.effectiveUValueWPerM2K)) throw failure("rejected", "invalid_result", "Worker did not return a numerical preliminary result.");
-    const evidenceFields = [output.canonicalGeometry, output.topologyAudit, output.numericalEvidence];
-    if (evidenceFields.some((value) => value !== undefined) && !evidenceFields.every(isRecord)) throw failure("rejected", "invalid_result", "Worker returned incomplete canonical, audit, or numerical evidence.");
-    return { ...(output as Record<string, unknown>), outcome: "preliminary-unsafe", effectiveUValueWPerM2K: output.effectiveUValueWPerM2K, errorCode: null, ...(evidenceFields.every(isRecord) ? { workerEvidence: { canonicalGeometry: output.canonicalGeometry as JsonValue, topologyAudit: output.topologyAudit as JsonValue, numericalEvidence: output.numericalEvidence as JsonValue } } : {}) };
-  }
-  if ((output.outcome === "blocked" || output.outcome === "rejected") && typeof output.errorCode === "string") return { ...(output as Record<string, unknown>), outcome: output.outcome, effectiveUValueWPerM2K: null, errorCode: output.errorCode };
-  throw failure("rejected", "invalid_result", "Worker returned an unsupported or incomplete outcome.");
+  if (output.outcome !== "preliminary-unsafe" || typeof output.effectiveUValueWPerM2K !== "number" || !Number.isFinite(output.effectiveUValueWPerM2K)) throw failure("rejected", "invalid_result", "Worker did not return a complete preliminary result.");
+  return output as { outcome: "preliminary-unsafe"; effectiveUValueWPerM2K: number; [key: string]: unknown };
 }
 
 function classifyFailure(error: unknown): WorkerFailure { return isFailure(error) ? error : failure("failed", "worker_failure", error instanceof Error ? error.message : "Topology worker failed."); }
