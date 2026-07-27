@@ -1,12 +1,17 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { createJob } from "../../application/jobs/createJob.js";
 import { reconcileJobReviewPlan } from "../../application/jobs/reconcileJobReviewPlan.js";
 import { getJobWorkspace } from "../../application/jobs/getJobWorkspace.js";
 import type { ProcessIfcJobDeps } from "../../application/jobs/processIfcJob.js";
 import { submitJobReviewInputs } from "../../application/jobs/submitJobReviewInputs.js";
+import { submitJobTopologyReview } from "../../application/topology/submitJobTopologyReview.js";
+import { createTopologyAnalysisRequestService } from "../../application/topology/createTopologyAnalysisRequestService.js";
+import type { TopologyWorkerRuntime } from "../../domain/topology/topologyTypes.js";
+import { PROVEN_TOPOLOGY_BUNDLE, createProvenPythonTopologyWorker } from "../../infrastructure/topology/createProvenPythonTopologyWorker.js";
+import { LocalTopologyArtifactStore } from "../../infrastructure/topology/localTopologyArtifactStore.js";
 import { submitThermalTreatmentConfirmation } from "../../application/thermal-treatment/submitThermalTreatmentConfirmation.js";
 import { continuousZGirtFamilyRegistry } from "../../domain/thermal-treatment/families/continuousZGirtFamily.js";
 import { OpenSource2dCalculationWorker } from "../../infrastructure/thermal-treatment/OpenSource2dCalculationWorker.js";
@@ -32,6 +37,8 @@ export function createLocalhostApp(command: {
   storageRoot: string;
   outputRoot: string;
   workerOverrides?: Partial<Pick<ProcessIfcJobDeps, "extractCalculationInputEvidence">>;
+  topologyWorker?: TopologyWorkerRuntime;
+  topologyRequests?: ReturnType<typeof createTopologyAnalysisRequestService>;
 }): LocalhostApp {
   const jobs = new SqliteJobRepository(command.databasePath);
   const storage = new LocalJobFileStorage(command.storageRoot);
@@ -45,6 +52,10 @@ export function createLocalhostApp(command: {
     ...command.workerOverrides,
   };
   const thermalTreatmentWorker = new OpenSource2dCalculationWorker({ artifactRoot: join(command.outputRoot, "thermal-treatment-worker") });
+  const topologyRequests = command.topologyRequests ?? createTopologyAnalysisRequestService({
+    artifactStore: new LocalTopologyArtifactStore(command.outputRoot),
+    worker: command.topologyWorker ?? createProvenPythonTopologyWorker({ pythonExecutable: resolve(process.env.TOPOLOGY_WORKER_PYTHON ?? ".scratch/component-topology-kernel/conformance-proof/.venv/Scripts/python.exe") }),
+  });
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
@@ -77,6 +88,16 @@ export function createLocalhostApp(command: {
       const reconcileJobId = matchPath(url.pathname, /^\/api\/jobs\/([^/]+)\/reconcile-review-plan$/);
       if (req.method === "POST" && reconcileJobId) {
         const result = await reconcileJobReviewPlan({ jobId: reconcileJobId, deps: workerDeps });
+        return json(res, 202, result);
+      }
+
+      const topologyReviewJobId = matchPath(url.pathname, /^\/api\/jobs\/([^/]+)\/topology-reviews$/);
+      if (req.method === "GET" && topologyReviewJobId) {
+        if (!jobs.getJob(topologyReviewJobId)) return json(res, 404, { error: "Job not found" });
+        return json(res, 200, { topologyReviews: jobs.listTopologyReviews(topologyReviewJobId) });
+      }
+      if (req.method === "POST" && topologyReviewJobId) {
+        const result = await submitJobTopologyReview({ jobId: topologyReviewJobId, body: await readJson(req), jobs, artifactStore, requests: topologyRequests, bundle: PROVEN_TOPOLOGY_BUNDLE });
         return json(res, 202, result);
       }
 
@@ -163,6 +184,7 @@ async function sendJob(
     architectActions: workspace.architectActions,
     materialLibrary: workspace.materialLibrary,
     thermalTreatmentCards: workspace.thermalTreatmentCards,
+    topologyReviews: workspace.topologyReviews,
     links: linksFor(workspace.job),
   });
 }
@@ -249,6 +271,7 @@ function linksFor(job: JobRecord): Record<string, string> {
     page: `/jobs/${job.jobId}`,
     ifc: `/api/jobs/${job.jobId}/ifc`,
     viewerGeometry: `/api/jobs/${job.jobId}/viewer-geometry`,
+    topologyReviews: `/api/jobs/${job.jobId}/topology-reviews`,
   };
   if (job.jobStatus === "needs_review") {
     links.review = `/jobs/${job.jobId}/review`;

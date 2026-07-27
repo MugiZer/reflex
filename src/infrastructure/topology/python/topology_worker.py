@@ -159,6 +159,23 @@ def validate_request(request: object) -> dict:
     return request
 
 
+def validate_cancel(message: object) -> dict:
+    if not isinstance(message, dict) or message.get("schema") != "topology-analysis.cancel.v1":
+        raise ProtocolFailure(
+            "rejected", "unsupported_protocol", "Unsupported topology cancel protocol.", "cancel-validation"
+        )
+    required_strings = ("requestId", "correlationId", "idempotencyKey", "reason")
+    if any(not isinstance(message.get(name), str) or not message[name] for name in required_strings):
+        raise ProtocolFailure(
+            "rejected", "invalid_cancel", "Topology cancel identities are incomplete.", "cancel-validation"
+        )
+    if message["reason"] not in ("deadline", "client-request", "worker-shutdown"):
+        raise ProtocolFailure(
+            "rejected", "invalid_cancel", "Topology cancel reason is unsupported.", "cancel-validation"
+        )
+    return message
+
+
 def validate_recipe_authorities(recipe: dict) -> None:
     allowed_recipe_fields = {
         "schemaVersion",
@@ -419,6 +436,9 @@ def main() -> int:
                 "rejected", "invalid_jsonl", "Worker requires exactly one JSONL request.", "request-validation"
             )
         parsed_request = json.loads(lines[0])
+        if isinstance(parsed_request, dict) and parsed_request.get("schema") == "topology-analysis.cancel.v1":
+            request = validate_cancel(parsed_request)
+            raise ProtocolFailure("cancelled", "worker_cancelled", "Topology worker received a cancellation message.", "cancel-validation")
         request = parsed_request if isinstance(parsed_request, dict) else {}
         request = validate_request(request)
         verify_pinned_runtime()

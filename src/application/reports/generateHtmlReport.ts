@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 
 import type { CalculationSnapshot, LayerCalculation } from "../../domain/calculations/calculationTypes.js";
 import type { Revision } from "../../domain/revisions/revisionTypes.js";
+import type { TopologyResult } from "../../domain/topology/topologyTypes.js";
 import type { ReportInventoryView } from "./buildReportInventory.js";
 import { LocalJobArtifactStore } from "../../infrastructure/storage/local-files/jobArtifactStore.js";
 
@@ -14,6 +15,7 @@ export async function generateHtmlReport(command: {
   revision: Revision;
   calculationSnapshots: CalculationSnapshot[];
   reportInventory?: ReportInventoryView[];
+  topologyResults?: readonly TopologyResult[];
 }): Promise<{ reportFilePath: string }> {
   const artifactStore = command.artifactStore ?? new LocalJobArtifactStore(command.outputRoot);
   const reportFilePath = artifactStore.pathsFor(command.jobId ?? legacyJobId(command.fileHash)).reportFile(command.revision.revisionId);
@@ -31,6 +33,7 @@ function renderReport(command: {
   revision: Revision;
   calculationSnapshots: CalculationSnapshot[];
   reportInventory?: ReportInventoryView[];
+  topologyResults?: readonly TopologyResult[];
 }): string {
   const inventory = command.reportInventory ?? command.calculationSnapshots.map((snapshot) => ({
     assemblyGroupId: snapshot.assemblyGroupId,
@@ -59,9 +62,22 @@ function renderReport(command: {
     "<div class=\"toolbar\"><button type=\"button\" id=\"previous\" aria-label=\"Previous assembly\">‹</button><label for=\"assembly-picker\">Assembly</label><select id=\"assembly-picker\">" + options + "</select><button type=\"button\" id=\"next\" aria-label=\"Next assembly\">›</button><span id=\"assembly-count\">" + (inventory.length ? "1 / " + inventory.length : "0 / 0") + "</span><button type=\"button\" class=\"print\" onclick=\"window.print()\">Print</button></div>" +
     "<div class=\"app-frame\"><nav class=\"rail\"><a id=\"nav-layers\" href=\"#layers-0\"><b>≡</b>Layers</a><a id=\"nav-thermal\" href=\"#thermal-0\"><b>ϑ</b>U-value</a><a id=\"nav-temperature\" href=\"#temperature-0\"><b>⌁</b>Heat</a><a id=\"nav-evidence\" href=\"#evidence-0\"><b>✓</b>Evidence</a></nav>" +
     "<main class=\"workspace\"><h1 class=\"sr-only\">Thermal Calculation Report</h1>" +
+    "<section class=\"material-values\"><div class=\"section-title\"><div><span class=\"eyebrow\">Layer-only Calculation Snapshot</span><h3>Existing calculation result</h3></div><span>Unchanged by optional topology analysis</span></div></section>" +
     (views || "<section class=\"empty\"><h2>No calculable assemblies</h2><p>Resolve the missing inputs to generate a thermal result.</p></section>") +
+    renderTopologyResults(command.topologyResults ?? []) +
     "</main></div>" +
     "<script>" + reportScript(inventory.length) + "</script></body></html>";
+}
+
+function renderTopologyResults(results: readonly TopologyResult[]): string {
+  return results.map((result) => {
+    const title = result.outcome === "preliminary-unsafe" ? "Preliminary topology result \u2014 not verified" : "Topology analysis unavailable";
+    const value = result.effectiveUValueWPerM2K === null ? "No topology value" : result.effectiveUValueWPerM2K.toFixed(3) + " W/m2K";
+    const bundle = result.bundle.moduleId + " v" + result.bundle.moduleVersion;
+    const supportReference = result.artifactDirectory + "#" + result.requestId;
+    const diagnostic = result.diagnostics ? "<p><b>Diagnostic:</b> " + escapeHtml(result.diagnostics.code + " — " + result.diagnostics.message) + "</p>" : "";
+    return "<section class=\"material-values topology-result\"><div class=\"section-title\"><div><span class=\"eyebrow\">Topology Result</span><h3>" + title + "</h3></div><span>Preliminary design support only</span></div><p><b>Outcome:</b> " + escapeHtml(result.outcome) + " ? <b>U-value:</b> " + escapeHtml(value) + "</p><p><b>Module:</b> " + escapeHtml(bundle) + " ? <b>Correlation Identifier:</b> " + escapeHtml(result.correlationId) + "</p><p><b>Bundle:</b> registry " + escapeHtml(result.bundle.registryHash) + ", pack " + escapeHtml(result.bundle.packHash) + ", runtime " + escapeHtml(result.bundle.runtimeHash) + "</p>" + diagnostic + "<p><b>Support-safe artifact reference:</b> " + escapeHtml(supportReference) + "</p></section>";
+  }).join("");
 }
 
 function renderInventoryAssembly(view: ReportInventoryView, index: number): string {

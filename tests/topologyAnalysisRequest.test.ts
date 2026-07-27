@@ -1,13 +1,15 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createTopologyAnalysisRequestService } from "../src/application/topology/createTopologyAnalysisRequestService.js";
+import { LocalTopologyArtifactStore } from "../src/infrastructure/topology/localTopologyArtifactStore.js";
+import { canonicalTopologyJson } from "../src/domain/topology/canonicalTopologyJson.js";
 import type { TopologyWorkerRuntime } from "../src/domain/topology/topologyTypes.js";
 
 const recipe = { schema: "declarative-construction-recipe.v1", layers: [{ material: "mineral-wool", thicknessM: 0.12 }] };
-const recipeHash = "d".repeat(64);
+const recipeHash = createHash("sha256").update(canonicalTopologyJson(recipe)).digest("hex");
 const bundle = { moduleId: "repeating-parallel-profile-wall-2d", moduleVersion: "1.0.0", registryHash: "a".repeat(64), packHash: "b".repeat(64), runtimeHash: "c".repeat(64) };
 
 describe("Topology Analysis Request seam", () => {
@@ -15,10 +17,11 @@ describe("Topology Analysis Request seam", () => {
     const artifactRoot = await mkdtemp(join(tmpdir(), "topology-request-"));
     try {
       const worker = successfulWorker();
-      const service = createTopologyAnalysisRequestService({ artifactRoot, worker, now: () => "2026-07-25T12:00:00.000Z" });
+      const service = createTopologyAnalysisRequestService({ artifactStore: new LocalTopologyArtifactStore(artifactRoot), worker, now: () => "2026-07-25T12:00:00.000Z" });
       const layerOnlySnapshot = { uValueWPerM2K: 0.315, readinessState: "ready" };
       const submitted = await service.submit({ sourceRevisionId: "rev_1", sourceAssemblyGroupId: "ag_1", correlationId: correlationId(1), idempotencyKey: idempotencyKey("key-1"), recipe, recipeHash, bundle, layerOnlySnapshot });
 
+      expect(worker.deadlines[0]).toMatch(/^\d{4}-\d{2}-\d{2}T/);
       expect(submitted.outcome).toBe("preliminary-unsafe");
       expect(submitted.sourceRevisionId).toBe("rev_1");
       expect(submitted.layerOnlySnapshot).toEqual(layerOnlySnapshot);
@@ -30,7 +33,7 @@ describe("Topology Analysis Request seam", () => {
       expect(duplicate.requestId).toBe(submitted.requestId);
       expect(worker.messages).toHaveLength(1);
       const restartedWorker = successfulWorker();
-      const restarted = createTopologyAnalysisRequestService({ artifactRoot, worker: restartedWorker, now: () => "2026-07-25T12:00:00.000Z" });
+      const restarted = createTopologyAnalysisRequestService({ artifactStore: new LocalTopologyArtifactStore(artifactRoot), worker: restartedWorker, now: () => "2026-07-25T12:00:00.000Z" });
       const persistedDuplicate = await restarted.submit({ sourceRevisionId: "rev_1", sourceAssemblyGroupId: "ag_1", correlationId: correlationId(4), idempotencyKey: idempotencyKey("key-1"), recipe, recipeHash, bundle, layerOnlySnapshot });
       expect(persistedDuplicate.requestId).toBe(submitted.requestId);
       expect(restartedWorker.messages).toHaveLength(0);
@@ -41,7 +44,7 @@ describe("Topology Analysis Request seam", () => {
   it("classifies protocol identity mismatches as rejected and publishes only an error artifact", async () => {
     const artifactRoot = await mkdtemp(join(tmpdir(), "topology-request-"));
     try {
-      const service = createTopologyAnalysisRequestService({ artifactRoot, worker: successfulWorker({ requestId: "wrong-request" }), now: () => "2026-07-25T12:00:00.000Z" });
+      const service = createTopologyAnalysisRequestService({ artifactStore: new LocalTopologyArtifactStore(artifactRoot), worker: successfulWorker({ requestId: "wrong-request" }), now: () => "2026-07-25T12:00:00.000Z" });
       const result = await service.submit({ sourceRevisionId: "rev_1", sourceAssemblyGroupId: "ag_1", correlationId: correlationId(1), idempotencyKey: idempotencyKey("key-2"), recipe, recipeHash, bundle, layerOnlySnapshot: { uValueWPerM2K: 0.315 } });
       expect(result.outcome).toBe("rejected");
       await expect(readFile(join(result.artifactDirectory, "error.json"), "utf8")).resolves.toContain("identity_mismatch");
@@ -53,12 +56,12 @@ describe("Topology Analysis Request seam", () => {
     const artifactRoot = await mkdtemp(join(tmpdir(), "topology-request-"));
     try {
       const layerOnlySnapshot = { uValueWPerM2K: 0.315, readinessState: "ready" };
-      const unavailable = createTopologyAnalysisRequestService({ artifactRoot, worker: successfulWorker(), now: () => "2026-07-25T12:00:00.000Z" });
+      const unavailable = createTopologyAnalysisRequestService({ artifactStore: new LocalTopologyArtifactStore(artifactRoot), worker: successfulWorker(), now: () => "2026-07-25T12:00:00.000Z" });
       const notRequested = await unavailable.submit({ sourceRevisionId: "rev_1", sourceAssemblyGroupId: "ag_1", correlationId: correlationId(1), idempotencyKey: idempotencyKey("key-none"), recipe: null, recipeHash: null, bundle, layerOnlySnapshot });
       expect(notRequested.outcome).toBe("not-requested");
       expect(notRequested.layerOnlySnapshot).toEqual(layerOnlySnapshot);
 
-      const crashed = createTopologyAnalysisRequestService({ artifactRoot, worker: { ...successfulWorker(), async runJsonl() { throw new Error("worker process crashed"); } }, now: () => "2026-07-25T12:00:00.000Z" });
+      const crashed = createTopologyAnalysisRequestService({ artifactStore: new LocalTopologyArtifactStore(artifactRoot), worker: { ...successfulWorker(), async runJsonl() { throw new Error("worker process crashed"); } }, now: () => "2026-07-25T12:00:00.000Z" });
       const failed = await crashed.submit({ sourceRevisionId: "rev_1", sourceAssemblyGroupId: "ag_1", correlationId: correlationId(1), idempotencyKey: idempotencyKey("key-crash"), recipe, recipeHash, bundle, layerOnlySnapshot });
       expect(failed.outcome).toBe("failed");
       expect(failed.layerOnlySnapshot).toEqual(layerOnlySnapshot);
@@ -98,7 +101,7 @@ describe("Topology Analysis Request seam", () => {
             message: "safe diagnostic",
           }) + "\n";
         };
-        const service = createTopologyAnalysisRequestService({ artifactRoot, worker });
+        const service = createTopologyAnalysisRequestService({ artifactStore: new LocalTopologyArtifactStore(artifactRoot), worker });
         const result = await service.submit({
           sourceRevisionId: originalProductState.activeRevisionId,
           sourceAssemblyGroupId: "ag_1",
@@ -113,6 +116,7 @@ describe("Topology Analysis Request seam", () => {
         expect(result.outcome).toBe(expected.outcome);
         expect(result.effectiveUValueWPerM2K).toBeNull();
         expect(result.evidence).toBeNull();
+        expect(result.diagnostics).toMatchObject({ code: expected.code, message: "safe diagnostic" });
         expect(JSON.stringify(originalProductState)).toBe(originalBytes);
         await expect(readFile(join(result.artifactDirectory, "result.json"), "utf8")).rejects.toThrow();
       } finally {
@@ -125,7 +129,7 @@ describe("Topology Analysis Request seam", () => {
     const artifactRoot = await mkdtemp(join(tmpdir(), "topology-request-"));
     try {
       const service = createTopologyAnalysisRequestService({
-        artifactRoot,
+        artifactStore: new LocalTopologyArtifactStore(artifactRoot),
         worker: successfulWorker({ evidence: {} }),
       });
       const result = await service.submit({
@@ -146,14 +150,103 @@ describe("Topology Analysis Request seam", () => {
       await rm(artifactRoot, { recursive: true, force: true });
     }
   });
+
+  it("removes a stale request-scoped temporary artifact before publishing the immutable outcome", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "topology-request-"));
+    try {
+      const key = idempotencyKey("stale-temporary");
+      const staleDirectory = join(artifactRoot, "topology", `${key}.tmp-abandoned`);
+      await mkdir(staleDirectory, { recursive: true });
+      await writeFile(join(staleDirectory, "partial.json"), "partial", "utf8");
+      const service = createTopologyAnalysisRequestService({ artifactStore: new LocalTopologyArtifactStore(artifactRoot), worker: successfulWorker() });
+
+      const result = await service.submit({
+        sourceRevisionId: "rev_1",
+        sourceAssemblyGroupId: "ag_1",
+        correlationId: correlationId(30),
+        idempotencyKey: key,
+        recipe,
+        recipeHash,
+        bundle,
+        layerOnlySnapshot: { uValueWPerM2K: 0.315 },
+      });
+
+      expect(result.outcome).toBe("preliminary-unsafe");
+      await expect(access(staleDirectory)).rejects.toThrow();
+    } finally {
+      await rm(artifactRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("persists invalid requests as rejected request and error artifacts without invoking the worker", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "topology-request-"));
+    try {
+      const worker = successfulWorker();
+      const service = createTopologyAnalysisRequestService({ artifactStore: new LocalTopologyArtifactStore(artifactRoot), worker });
+      const result = await service.submit({
+        sourceRevisionId: "rev-invalid",
+        sourceAssemblyGroupId: "ag-invalid",
+        correlationId: correlationId(40),
+        idempotencyKey: idempotencyKey("invalid-recipe-hash"),
+        recipe,
+        recipeHash: "e".repeat(64),
+        bundle,
+        layerOnlySnapshot: { uValueWPerM2K: 0.315 },
+      });
+
+      expect(result.outcome).toBe("rejected");
+      expect(result.errorCode).toBe("recipe_hash_mismatch");
+      expect(result.diagnostics).toMatchObject({ code: "recipe_hash_mismatch" });
+      expect(worker.messages).toHaveLength(0);
+      await expect(readFile(join(result.artifactDirectory, "request.json"), "utf8")).resolves.toContain("recipeHash");
+      await expect(readFile(join(result.artifactDirectory, "error.json"), "utf8")).resolves.toContain("recipe_hash_mismatch");
+    } finally {
+      await rm(artifactRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("shares one in-flight publication for concurrent equal idempotency submissions", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "topology-request-"));
+    try {
+      const worker = successfulWorker();
+      const originalRun = worker.runJsonl.bind(worker);
+      worker.runJsonl = async (message, options) => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return originalRun(message, options);
+      };
+      const service = createTopologyAnalysisRequestService({ artifactStore: new LocalTopologyArtifactStore(artifactRoot), worker });
+      const command = {
+        sourceRevisionId: "rev-concurrent",
+        sourceAssemblyGroupId: "ag-concurrent",
+        correlationId: correlationId(41),
+        idempotencyKey: idempotencyKey("concurrent"),
+        recipe,
+        recipeHash,
+        bundle,
+        layerOnlySnapshot: { uValueWPerM2K: 0.315 },
+      };
+
+      const [first, duplicate] = await Promise.all([
+        service.submit(command),
+        service.submit({ ...command, correlationId: correlationId(42) }),
+      ]);
+
+      expect(duplicate.requestId).toBe(first.requestId);
+      expect(worker.messages).toHaveLength(1);
+    } finally {
+      await rm(artifactRoot, { recursive: true, force: true });
+    }
+  });
 });
 
-function successfulWorker(overrides: Partial<Record<string, unknown>> = {}): TopologyWorkerRuntime & { messages: string[] } {
+function successfulWorker(overrides: Partial<Record<string, unknown>> = {}): TopologyWorkerRuntime & { messages: string[]; deadlines: string[] } {
   return {
+    deadlines: [],
     runtimeIdentity: { executable: "C:/release/topology-worker.exe", runtimeHash: bundle.runtimeHash },
     messages: [],
     async verifyArtifacts() {},
-    async runJsonl(message) {
+    async runJsonl(message, options) {
+      this.deadlines.push(options.deadlineAt);
       this.messages.push(message);
       const request = JSON.parse(message) as { requestId: string; correlationId: string; idempotencyKey: string; bundle: typeof bundle; artifactDestination: string };
       const artifactBytes = Buffer.from("{}\n", "utf8");

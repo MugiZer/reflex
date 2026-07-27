@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { confirmIfcTopologyOpportunity, type IfcTopologyOpportunity, type TopologyReviewAnswer } from "../../domain/topology/ifcTopologyOpportunity.js";
+import { canonicalTopologyJson } from "../../domain/topology/canonicalTopologyJson.js";
 import type { JsonValue, SubmitTopologyAnalysisRequest, TopologyBundleIdentity, TopologyResult } from "../../domain/topology/topologyTypes.js";
 
-export type TopologyAnalysisRequestService = { submit(request: SubmitTopologyAnalysisRequest): Promise<Pick<TopologyResult, "outcome" | "requestId">> };
+export type TopologyAnalysisRequestService = { submit(request: SubmitTopologyAnalysisRequest): Promise<Pick<TopologyResult, "outcome" | "requestId"> & Partial<TopologyResult>> };
 
 /** Turns a compact review decision into an immutable optional topology request; it never updates the layer-only Revision. */
 export async function submitIfcTopologyConfirmation(command: {
@@ -25,9 +26,9 @@ export async function submitIfcTopologyConfirmation(command: {
     correlationId: command.correlationId,
     idempotencyKey: command.idempotencyKey,
     recipe: confirmation.recipe,
-    recipeHash: createHash("sha256").update(JSON.stringify(confirmation.recipe)).digest("hex"),
+    recipeHash: createHash("sha256").update(canonicalTopologyJson(confirmation.recipe)).digest("hex"),
     bundle: command.bundle,
     layerOnlySnapshot: command.layerOnlySnapshot,
   });
-  return { outcome: topologyRequest.outcome, topologyRequest, layerOnlySnapshot: command.layerOnlySnapshot };
+  return { outcome: topologyRequest.outcome, topologyRequest, recipeHash: createHash("sha256").update(canonicalTopologyJson(confirmation.recipe)).digest("hex"), layerOnlySnapshot: command.layerOnlySnapshot };
 }

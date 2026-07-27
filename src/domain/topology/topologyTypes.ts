@@ -13,7 +13,7 @@ export type TopologyAnalysisOutcome = "not-requested" | "preliminary-unsafe" | "
 export type TopologyWorkerRuntime = {
   /** Release-pinned executable or container identity. Never resolve a worker from PATH. */
   runtimeIdentity: { executable: string; runtimeHash: string };
-  runJsonl(message: string, options: { deadlineAt: string | null; signal?: AbortSignal }): Promise<string>;
+  runJsonl(message: string, options: { deadlineAt: string; signal?: AbortSignal }): Promise<string>;
   verifyArtifacts(evidence: TopologyEvidence, artifactDestination: string): Promise<void>;
 };
 
@@ -51,6 +51,13 @@ export type TopologyEvidence = {
   artifactIndex: readonly { name: string; sha256: string; sizeBytes: number }[];
 };
 
+export type TopologyDiagnostics = {
+  code: string;
+  message: string;
+  phase: string | null;
+  retryable: boolean;
+};
+
 export type SubmitTopologyAnalysisRequest = {
   sourceRevisionId: string;
   sourceAssemblyGroupId: string;
@@ -78,6 +85,7 @@ export type TopologyResult = {
   evidence: TopologyEvidence | null;
   artifactDirectory: string;
   errorCode: string | null;
+  diagnostics: TopologyDiagnostics | null;
 };
 
 export type TopologyAnalysisRequestMessage = {
@@ -91,4 +99,12 @@ export type TopologyAnalysisRequestMessage = {
   recipeHash: string;
   bundle: TopologyBundleIdentity;
   artifactDestination: string;
+};
+
+export type TopologyAnalysisCancelMessage = {
+  schema: "topology-analysis.cancel.v1";
+  requestId: string;
+  correlationId: string;
+  idempotencyKey: string;
+  reason: "deadline" | "client-request" | "worker-shutdown";
 };

@@ -36,7 +36,7 @@ describe("Topology scenario estimate seam", () => {
 });
 
 function topologyResult(request: SubmitTopologyAnalysisRequest, effectiveUValueWPerM2K: number): TopologyResult {
-  return { requestId: hash(request.idempotencyKey), sourceRevisionId: request.sourceRevisionId, sourceAssemblyGroupId: request.sourceAssemblyGroupId, correlationId: request.correlationId, idempotencyKey: request.idempotencyKey, outcome: "preliminary-unsafe", bundle: request.bundle, layerOnlySnapshot: request.layerOnlySnapshot, effectiveUValueWPerM2K, evidence: null, artifactDirectory: "artifacts", errorCode: null };
+  return { requestId: hash(request.idempotencyKey), sourceRevisionId: request.sourceRevisionId, sourceAssemblyGroupId: request.sourceAssemblyGroupId, correlationId: request.correlationId, idempotencyKey: request.idempotencyKey, outcome: "preliminary-unsafe", bundle: request.bundle, layerOnlySnapshot: request.layerOnlySnapshot, effectiveUValueWPerM2K, evidence: null, artifactDirectory: "artifacts", errorCode: null, diagnostics: null };
 }
 function hash(value: string): string { return createHash("sha256").update(value).digest("hex"); }
 function fail(message: string): never { throw new Error(message); }

@@ -10,6 +10,7 @@ import {
   PROVEN_TOPOLOGY_BUNDLE,
   createProvenPythonTopologyWorker,
 } from "../src/infrastructure/topology/createProvenPythonTopologyWorker.js";
+import { LocalTopologyArtifactStore } from "../src/infrastructure/topology/localTopologyArtifactStore.js";
 
 const pythonExecutable = resolve(
   process.env.TOPOLOGY_WORKER_PYTHON
@@ -31,7 +32,7 @@ describe("proven Python topology worker through the Topology Analysis Request se
       } as const;
       const layerOnlyBytes = JSON.stringify(layerOnlySnapshot);
       const service = createTopologyAnalysisRequestService({
-        artifactRoot,
+        artifactStore: new LocalTopologyArtifactStore(artifactRoot),
         worker: createProvenPythonTopologyWorker({ pythonExecutable }),
         now: () => "2026-07-25T12:00:00.000Z",
       });
@@ -119,7 +120,7 @@ describe("proven Python topology worker through the Topology Analysis Request se
           await readFile(resolve(".scratch/component-topology-kernel/recipe-contract", fixture), "utf8"),
         );
         const service = createTopologyAnalysisRequestService({
-          artifactRoot,
+          artifactStore: new LocalTopologyArtifactStore(artifactRoot),
           worker: createProvenPythonTopologyWorker({ pythonExecutable }),
         });
         const result = await service.submit({
@@ -253,7 +254,7 @@ describe("proven Python topology worker through the Topology Analysis Request se
 
       for (const [index, item] of cases.entries()) {
         const service = createTopologyAnalysisRequestService({
-          artifactRoot,
+          artifactStore: new LocalTopologyArtifactStore(artifactRoot),
           worker: createProvenPythonTopologyWorker({ pythonExecutable }),
         });
         const result = await service.submit({
@@ -302,7 +303,7 @@ describe("proven Python topology worker through the Topology Analysis Request se
 
       for (const [index, recipe] of recipes.entries()) {
         const service = createTopologyAnalysisRequestService({
-          artifactRoot,
+          artifactStore: new LocalTopologyArtifactStore(artifactRoot),
           worker: createProvenPythonTopologyWorker({ pythonExecutable }),
         });
         const result = await service.submit({
@@ -335,7 +336,7 @@ describe("proven Python topology worker through the Topology Analysis Request se
     try {
       const recipe = JSON.parse(await readFile(timberFixture, "utf8"));
       const worker = createProvenPythonTopologyWorker({ pythonExecutable });
-      const service = createTopologyAnalysisRequestService({ artifactRoot, worker });
+      const service = createTopologyAnalysisRequestService({ artifactStore: new LocalTopologyArtifactStore(artifactRoot), worker });
       const base = {
         sourceRevisionId: "rev-lifecycle",
         sourceAssemblyGroupId: "ag-lifecycle",
