@@ -11,8 +11,10 @@ import hashlib
 import json
 import os
 import platform
+import queue
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -366,6 +368,7 @@ def solve(request: dict) -> dict:
         "validationPackSha256": VALIDATION_PACK_SHA256,
         "frozenConformanceSourceManifestSha256": SOURCE_MANIFEST_SHA256,
         "runtime": runtime,
+        "pythonExecutableSha256": file_sha256(Path(sys.executable)),
         "sourceFiles": {
             "compiler.py": file_sha256(KERNEL_ROOT / "compiler.py"),
             "primitive_plugins.py": file_sha256(KERNEL_ROOT / "primitive_plugins.py"),
@@ -373,6 +376,7 @@ def solve(request: dict) -> dict:
             "numerical_utils.py": file_sha256(KERNEL_ROOT / "numerical_utils.py"),
             "material-pack.json": file_sha256(MATERIAL_PACK_PATH),
             "requirements.lock.txt": file_sha256(REQUIREMENTS_PATH),
+            "topology_worker.py": file_sha256(Path(__file__)),
         },
     }
     return {
@@ -430,19 +434,22 @@ def response_identity(request: dict) -> dict:
 def main() -> int:
     request: dict = {}
     try:
-        lines = [line for line in sys.stdin.read().splitlines() if line.strip()]
-        if len(lines) != 1:
+        first_line = sys.stdin.readline()
+        if not first_line.strip():
             raise ProtocolFailure(
                 "rejected", "invalid_jsonl", "Worker requires exactly one JSONL request.", "request-validation"
             )
-        parsed_request = json.loads(lines[0])
+        try:
+            parsed_request = json.loads(first_line)
+        except json.JSONDecodeError as error:
+            raise ProtocolFailure("rejected", "invalid_jsonl", "Worker emitted invalid request JSON.", "request-validation") from error
         if isinstance(parsed_request, dict) and parsed_request.get("schema") == "topology-analysis.cancel.v1":
             request = validate_cancel(parsed_request)
             raise ProtocolFailure("cancelled", "worker_cancelled", "Topology worker received a cancellation message.", "cancel-validation")
         request = parsed_request if isinstance(parsed_request, dict) else {}
         request = validate_request(request)
         verify_pinned_runtime()
-        solved = solve(request)
+        solved = solve_with_controls(request)
         artifact_index = publish_worker_artifacts(Path(request["artifactDestination"]), request, solved)
         evidence = {key: value for key, value in solved.items() if key != "effectiveUValueWPerM2K"}
         evidence["artifactIndex"] = artifact_index
@@ -482,6 +489,84 @@ def main() -> int:
         print(json.dumps(response, sort_keys=True, separators=(",", ":")), flush=True)
         return 3
 
+def solve_with_controls(request: dict) -> dict:
+    """Run the numerical solve while allowing a second JSONL cancel message."""
+    controls: queue.Queue[object] = queue.Queue()
+
+    def read_controls() -> None:
+        for line in sys.stdin:
+            if not line.strip():
+                continue
+            try:
+                controls.put(json.loads(line))
+            except json.JSONDecodeError:
+                controls.put(
+                    ProtocolFailure(
+                        "rejected", "invalid_jsonl", "Worker received malformed control JSON.", "control-validation"
+                    )
+                )
+
+    reader = threading.Thread(target=read_controls, daemon=True)
+    reader.start()
+    result: dict[str, object] = {}
+
+    def run_solve() -> None:
+        try:
+            result["solved"] = solve(request)
+        except BaseException as error:  # surfaced on the owning thread below
+            result["error"] = error
+
+    solver = threading.Thread(target=run_solve, daemon=True)
+    solver.start()
+    while solver.is_alive():
+        try:
+            control = controls.get(timeout=0.05)
+        except queue.Empty:
+            continue
+        if isinstance(control, ProtocolFailure):
+            raise control
+        if not isinstance(control, dict) or control.get("schema") != "topology-analysis.cancel.v1":
+            raise ProtocolFailure("rejected", "invalid_jsonl", "Worker received a second non-cancellation message.", "control-validation")
+        cancel = validate_cancel(control)
+        if any(cancel.get(key) != request.get(key) for key in ("requestId", "correlationId", "idempotencyKey")):
+            raise ProtocolFailure("rejected", "identity_mismatch", "Cancellation identities do not match the active request.", "control-validation")
+        raise ProtocolFailure("cancelled", "worker_cancelled", "Topology worker received a cancellation message.", "control-validation")
+    solver.join()
+    if "error" in result:
+        error = result["error"]
+        if isinstance(error, BaseException):
+            raise error
+    solved = result.get("solved")
+    if not isinstance(solved, dict):
+        raise ProtocolFailure("failed", "worker_internal_error", "Topology worker completed without a solve result.", "solve")
+    return solved
+
+
+def runtime_preflight() -> dict:
+    runtime = verify_pinned_runtime()
+    primitive_registry = registry()
+    return {
+        "schema": "topology-runtime.preflight.v1",
+        "bundle": PINNED_BUNDLE,
+        "runtime": runtime,
+        "pythonExecutableSha256": file_sha256(Path(sys.executable)),
+        "registrySha256": sha256(primitive_registry.manifest),
+        "packSha256": PINNED_BUNDLE["packHash"],
+        "runtimeIdentitySha256": PINNED_BUNDLE["runtimeHash"],
+        "sourceFiles": {
+            "compiler.py": file_sha256(KERNEL_ROOT / "compiler.py"),
+            "primitive_plugins.py": file_sha256(KERNEL_ROOT / "primitive_plugins.py"),
+            "numerical_solver.py": file_sha256(KERNEL_ROOT / "numerical_solver.py"),
+            "numerical_utils.py": file_sha256(KERNEL_ROOT / "numerical_utils.py"),
+            "material-pack.json": file_sha256(MATERIAL_PACK_PATH),
+            "requirements.lock.txt": file_sha256(REQUIREMENTS_PATH),
+            "topology_worker.py": file_sha256(Path(__file__)),
+        },
+    }
+
 
 if __name__ == "__main__":
+    if "--preflight" in sys.argv[1:]:
+        print(json.dumps(runtime_preflight(), sort_keys=True, separators=(",", ":")), flush=True)
+        raise SystemExit(0)
     raise SystemExit(main())

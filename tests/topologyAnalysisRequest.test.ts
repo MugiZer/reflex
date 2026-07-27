@@ -37,7 +37,10 @@ describe("Topology Analysis Request seam", () => {
       const persistedDuplicate = await restarted.submit({ sourceRevisionId: "rev_1", sourceAssemblyGroupId: "ag_1", correlationId: correlationId(4), idempotencyKey: idempotencyKey("key-1"), recipe, recipeHash, bundle, layerOnlySnapshot });
       expect(persistedDuplicate.requestId).toBe(submitted.requestId);
       expect(restartedWorker.messages).toHaveLength(0);
-      await expect(service.submit({ sourceRevisionId: "rev_1", sourceAssemblyGroupId: "ag_1", correlationId: correlationId(3), idempotencyKey: idempotencyKey("key-1"), recipe: { ...recipe, layers: [] }, recipeHash: "e".repeat(64), bundle, layerOnlySnapshot })).rejects.toThrow("idempotency key");
+      const conflict = await service.submit({ sourceRevisionId: "rev_1", sourceAssemblyGroupId: "ag_1", correlationId: correlationId(3), idempotencyKey: idempotencyKey("key-1"), recipe: { ...recipe, layers: [] }, recipeHash: "e".repeat(64), bundle, layerOnlySnapshot });
+      expect(conflict.outcome).toBe("rejected");
+      expect(conflict.errorCode).toBe("idempotency_conflict");
+      await expect(readFile(join(conflict.artifactDirectory, "error.json"), "utf8")).resolves.toContain("idempotency_conflict");
     } finally { await rm(artifactRoot, { recursive: true, force: true }); }
   });
 
@@ -151,7 +154,7 @@ describe("Topology Analysis Request seam", () => {
     }
   });
 
-  it("removes a stale request-scoped temporary artifact before publishing the immutable outcome", async () => {
+  it("does not delete a temporary artifact owned by another invocation", async () => {
     const artifactRoot = await mkdtemp(join(tmpdir(), "topology-request-"));
     try {
       const key = idempotencyKey("stale-temporary");
@@ -172,7 +175,7 @@ describe("Topology Analysis Request seam", () => {
       });
 
       expect(result.outcome).toBe("preliminary-unsafe");
-      await expect(access(staleDirectory)).rejects.toThrow();
+      await expect(access(staleDirectory)).resolves.toBeUndefined();
     } finally {
       await rm(artifactRoot, { recursive: true, force: true });
     }

@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import type { TopologyArtifactStore, TopologyArtifactWorkspace } from "./topologyArtifactStore.js";
+import type { TopologyArtifactFile, TopologyArtifactStore, TopologyArtifactWorkspace } from "./topologyArtifactStore.js";
 import { canonicalTopologyJson } from "../../domain/topology/canonicalTopologyJson.js";
 import type { JsonValue, SubmitTopologyAnalysisRequest, TopologyAnalysisOutcome, TopologyAnalysisRequestMessage, TopologyEvidence, TopologyResult, TopologyWorkerRuntime } from "../../domain/topology/topologyTypes.js";
 
 type Options = { artifactStore: TopologyArtifactStore; worker: TopologyWorkerRuntime; now?: () => string };
 const DEFAULT_WORKER_DEADLINE_MS = 120_000;
+const MAX_WORKER_OUTPUT_BYTES = 32 * 1024 * 1024;
 type WorkerFailure = { outcome: Extract<TopologyAnalysisOutcome, "blocked" | "rejected" | "failed" | "cancelled">; code: string; message: string; phase?: string; retryable?: boolean };
 
 /** Coordinates the optional topology use case without owning persistence mechanics or layer-only state. */
@@ -20,14 +21,22 @@ export function createTopologyAnalysisRequestService(options: Options) {
       const idempotencyKey = safePathSegment(command.idempotencyKey);
       const existing = outcomesByKey.get(idempotencyKey);
       if (existing) {
-        if (existing.semanticPayload !== semanticPayload) throw new Error("Topology idempotency key was already used with a different semantic payload.");
-        await verifyPersistedEvidence(existing.result, options.worker, options.artifactStore);
-        return existing.result;
+        if (existing.semanticPayload !== semanticPayload) {
+          return publishDurableFailure(command, semanticPayload, idempotencyKey, failure("rejected", "idempotency_conflict", "Topology idempotency key was already used with a different semantic payload."));
+        }
+        try {
+          const persisted = await readPersistedOutcome(existing.result.artifactDirectory, semanticPayload, options.worker, options.artifactStore);
+          if (persisted) return persisted;
+        } catch (error) {
+          return publishDurableFailure(command, semanticPayload, idempotencyKey, classifyPersistenceFailure(error));
+        }
       }
 
       const inFlight = inFlightByKey.get(idempotencyKey);
       if (inFlight) {
-        if (inFlight.semanticPayload !== semanticPayload) throw new Error("Topology idempotency key was already used with a different semantic payload.");
+        if (inFlight.semanticPayload !== semanticPayload) {
+          return publishDurableFailure(command, semanticPayload, idempotencyKey, failure("rejected", "idempotency_conflict", "Topology idempotency key was already used with a different semantic payload."));
+        }
         return inFlight.promise;
       }
 
@@ -45,29 +54,49 @@ export function createTopologyAnalysisRequestService(options: Options) {
   async function submitFresh(command: SubmitTopologyAnalysisRequest, semanticPayload: string, idempotencyKey: string): Promise<TopologyResult> {
     const requestId = randomUUID();
     const workspace = options.artifactStore.workspaceFor(idempotencyKey, requestId);
-    await options.artifactStore.removeStaleTemporaryArtifacts(workspace.finalDirectory);
-    const persisted = await readPersistedOutcome(workspace.finalDirectory, semanticPayload, options.worker, options.artifactStore);
-    if (persisted) {
-      outcomesByKey.set(idempotencyKey, { semanticPayload, result: persisted });
-      return persisted;
+    let claim: { acquired: boolean; manifest: unknown | null };
+    try {
+      claim = await options.artifactStore.claim(workspace);
+    } catch (error) {
+      return publishDurableFailure(command, semanticPayload, idempotencyKey, classifyPersistenceFailure(error));
+    }
+    if (!claim.acquired) {
+      try {
+        const persisted = await readPersistedOutcome(workspace.finalDirectory, semanticPayload, options.worker, options.artifactStore, claim.manifest);
+        if (!persisted) throw new Error("Topology artifact claim resolved to an incomplete published outcome.");
+        outcomesByKey.set(idempotencyKey, { semanticPayload, result: persisted });
+        return persisted;
+      } catch (error) {
+        const result = await publishDurableFailure(command, semanticPayload, idempotencyKey, classifyPersistenceFailure(error));
+        outcomesByKey.set(idempotencyKey, { semanticPayload, result });
+        return result;
+      }
     }
 
-    await options.artifactStore.removeTemporaryDirectory(workspace.temporaryDirectory);
-    await options.artifactStore.createTemporaryDirectory(workspace.temporaryDirectory);
     const base = { requestId, sourceRevisionId: command.sourceRevisionId, sourceAssemblyGroupId: command.sourceAssemblyGroupId, correlationId: command.correlationId, idempotencyKey, bundle: command.bundle, createdAt: now() };
     const request = createRequestMessage(command, base, workspace);
     let result: TopologyResult;
     try {
+      await options.artifactStore.removeTemporaryDirectory(workspace.temporaryDirectory);
+      await options.artifactStore.createTemporaryDirectory(workspace.temporaryDirectory);
       try {
         validateCommand(command, options.worker);
         if (request) await options.artifactStore.writeJson(workspace.temporaryDirectory, "request.json", request);
         if (!request) {
           result = await publishOutcome({ ...base, semanticPayload, outcome: "not-requested", effectiveUValueWPerM2K: null, evidence: null, errorCode: null, layerOnlySnapshot: command.layerOnlySnapshot, workspace, request, artifactStore: options.artifactStore, worker: options.worker });
         } else {
+          if (options.worker.preflight) {
+            try {
+              await options.worker.preflight();
+            } catch (error) {
+              throw failure("failed", "topology_runtime_preflight_failed", error instanceof Error ? error.message : "Topology runtime preflight failed.");
+            }
+          }
           const rawOutput = await options.worker.runJsonl(JSON.stringify(request) + "\n", {
             deadlineAt: command.deadlineAt ?? new Date(Date.now() + DEFAULT_WORKER_DEADLINE_MS).toISOString(),
             signal: command.cancellationSignal,
           });
+          if (Buffer.byteLength(rawOutput, "utf8") > MAX_WORKER_OUTPUT_BYTES) throw failure("failed", "worker_output_limit", "Topology worker output exceeded its limit.");
           const workerResult = validateWorkerResult(rawOutput, request);
           await options.worker.verifyArtifacts(workerResult.evidence, request.artifactDestination);
           result = await publishOutcome({ ...base, semanticPayload, outcome: workerResult.outcome, effectiveUValueWPerM2K: workerResult.effectiveUValueWPerM2K, evidence: workerResult.evidence, errorCode: null, layerOnlySnapshot: command.layerOnlySnapshot, workspace, request, workerResult, artifactStore: options.artifactStore, worker: options.worker });
@@ -77,11 +106,35 @@ export function createTopologyAnalysisRequestService(options: Options) {
         result = await publishOutcome({ ...base, semanticPayload, outcome: failure.outcome, effectiveUValueWPerM2K: null, evidence: null, errorCode: failure.code, layerOnlySnapshot: command.layerOnlySnapshot, workspace, request, error: failure, artifactStore: options.artifactStore, worker: options.worker });
       }
     } catch (error) {
-      await options.artifactStore.removeTemporaryDirectory(workspace.temporaryDirectory);
       throw error;
+    } finally {
+      await options.artifactStore.removeTemporaryDirectory(workspace.temporaryDirectory);
+      await options.artifactStore.release(workspace);
     }
     outcomesByKey.set(idempotencyKey, { semanticPayload, result });
     return result;
+  }
+
+  async function publishDurableFailure(command: SubmitTopologyAnalysisRequest, semanticPayload: string, idempotencyKey: string, error: WorkerFailure): Promise<TopologyResult> {
+    const requestId = randomUUID();
+    const variant = `replay-${sha256(semanticPayload).slice(0, 16)}`;
+    const workspace = options.artifactStore.workspaceFor(idempotencyKey, requestId, variant);
+    const claim = await options.artifactStore.claim(workspace);
+    if (!claim.acquired) {
+      const persisted = await readPersistedOutcome(workspace.finalDirectory, semanticPayload, options.worker, options.artifactStore, claim.manifest);
+      if (persisted) return persisted;
+      throw new Error("Topology replay-failure artifact claim resolved to an incomplete outcome.");
+    }
+    try {
+      await options.artifactStore.removeTemporaryDirectory(workspace.temporaryDirectory);
+      await options.artifactStore.createTemporaryDirectory(workspace.temporaryDirectory);
+      const base = { requestId, sourceRevisionId: command.sourceRevisionId, sourceAssemblyGroupId: command.sourceAssemblyGroupId, correlationId: command.correlationId, idempotencyKey, bundle: command.bundle, createdAt: now() };
+      const request = createRequestMessage(command, base, workspace);
+      return await publishOutcome({ ...base, semanticPayload, outcome: error.outcome, effectiveUValueWPerM2K: null, evidence: null, errorCode: error.code, layerOnlySnapshot: command.layerOnlySnapshot, workspace, request, error, artifactStore: options.artifactStore, worker: options.worker });
+    } finally {
+      await options.artifactStore.removeTemporaryDirectory(workspace.temporaryDirectory);
+      await options.artifactStore.release(workspace);
+    }
   }
 }
 
@@ -94,10 +147,19 @@ async function publishOutcome(input: { requestId: string; sourceRevisionId: stri
   if (input.outcome !== "preliminary-unsafe" && (input.effectiveUValueWPerM2K !== null || input.evidence !== null)) throw new Error("Non-successful topology outcomes cannot publish numerical evidence or a U-value.");
   const diagnostics = input.error ? { code: input.error.code, message: input.error.message, phase: input.error.phase ?? null, retryable: input.error.retryable ?? false } : null;
   const result: TopologyResult = { requestId: input.requestId, sourceRevisionId: input.sourceRevisionId, sourceAssemblyGroupId: input.sourceAssemblyGroupId, correlationId: input.correlationId, idempotencyKey: input.idempotencyKey, outcome: input.outcome, bundle: input.bundle, layerOnlySnapshot: input.layerOnlySnapshot, effectiveUValueWPerM2K: input.effectiveUValueWPerM2K, evidence: input.evidence, artifactDirectory: input.workspace.finalDirectory, errorCode: input.errorCode, diagnostics };
-  if (input.request) await input.artifactStore.writeJson(input.workspace.temporaryDirectory, "request.json", input.request);
-  if (input.error) await input.artifactStore.writeJson(input.workspace.temporaryDirectory, "error.json", { schema: "topology-analysis.error.v1", ...input.error, requestId: input.requestId, correlationId: input.correlationId, idempotencyKey: input.idempotencyKey, bundle: input.bundle });
-  else await input.artifactStore.writeJson(input.workspace.temporaryDirectory, "result.json", { schema: "topology-analysis.result.v1", ...result, workerResult: input.workerResult ?? null });
-  await input.artifactStore.writeJson(input.workspace.temporaryDirectory, "manifest.json", { requestId: input.requestId, outcome: input.outcome, semanticPayload: input.semanticPayload, result, files: [input.request ? "request.json" : null, input.error ? "error.json" : "result.json", ...(input.evidence?.artifactIndex.map((artifact) => `worker/${artifact.name}`) ?? [])].filter(Boolean) });
+  const files: TopologyArtifactFile[] = [];
+  if (input.request) files.push(await input.artifactStore.writeJson(input.workspace.temporaryDirectory, "request.json", input.request));
+  if (input.error) {
+    const errorFilename = input.outcome === "cancelled" ? "cancel.json" : "error.json";
+    const errorFile = await input.artifactStore.writeJson(input.workspace.temporaryDirectory, errorFilename, { schema: "topology-analysis.error.v1", ...input.error, requestId: input.requestId, correlationId: input.correlationId, idempotencyKey: input.idempotencyKey, bundle: input.bundle });
+    files.push(errorFile);
+  } else {
+    files.push(await input.artifactStore.writeJson(input.workspace.temporaryDirectory, "result.json", { schema: "topology-analysis.result.v1", ...result, workerResult: input.workerResult ?? null }));
+  }
+  for (const artifact of input.evidence?.artifactIndex ?? []) files.push({ path: `worker/${artifact.name}`, sha256: artifact.sha256, sizeBytes: artifact.sizeBytes });
+  const manifestPayload = { schema: "topology-artifact-manifest.v1", requestId: input.requestId, outcome: input.outcome, semanticPayload: input.semanticPayload, result, files };
+  const manifestSha256 = sha256(canonicalTopologyJson(manifestPayload as JsonValue));
+  await input.artifactStore.writeJson(input.workspace.temporaryDirectory, "manifest.json", { ...manifestPayload, manifestSha256 });
   try {
     await input.artifactStore.publish(input.workspace);
     return result;
@@ -108,11 +170,15 @@ async function publishOutcome(input: { requestId: string; sourceRevisionId: stri
   }
 }
 
-async function readPersistedOutcome(finalDirectory: string, semanticPayload: string, worker: TopologyWorkerRuntime, artifactStore: TopologyArtifactStore): Promise<TopologyResult | null> {
-  const manifest = await artifactStore.readManifest(finalDirectory) as { semanticPayload?: unknown; result?: unknown } | null;
+async function readPersistedOutcome(finalDirectory: string, semanticPayload: string, worker: TopologyWorkerRuntime, artifactStore: TopologyArtifactStore, knownManifest?: unknown): Promise<TopologyResult | null> {
+  const manifest = (knownManifest ?? await artifactStore.readManifest(finalDirectory)) as { semanticPayload?: unknown; result?: unknown; manifestSha256?: unknown; files?: unknown } | null;
   if (!manifest) return null;
-  if (manifest.semanticPayload !== semanticPayload) throw new Error("Topology idempotency key was already used with a different semantic payload.");
-  if (!isTopologyResult(manifest.result)) throw new Error("Persisted topology artifact is incomplete and cannot be reused.");
+  if (typeof manifest.manifestSha256 !== "string" || !Array.isArray(manifest.files) || !manifest.files.every(isArtifactFile)) throw Object.assign(new Error("Persisted topology artifact manifest is incomplete and cannot be reused."), { code: "artifact_integrity_failure" });
+  const { manifestSha256, ...manifestPayload } = manifest;
+  if (sha256(canonicalTopologyJson(manifestPayload as JsonValue)) !== manifestSha256) throw Object.assign(new Error("Persisted topology artifact manifest failed integrity verification."), { code: "artifact_integrity_failure" });
+  if (manifest.semanticPayload !== semanticPayload) throw Object.assign(new Error("Topology idempotency key was already used with a different semantic payload."), { code: "idempotency_conflict" });
+  await artifactStore.verifyFiles(finalDirectory, manifest.files);
+  if (!isTopologyResult(manifest.result)) throw Object.assign(new Error("Persisted topology artifact is incomplete and cannot be reused."), { code: "artifact_integrity_failure" });
   await verifyPersistedEvidence(manifest.result, worker, artifactStore);
   return manifest.result;
 }
@@ -135,7 +201,7 @@ function validateWorkerResult(rawOutput: string, request: TopologyAnalysisReques
   let output: unknown;
   try { output = JSON.parse(lines[0]!); } catch { throw failure("failed", "malformed_output", "Worker emitted invalid JSON."); }
   if (!isRecord(output)) throw failure("failed", "malformed_output", "Worker result must be an object.");
-  if (output.schema !== "topology-analysis.result.v1" && output.schema !== "topology-analysis.error.v1") throw failure("rejected", "unsupported_protocol", "Worker returned an unsupported protocol major version.");
+  if (output.schema !== "topology-analysis.result.v1" && output.schema !== "topology-analysis.error.v1") throw failure("failed", "malformed_output", "Worker returned an unsupported or malformed protocol message.");
   if (output.requestId !== request.requestId || output.correlationId !== request.correlationId || output.idempotencyKey !== request.idempotencyKey || canonicalTopologyJson(output.bundle as JsonValue) !== canonicalTopologyJson(request.bundle)) throw failure("rejected", "identity_mismatch", "Worker result identities do not match the immutable request.");
   if (output.schema === "topology-analysis.error.v1") {
     if (!isFailure(output) || "effectiveUValueWPerM2K" in output) throw failure("failed", "malformed_error", "Worker returned a malformed error message.");
@@ -150,9 +216,15 @@ async function verifyPersistedEvidence(result: TopologyResult, worker: TopologyW
 }
 
 function classifyFailure(error: unknown): WorkerFailure { return isFailure(error) ? error : failure("failed", "worker_failure", error instanceof Error ? error.message : "Topology worker failed."); }
+function classifyPersistenceFailure(error: unknown): WorkerFailure {
+  const code = error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : "artifact_integrity_failure";
+  const outcome = code === "idempotency_conflict" ? "rejected" : "failed";
+  return failure(outcome, code, error instanceof Error ? error.message : "Persisted topology artifact failed integrity verification.");
+}
 function failure(outcome: WorkerFailure["outcome"], code: string, message: string, phase?: string, retryable = false): WorkerFailure { return { outcome, code, message, ...(phase ? { phase } : {}), retryable }; }
 function isFailure(value: unknown): value is WorkerFailure { return isRecord(value) && (value.outcome === "blocked" || value.outcome === "rejected" || value.outcome === "failed" || value.outcome === "cancelled") && typeof value.code === "string" && typeof value.message === "string"; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
+function isArtifactFile(value: unknown): value is TopologyArtifactFile { return isRecord(value) && typeof value.path === "string" && /^[a-f0-9]{64}$/.test(String(value.sha256)) && typeof value.sizeBytes === "number" && Number.isInteger(value.sizeBytes) && value.sizeBytes >= 0; }
 function isCompleteEvidence(value: unknown): value is TopologyEvidence {
   if (!isRecord(value) || !isRecord(value.canonicalAnalysisGeometry) || value.canonicalAnalysisGeometry.schemaVersion !== "canonical-analysis-geometry/v1" || !Array.isArray(value.canonicalAnalysisGeometry.materialRegions) || value.canonicalAnalysisGeometry.materialRegions.length < 2 || !Array.isArray(value.canonicalAnalysisGeometry.interfaces)) return false;
   if (!isRecord(value.topologyAudit)) return false;

@@ -8,6 +8,7 @@ import { createTopologyAnalysisRequestService } from "../src/application/topolog
 import type { JsonValue } from "../src/domain/topology/topologyTypes.js";
 import {
   PROVEN_TOPOLOGY_BUNDLE,
+  activeTopologyWorkerProcessCount,
   createProvenPythonTopologyWorker,
 } from "../src/infrastructure/topology/createProvenPythonTopologyWorker.js";
 import { LocalTopologyArtifactStore } from "../src/infrastructure/topology/localTopologyArtifactStore.js";
@@ -100,7 +101,12 @@ describe("proven Python topology worker through the Topology Analysis Request se
       const artifactToRemove = result.evidence?.artifactIndex[0]?.name;
       expect(artifactToRemove).toBeTruthy();
       await rm(join(result.artifactDirectory, "worker", artifactToRemove!), { force: true });
-      await expect(service.submit({ ...command, correlationId: uuidFor(3) })).rejects.toThrow("missing");
+      const corruptedReplay = await service.submit({ ...command, correlationId: uuidFor(3) });
+      expect(corruptedReplay.outcome).toBe("failed");
+      expect(corruptedReplay.errorCode).toBe("missing_artifact");
+      expect(corruptedReplay.effectiveUValueWPerM2K).toBeNull();
+      expect(corruptedReplay.evidence).toBeNull();
+      expect(corruptedReplay.artifactDirectory).toContain(".replay-");
     } finally {
       await rm(artifactRoot, { recursive: true, force: true });
     }
@@ -357,6 +363,33 @@ describe("proven Python topology worker through the Topology Analysis Request se
       expect(timedOut.effectiveUValueWPerM2K).toBeNull();
       expect(timedOut.evidence).toBeNull();
 
+      const deadlineDuringSolve = await service.submit({
+        ...base,
+        correlationId: uuidFor(302),
+        idempotencyKey: sha256("lifecycle-deadline-during-solve"),
+        deadlineAt: new Date(Date.now() + 500).toISOString(),
+      });
+      expect(deadlineDuringSolve.outcome).toBe("failed");
+      expect(deadlineDuringSolve.errorCode).toBe("worker_deadline_exceeded");
+      expect(deadlineDuringSolve.effectiveUValueWPerM2K).toBeNull();
+      expect(deadlineDuringSolve.evidence).toBeNull();
+      expect(activeTopologyWorkerProcessCount()).toBe(0);
+
+      const cancellationDuringSolve = new AbortController();
+      const cancellationTimer = setTimeout(() => cancellationDuringSolve.abort(), 500);
+      const cancelledDuringSolve = await service.submit({
+        ...base,
+        correlationId: uuidFor(303),
+        idempotencyKey: sha256("lifecycle-cancellation-during-solve"),
+        cancellationSignal: cancellationDuringSolve.signal,
+      });
+      clearTimeout(cancellationTimer);
+      expect(cancelledDuringSolve.outcome).toBe("cancelled");
+      expect(cancelledDuringSolve.errorCode).toBe("worker_cancelled");
+      expect(cancelledDuringSolve.effectiveUValueWPerM2K).toBeNull();
+      expect(cancelledDuringSolve.evidence).toBeNull();
+      expect(activeTopologyWorkerProcessCount()).toBe(0);
+
       const cancellation = new AbortController();
       cancellation.abort();
       const cancelled = await service.submit({
@@ -369,10 +402,26 @@ describe("proven Python topology worker through the Topology Analysis Request se
       expect(cancelled.errorCode).toBe("worker_cancelled");
       expect(cancelled.effectiveUValueWPerM2K).toBeNull();
       expect(cancelled.evidence).toBeNull();
+      expect(activeTopologyWorkerProcessCount()).toBe(0);
     } finally {
       await rm(artifactRoot, { recursive: true, force: true });
     }
-  });
+  }, 180_000);
+
+  it("accepts the versioned Python cancellation protocol", async () => {
+    const worker = createProvenPythonTopologyWorker({ pythonExecutable });
+    const raw = await worker.runJsonl(JSON.stringify({
+      schema: "topology-analysis.cancel.v1",
+      requestId: uuidFor(400),
+      correlationId: uuidFor(401),
+      idempotencyKey: sha256("protocol-cancel"),
+      reason: "client-request",
+    }) + "\n", { deadlineAt: new Date(Date.now() + 30_000).toISOString() });
+    const response = JSON.parse(raw) as { schema: string; outcome: string; code: string };
+    expect(response.schema).toBe("topology-analysis.error.v1");
+    expect(response.outcome).toBe("cancelled");
+    expect(response.code).toBe("worker_cancelled");
+  }, 60_000);
 });
 
 type MutableAuthored = { [key: string]: JsonValue; value: JsonValue; authority: { [key: string]: JsonValue; state: string; sourceRefs: string[]; reason: string } };

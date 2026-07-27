@@ -13,6 +13,8 @@ export type TopologyAnalysisOutcome = "not-requested" | "preliminary-unsafe" | "
 export type TopologyWorkerRuntime = {
   /** Release-pinned executable or container identity. Never resolve a worker from PATH. */
   runtimeIdentity: { executable: string; runtimeHash: string };
+  /** Optional infrastructure preflight for release-owned executable and worker assets. */
+  preflight?: () => Promise<void>;
   runJsonl(message: string, options: { deadlineAt: string; signal?: AbortSignal }): Promise<string>;
   verifyArtifacts(evidence: TopologyEvidence, artifactDestination: string): Promise<void>;
 };
