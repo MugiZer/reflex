@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import type { TopologyArtifactStore, TopologyArtifactWorkspace } from "../../domain/topology/topologyArtifactStore.js";
+import type { TopologyArtifactStore, TopologyArtifactWorkspace } from "./topologyArtifactStore.js";
 import { canonicalTopologyJson } from "../../domain/topology/canonicalTopologyJson.js";
 import type { JsonValue, SubmitTopologyAnalysisRequest, TopologyAnalysisOutcome, TopologyAnalysisRequestMessage, TopologyEvidence, TopologyResult, TopologyWorkerRuntime } from "../../domain/topology/topologyTypes.js";
 

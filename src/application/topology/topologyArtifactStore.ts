@@ -4,7 +4,7 @@ export type TopologyArtifactWorkspace = {
   workerArtifactDirectory: string;
 };
 
-/** Persistence seam for topology evidence; filesystem mechanics stay in infrastructure. */
+/** Application persistence port for immutable topology request artifacts. */
 export type TopologyArtifactStore = {
   workspaceFor(idempotencyKey: string, requestId: string): TopologyArtifactWorkspace;
   workerArtifactDirectory(finalDirectory: string): string;

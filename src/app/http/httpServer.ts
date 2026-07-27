@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 
 import { createJob } from "../../application/jobs/createJob.js";
 import { reconcileJobReviewPlan } from "../../application/jobs/reconcileJobReviewPlan.js";
@@ -54,7 +54,7 @@ export function createLocalhostApp(command: {
   const thermalTreatmentWorker = new OpenSource2dCalculationWorker({ artifactRoot: join(command.outputRoot, "thermal-treatment-worker") });
   const topologyRequests = command.topologyRequests ?? createTopologyAnalysisRequestService({
     artifactStore: new LocalTopologyArtifactStore(command.outputRoot),
-    worker: command.topologyWorker ?? createProvenPythonTopologyWorker({ pythonExecutable: resolve(process.env.TOPOLOGY_WORKER_PYTHON ?? ".scratch/component-topology-kernel/conformance-proof/.venv/Scripts/python.exe") }),
+    worker: command.topologyWorker ?? configuredTopologyWorker(),
   });
   const server = createServer(async (req, res) => {
     try {
@@ -312,4 +312,16 @@ function javascript(res: ServerResponse, status: number, value: string): void {
 function text(res: ServerResponse, status: number, value: string): void {
   res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" });
   res.end(value);
+}
+
+function configuredTopologyWorker(): TopologyWorkerRuntime {
+  const pythonExecutable = process.env.TOPOLOGY_WORKER_PYTHON;
+  if (pythonExecutable) return createProvenPythonTopologyWorker({ pythonExecutable });
+  return {
+    runtimeIdentity: { executable: "unavailable-release-topology-runtime", runtimeHash: PROVEN_TOPOLOGY_BUNDLE.runtimeHash },
+    async verifyArtifacts() {},
+    async runJsonl() {
+      throw Object.assign(new Error("Topology runtime is not configured. Set TOPOLOGY_WORKER_PYTHON to the release-owned Python executable."), { outcome: "failed" as const, code: "topology_runtime_unavailable" });
+    },
+  };
 }

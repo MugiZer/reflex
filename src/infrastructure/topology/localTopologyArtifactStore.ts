@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
-import type { TopologyArtifactStore, TopologyArtifactWorkspace } from "../../domain/topology/topologyArtifactStore.js";
+import type { TopologyArtifactStore, TopologyArtifactWorkspace } from "../../application/topology/topologyArtifactStore.js";
 
 const SAFE_SEGMENT = /^[A-Za-z0-9._-]+$/;
 
