@@ -13,6 +13,7 @@ import type { TopologyWorkerRuntime } from "../../domain/topology/topologyTypes.
 import { PROVEN_TOPOLOGY_BUNDLE, createProvenPythonTopologyWorker } from "../../infrastructure/topology/createProvenPythonTopologyWorker.js";
 import { LocalTopologyArtifactStore } from "../../infrastructure/topology/localTopologyArtifactStore.js";
 import { createLocalTopologyReviewEvidenceLoader } from "../../infrastructure/topology/localTopologyReviewEvidenceLoader.js";
+import { createLocalJobWorkspaceEvidenceLoader } from "../../infrastructure/jobs/localJobWorkspaceEvidenceLoader.js";
 import { submitThermalTreatmentConfirmation } from "../../application/thermal-treatment/submitThermalTreatmentConfirmation.js";
 import { continuousZGirtFamilyRegistry } from "../../domain/thermal-treatment/families/continuousZGirtFamily.js";
 import { OpenSource2dCalculationWorker } from "../../infrastructure/thermal-treatment/OpenSource2dCalculationWorker.js";
@@ -80,7 +81,7 @@ export function createLocalhostApp(command: {
         return await sendJob(
           res,
           jobs,
-          artifactStore,
+          createLocalJobWorkspaceEvidenceLoader(artifactStore),
           jobId,
           parseArchitectTarget(url.searchParams.get("targetU")),
         );
@@ -98,8 +99,13 @@ export function createLocalhostApp(command: {
         return json(res, 200, { topologyReviews: jobs.listTopologyReviews(topologyReviewJobId) });
       }
       if (req.method === "POST" && topologyReviewJobId) {
-        const result = await submitJobTopologyReview({ jobId: topologyReviewJobId, body: await readJson(req), jobs, evidence: createLocalTopologyReviewEvidenceLoader(artifactStore), requests: topologyRequests, bundle: PROVEN_TOPOLOGY_BUNDLE });
-        return json(res, 202, result);
+        try {
+          const result = await submitJobTopologyReview({ jobId: topologyReviewJobId, body: await readJson(req), jobs, evidence: createLocalTopologyReviewEvidenceLoader(artifactStore), requests: topologyRequests, bundle: PROVEN_TOPOLOGY_BUNDLE });
+          return json(res, 202, result);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return json(res, topologyReviewErrorStatus(message), { error: message });
+        }
       }
 
       const thermalTreatmentJobId = matchPath(url.pathname, /^\/api\/jobs\/([^/]+)\/thermal-treatment$/);
@@ -155,8 +161,9 @@ export function createLocalhostApp(command: {
       }
       return text(res, 404, "Not found");
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       return json(res, 500, {
-        error: error instanceof Error ? error.message : String(error),
+        error: message,
       });
     }
   });
@@ -166,13 +173,13 @@ export function createLocalhostApp(command: {
 async function sendJob(
   res: ServerResponse,
   jobs: JobRepository,
-  artifactStore: LocalJobArtifactStore,
+  evidence: ReturnType<typeof createLocalJobWorkspaceEvidenceLoader>,
   jobId: string,
   targetUValueWPerM2K: number | null,
 ): Promise<void> {
   const workspace = await getJobWorkspace({
     jobs,
-    artifactStore,
+    evidence,
     jobId,
     targetUValueWPerM2K,
   });
@@ -313,6 +320,13 @@ function javascript(res: ServerResponse, status: number, value: string): void {
 function text(res: ServerResponse, status: number, value: string): void {
   res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" });
   res.end(value);
+}
+
+/** Expected topology-review input failures are client-visible, not server faults. */
+function topologyReviewErrorStatus(message: string): number {
+  if (message === "Job not found.") return 404;
+  if (message.startsWith("Expected a topology review") || message.includes(" is required.") || message.startsWith("answers must") || message.startsWith("Topology review answers")) return 422;
+  return 500;
 }
 
 function configuredTopologyWorker(): TopologyWorkerRuntime {

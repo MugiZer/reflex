@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import type { ClosableJobRepository, JobUpdate } from "../../../domain/jobs/jobRepository.js";
 import type { JobRecord, JobReviewState, JobStatus, JobSummary, JobTopologyReview } from "../../../domain/jobs/jobTypes.js";
+import { requireCompleteTopologyResult } from "../../../application/topology/createTopologyAnalysisRequestService.js";
 
 type JobRow = {
   job_id: string;
@@ -156,8 +157,8 @@ export class SqliteJobRepository implements ClosableJobRepository {
   }
 
   listTopologyReviews(jobId: string): JobTopologyReview[] {
-    const rows = this.db.prepare("select payload_json from job_topology_reviews where job_id = ? order by created_at asc").all(jobId) as { payload_json: string }[];
-    return rows.map((row) => parseTopologyReview(row.payload_json));
+    const rows = this.db.prepare("select job_id, source_revision_id, source_assembly_group_id, opportunity_id, construction_signature, idempotency_key, payload_json from job_topology_reviews where job_id = ? order by created_at asc").all(jobId) as PersistedTopologyReviewRow[];
+    return rows.map((row) => parseTopologyReview(row.payload_json, row));
   }
 
   private ensureTopologyReviewColumns(): void {
@@ -175,15 +176,30 @@ export class SqliteJobRepository implements ClosableJobRepository {
   }
 
   getTopologyReviewByIdempotencyKey(jobId: string, idempotencyKey: string): JobTopologyReview | null {
-    const row = this.db.prepare("select payload_json from job_topology_reviews where job_id = ? and idempotency_key = ?").get(jobId, idempotencyKey) as { payload_json: string } | undefined;
-    return row ? parseTopologyReview(row.payload_json) : null;
+    const row = this.db.prepare("select job_id, source_revision_id, source_assembly_group_id, opportunity_id, construction_signature, idempotency_key, payload_json from job_topology_reviews where job_id = ? and idempotency_key = ?").get(jobId, idempotencyKey) as PersistedTopologyReviewRow | undefined;
+    return row ? parseTopologyReview(row.payload_json, row) : null;
   }
 }
 
-function parseTopologyReview(payload: string): JobTopologyReview {
-  const value = JSON.parse(payload) as Partial<JobTopologyReview>;
-  if (!value || typeof value.topologyReviewId !== "string" || typeof value.idempotencyKey !== "string" || typeof value.jobId !== "string" || typeof value.sourceRevisionId !== "string" || typeof value.sourceAssemblyGroupId !== "string" || typeof value.opportunityId !== "string" || typeof value.thermalConstructionSignature !== "string" || !Array.isArray(value.missingKeys) || !value.outcome) throw new Error("Persisted topology review is corrupt.");
+type PersistedTopologyReviewRow = { job_id: string; source_revision_id: string; source_assembly_group_id: string; opportunity_id: string; construction_signature: string; idempotency_key: string; payload_json: string };
+
+function parseTopologyReview(payload: string, row: PersistedTopologyReviewRow): JobTopologyReview {
+  let value: Partial<JobTopologyReview>;
+  try { value = JSON.parse(payload) as Partial<JobTopologyReview>; } catch { throw new Error("Persisted topology review is corrupt."); }
+  const outcomes = new Set(["blocked", "rejected", "not-requested", "preliminary-unsafe", "failed", "cancelled"]);
+  if (!value || typeof value.topologyReviewId !== "string" || typeof value.idempotencyKey !== "string" || typeof value.jobId !== "string" || typeof value.sourceRevisionId !== "string" || typeof value.sourceAssemblyGroupId !== "string" || typeof value.opportunityId !== "string" || typeof value.thermalConstructionSignature !== "string" || !outcomes.has(value.outcome ?? "") || !Array.isArray(value.missingKeys) || !value.missingKeys.every((key) => typeof key === "string") || !isAnswers(value.answers) || (value.recipeHash !== null && typeof value.recipeHash !== "string") || (value.errorCode !== null && typeof value.errorCode !== "string") || typeof value.createdAt !== "string") throw new Error("Persisted topology review is corrupt.");
+  if (value.topologyResult === null) {
+    if (value.outcome === "preliminary-unsafe") throw new Error("Persisted topology review is corrupt.");
+  } else {
+    const result = requireCompleteTopologyResult(value.topologyResult);
+    if (result.sourceRevisionId !== value.sourceRevisionId || result.sourceAssemblyGroupId !== value.sourceAssemblyGroupId || result.idempotencyKey !== value.idempotencyKey || result.outcome !== value.outcome) throw new Error("Persisted topology review is corrupt.");
+  }
+  if (value.jobId !== row.job_id || value.sourceRevisionId !== row.source_revision_id || value.sourceAssemblyGroupId !== row.source_assembly_group_id || value.opportunityId !== row.opportunity_id || value.thermalConstructionSignature !== row.construction_signature || value.idempotencyKey !== row.idempotency_key) throw new Error("Persisted topology review is corrupt.");
   return value as JobTopologyReview;
+}
+
+function isAnswers(value: unknown): value is JobTopologyReview["answers"] {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && Object.values(value).every((answer) => typeof answer === "string" || typeof answer === "number" || typeof answer === "boolean" || answer === null);
 }
 
 function mapJobRow(row: JobRow): JobRecord {
