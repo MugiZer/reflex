@@ -1,7 +1,7 @@
 import type { CalculationInputEvidence } from "../evidence/calculationInputEvidenceTypes.js";
 import type { JsonValue } from "./topologyTypes.js";
 
-type AuthorityState = "ifc-derived" | "user-confirmed" | "missing";
+type AuthorityState = "ifc-derived" | "user-confirmed" | "validated-default" | "preliminary-estimate" | "conflicting" | "missing";
 export type Authored<T> = { value: T | null; authority: { state: AuthorityState; sourceRefs: string[]; reason?: string } };
 export type TopologyReviewAnswer = string | number | boolean | "i-dont-know" | null;
 type Layer = { id: string; material: Authored<string>; thicknessM: Authored<number> };
@@ -85,6 +85,8 @@ export function confirmIfcTopologyOpportunity(command: { opportunity: IfcTopolog
     }
     return { ...layer, material: { ...layer.material, value: resolution.value } };
   });
+  const unresolvedLayerAuthority = command.opportunity.layers.some((layer) => layer.material.authority.state === "missing" || layer.material.authority.state === "preliminary-estimate" || layer.material.authority.state === "conflicting");
+  if (unresolvedLayerAuthority) return { outcome: "blocked", missingKeys: ["layerMaterial"] };
   if (!memberMaterial.value || topologyLayers.some((layer) => layer.material.value === null)) return { outcome: "rejected", errorCode: "unsupported_material_vocabulary" };
   const depthM = command.opportunity.layers.reduce((total, layer) => total + (layer.thicknessM.value ?? 0), 0);
   if (!positive(depthM)) return { outcome: "rejected", errorCode: "invalid_confirmation" };
@@ -110,15 +112,27 @@ export function confirmIfcTopologyOpportunity(command: { opportunity: IfcTopolog
 
 function layersFrom(evidence: CalculationInputEvidence): Layer[] {
   const found = new Map<number, { id: string; material?: Authored<string>; thicknessM?: Authored<number> }>();
-  for (const input of evidence.fixedInputs) {
+  const materialValues = new Map<number, Set<string>>();
+  for (const input of [...evidence.fixedInputs, ...evidence.candidateInputs, ...evidence.missingInputs]) {
     if (!input.layer || (input.field !== "layer_material_name" && input.field !== "layer_thickness")) continue;
     const layer = found.get(input.layer.layerIndex) ?? { id: `layer-${input.layer.layerIndex}` };
     const sourceRefs = input.evidenceReferences.map((reference) => reference.evidencePath);
-    if (input.field === "layer_material_name" && typeof input.value === "string") layer.material = { value: input.value, authority: { state: "ifc-derived", sourceRefs } };
-    if (input.field === "layer_thickness" && typeof input.value === "number" && input.value > 0) layer.thicknessM = { value: input.value, authority: { state: "ifc-derived", sourceRefs } };
+    const state: AuthorityState = input.source === "missing" ? "missing" : input.source === "ifc_candidate" ? "preliminary-estimate" : "ifc-derived";
+    if (input.field === "layer_material_name") {
+      if (typeof input.value === "string") {
+        const values = materialValues.get(input.layer.layerIndex) ?? new Set<string>();
+        values.add(input.value.trim().toLowerCase());
+        materialValues.set(input.layer.layerIndex, values);
+      }
+      layer.material = { value: typeof input.value === "string" ? input.value : null, authority: { state, sourceRefs, ...(input.reason ? { reason: input.reason } : {}) } };
+    }
+    if (input.field === "layer_thickness") layer.thicknessM = { value: typeof input.value === "number" && input.value > 0 ? input.value : null, authority: { state, sourceRefs, ...(input.reason ? { reason: input.reason } : {}) } };
     found.set(input.layer.layerIndex, layer);
   }
-  return [...found.entries()].sort(([left], [right]) => left - right).flatMap(([, layer]) => layer.material && layer.thicknessM ? [{ id: layer.id, material: layer.material, thicknessM: layer.thicknessM }] : []);
+  return [...found.entries()].sort(([left], [right]) => left - right).flatMap(([index, layer]) => {
+    if (layer.material && (materialValues.get(index)?.size ?? 0) > 1) layer.material = { value: null, authority: { state: "conflicting", sourceRefs: [...(materialValues.get(index) ?? [])], reason: "Multiple material authorities disagree for this IFC layer." } };
+    return layer.material && layer.thicknessM ? [{ id: layer.id, material: layer.material, thicknessM: layer.thicknessM }] : [];
+  });
 }
 
 function signatureFor(evidence: CalculationInputEvidence, layers: readonly Layer[]): string {

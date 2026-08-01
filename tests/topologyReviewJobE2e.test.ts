@@ -13,12 +13,13 @@ const pythonExecutable = resolve(process.env.TOPOLOGY_WORKER_PYTHON ?? ".scratch
 describe("Ticket 03 real Job topology review", () => {
   it("crosses Job, HTTP, Python, SQLite restart, workspace, and report seams", async () => {
     const root = await mkdtemp(join(tmpdir(), "ticket-03-real-seam-"));
+    const observedDeadlines: string[] = [];
     const config = {
       databasePath: join(root, "data", "app.db"),
       storageRoot: join(root, "storage"),
       outputRoot: join(root, "outputs"),
       workerOverrides: { extractCalculationInputEvidence: async () => repeatingWallEvidence() },
-      topologyWorker: countedWorker(),
+      topologyWorker: countedWorker(observedDeadlines),
     };
     let app = createLocalhostApp(config);
     try {
@@ -40,19 +41,21 @@ describe("Ticket 03 real Job topology review", () => {
         sourceAssemblyGroupId: candidate.sourceAssemblyGroupIds[0],
         answers: { memberKind: "rectangle", memberMaterial: "softwood", memberWidthM: 0.045, repeatSpacingM: 0.6, continuousThroughLayers: true, exteriorBoundary: "external-wall", interiorBoundary: "internal" },
       });
+      const requestedDeadline = new Date(Date.now() + 30_000).toISOString();
       const blockedResponse = await fetch(`${baseUrl}/api/jobs/${created.jobId}/topology-reviews`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...JSON.parse(reviewBody), answers: { ...JSON.parse(reviewBody).answers, memberWidthM: "i-dont-know" } }),
       });
-      expect(await json<any>(blockedResponse)).toMatchObject({ outcome: "blocked", missingKeys: ["memberWidthM"], topologyResult: null });
+      expect(await json<any>(blockedResponse)).toMatchObject({ outcome: "blocked", missingKeys: ["memberWidthM"], decisiveNextInput: "memberWidthM", topologyResult: null });
       const reviewResponse = await fetch(`${baseUrl}/api/jobs/${created.jobId}/topology-reviews`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-topology-deadline-at": requestedDeadline },
         body: reviewBody,
       });
       expect(reviewResponse.status).toBe(202);
       const review = await json<any>(reviewResponse);
+      expect(observedDeadlines).toContain(requestedDeadline);
       expect(review).toMatchObject({ outcome: "preliminary-unsafe", jobId: created.jobId });
       expect(review.topologyResult.evidence.canonicalAnalysisGeometry.schemaVersion).toBe("canonical-analysis-geometry/v1");
 
@@ -109,11 +112,12 @@ describe("Ticket 03 real Job topology review", () => {
       await rm(root, { recursive: true, force: true });
     }
 
-    function countedWorker() {
+    function countedWorker(deadlines: string[] = []) {
       const worker = createProvenPythonTopologyWorker({ pythonExecutable });
       return {
         ...worker,
         async runJsonl(message: string, options: { deadlineAt: string; signal?: AbortSignal }) {
+          deadlines.push(options.deadlineAt);
           const marker = join(root, "worker-invocations.txt");
           let count = 0;
           try { count = Number(await readFile(marker, "utf8")); } catch { /* first invocation */ }
