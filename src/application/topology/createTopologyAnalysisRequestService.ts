@@ -55,6 +55,13 @@ export function createTopologyAnalysisRequestService(options: Options) {
       }
     },
     getByIdempotencyKey(idempotencyKey: string): TopologyResult | null { return outcomesByKey.get(idempotencyKey)?.result ?? null; },
+    async verifyPersistedResult(expected: TopologyResult): Promise<TopologyResult> {
+      const manifest = await options.artifactStore.readManifest(expected.artifactDirectory) as { semanticPayload?: unknown } | null;
+      if (!manifest || typeof manifest.semanticPayload !== "string") throw Object.assign(new Error("Persisted topology artifact manifest is incomplete and cannot be used."), { code: "artifact_integrity_failure" });
+      const persisted = await readPersistedOutcome(expected.artifactDirectory, manifest.semanticPayload, options.worker, options.artifactStore, manifest);
+      if (!persisted || canonicalTopologyJson(persisted as unknown as JsonValue) !== canonicalTopologyJson(expected as unknown as JsonValue)) throw Object.assign(new Error("Persisted topology result does not match its immutable Job review."), { code: "artifact_integrity_failure" });
+      return persisted;
+    },
   };
 
   async function submitFresh(command: SubmitTopologyAnalysisRequest, semanticPayload: string, idempotencyKey: string): Promise<TopologyResult> {

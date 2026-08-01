@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { createLocalhostApp } from "../src/app/http/httpServer.js";
 
 describe("topology review HTTP contract", () => {
-  it("returns an explicit client rejection for malformed review input instead of a blanket server failure", async () => {
+  it("returns an explicit not-found response before accepting input for an unknown Job", async () => {
     const root = join(tmpdir(), `topology-review-http-${Date.now()}`);
     const app = createLocalhostApp({
       databasePath: join(root, "data", "app.db"),
@@ -23,8 +23,8 @@ describe("topology review HTTP contract", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ answers: {} }),
       });
-      expect(response.status).toBe(422);
-      await expect(response.json()).resolves.toEqual(expect.objectContaining({ error: "opportunityId is required." }));
+      expect(response.status).toBe(404);
+      await expect(response.json()).resolves.toEqual(expect.objectContaining({ error: "Job not found." }));
     } finally {
       app.server.close();
       app.jobs.close();

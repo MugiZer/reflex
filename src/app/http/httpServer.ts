@@ -9,6 +9,8 @@ import type { ProcessIfcJobDeps } from "../../application/jobs/processIfcJob.js"
 import { submitJobReviewInputs } from "../../application/jobs/submitJobReviewInputs.js";
 import { submitJobTopologyReview } from "../../application/topology/submitJobTopologyReview.js";
 import { createTopologyAnalysisRequestService } from "../../application/topology/createTopologyAnalysisRequestService.js";
+import { refreshJobTopologyReport } from "../../application/topology/refreshJobTopologyReport.js";
+import { generateHtmlReport } from "../../application/reports/generateHtmlReport.js";
 import type { TopologyWorkerRuntime } from "../../domain/topology/topologyTypes.js";
 import { PROVEN_TOPOLOGY_BUNDLE, createProvenPythonTopologyWorker } from "../../infrastructure/topology/createProvenPythonTopologyWorker.js";
 import { LocalTopologyArtifactStore } from "../../infrastructure/topology/localTopologyArtifactStore.js";
@@ -82,6 +84,7 @@ export function createLocalhostApp(command: {
           res,
           jobs,
           createLocalJobWorkspaceEvidenceLoader(artifactStore),
+          topologyRequests,
           jobId,
           parseArchitectTarget(url.searchParams.get("targetU")),
         );
@@ -100,7 +103,14 @@ export function createLocalhostApp(command: {
       }
       if (req.method === "POST" && topologyReviewJobId) {
         try {
-          const result = await submitJobTopologyReview({ jobId: topologyReviewJobId, body: await readJson(req), jobs, evidence: createLocalTopologyReviewEvidenceLoader(artifactStore), requests: topologyRequests, bundle: PROVEN_TOPOLOGY_BUNDLE });
+          const topologyEvidence = createLocalTopologyReviewEvidenceLoader(artifactStore);
+          const result = await submitJobTopologyReview({ jobId: topologyReviewJobId, body: await readJson(req), jobs, evidence: topologyEvidence, requests: topologyRequests, bundle: PROVEN_TOPOLOGY_BUNDLE });
+          await refreshJobTopologyReport({
+            jobId: topologyReviewJobId,
+            jobs,
+            evidence: topologyEvidence,
+            writer: { write: (report) => generateHtmlReport({ artifactStore, outputRoot: command.outputRoot, jobId: report.jobId, fileHash: report.fileHash, revision: report.revision, calculationSnapshots: report.revision.calculationSnapshots, reportInventory: report.reportInventory, topologyResults: report.topologyResults }) },
+          });
           return json(res, 202, result);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -174,12 +184,14 @@ async function sendJob(
   res: ServerResponse,
   jobs: JobRepository,
   evidence: ReturnType<typeof createLocalJobWorkspaceEvidenceLoader>,
+  topologyIntegrity: ReturnType<typeof createTopologyAnalysisRequestService>,
   jobId: string,
   targetUValueWPerM2K: number | null,
 ): Promise<void> {
   const workspace = await getJobWorkspace({
     jobs,
     evidence,
+    topologyIntegrity,
     jobId,
     targetUValueWPerM2K,
   });
@@ -192,6 +204,7 @@ async function sendJob(
     architectActions: workspace.architectActions,
     materialLibrary: workspace.materialLibrary,
     thermalTreatmentCards: workspace.thermalTreatmentCards,
+    topologyOpportunities: workspace.topologyOpportunities,
     topologyReviews: workspace.topologyReviews,
     links: linksFor(workspace.job),
   });

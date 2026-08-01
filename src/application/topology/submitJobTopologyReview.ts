@@ -19,9 +19,14 @@ export async function submitJobTopologyReview(command: {
   requests: TopologyAnalysisRequestService;
   bundle: TopologyBundleIdentity;
 }): Promise<JobTopologyReview> {
-  const submission = parseSubmission(command.body);
   const job = command.jobs.getJob(command.jobId);
   if (!job) throw new Error("Job not found.");
+  const parsed = parseSubmission(command.body);
+  if (!parsed.ok) {
+    if (!parsed.submission) throw new Error(parsed.message);
+    return saveRejected(command, parsed.submission, "invalid_answer_shape");
+  }
+  const submission = parsed.submission;
   if (!job.activeRevisionId) return saveRejected(command, submission, "missing_active_revision");
   if (submission.sourceRevisionId !== job.activeRevisionId) return saveRejected(command, submission, "stale_source_revision");
   const loaded = await command.evidence.load(command.jobId, job.activeRevisionId);
@@ -75,12 +80,15 @@ function completeTopologyResult(value: unknown) {
   return requireCompleteTopologyResult(value);
 }
 
-function parseSubmission(body: unknown): { opportunityId: string; thermalConstructionSignature: string; sourceRevisionId: string; sourceAssemblyGroupId: string; answers: Record<string, TopologyReviewAnswer> } {
-  if (!isRecord(body)) throw new Error("Expected a topology review confirmation object.");
-  for (const key of ["opportunityId", "thermalConstructionSignature", "sourceRevisionId", "sourceAssemblyGroupId"]) if (typeof body[key] !== "string" || !body[key].trim()) throw new Error(`${key} is required.`);
-  if (!isRecord(body.answers)) throw new Error("answers must be an object of reviewer values.");
-  for (const value of Object.values(body.answers)) if (!(typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null)) throw new Error("Topology review answers must be strings, numbers, booleans, or null.");
-  return { opportunityId: body.opportunityId as string, thermalConstructionSignature: body.thermalConstructionSignature as string, sourceRevisionId: body.sourceRevisionId as string, sourceAssemblyGroupId: body.sourceAssemblyGroupId as string, answers: body.answers as Record<string, TopologyReviewAnswer> };
+type TopologyReviewSubmission = { opportunityId: string; thermalConstructionSignature: string; sourceRevisionId: string; sourceAssemblyGroupId: string; answers: Record<string, TopologyReviewAnswer> };
+function parseSubmission(body: unknown): { ok: true; submission: TopologyReviewSubmission } | { ok: false; submission: TopologyReviewSubmission | null; message: string } {
+  if (!isRecord(body)) return { ok: false, submission: null, message: "Expected a topology review confirmation object." };
+  for (const key of ["opportunityId", "thermalConstructionSignature", "sourceRevisionId", "sourceAssemblyGroupId"] as const) if (typeof body[key] !== "string" || !body[key].trim()) return { ok: false, submission: null, message: `${key} is required.` };
+  const identity = { opportunityId: body.opportunityId as string, thermalConstructionSignature: body.thermalConstructionSignature as string, sourceRevisionId: body.sourceRevisionId as string, sourceAssemblyGroupId: body.sourceAssemblyGroupId as string };
+  if (!isRecord(body.answers)) return { ok: false, submission: { ...identity, answers: {} }, message: "answers must be an object of reviewer values." };
+  const safeAnswers = Object.fromEntries(Object.entries(body.answers).filter(([, value]) => typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null)) as Record<string, TopologyReviewAnswer>;
+  if (Object.keys(safeAnswers).length !== Object.keys(body.answers).length) return { ok: false, submission: { ...identity, answers: safeAnswers }, message: "Topology review answers must be strings, numbers, booleans, or null." };
+  return { ok: true, submission: { ...identity, answers: safeAnswers } };
 }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function sha256(value: string): string { return createHash("sha256").update(value).digest("hex"); }

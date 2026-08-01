@@ -57,12 +57,17 @@ export function detectIfcTopologyOpportunities(command: { calculationInputEviden
 
 export function confirmIfcTopologyOpportunity(command: { opportunity: IfcTopologyOpportunity; answers: Record<string, TopologyReviewAnswer> }):
   | { outcome: "blocked"; missingKeys: string[] }
-  | { outcome: "rejected"; errorCode: "unsupported_member_kind" | "invalid_confirmation" }
+  | { outcome: "rejected"; errorCode: "unsupported_member_kind" | "unsupported_material_vocabulary" | "invalid_confirmation" }
   | { outcome: "ready"; recipe: JsonValue } {
+  const allowedKeys = new Set(questions().map((question) => question.key));
+  if (Object.keys(command.answers).some((key) => !allowedKeys.has(key as never))) return { outcome: "rejected", errorCode: "invalid_confirmation" };
   const missingKeys = questions().map((question) => question.key).filter((key) => command.answers[key] === undefined || command.answers[key] === null || command.answers[key] === "i-dont-know");
   if (missingKeys.length) return { outcome: "blocked", missingKeys };
   if (command.answers.memberKind !== "rectangle") return { outcome: "rejected", errorCode: "unsupported_member_kind" };
-  if (command.answers.continuousThroughLayers !== true || !positive(command.answers.memberWidthM) || !positive(command.answers.repeatSpacingM) || typeof command.answers.memberMaterial !== "string" || !command.answers.memberMaterial.trim()) return { outcome: "rejected", errorCode: "invalid_confirmation" };
+  if (command.answers.continuousThroughLayers !== true || !positive(command.answers.memberWidthM) || !positive(command.answers.repeatSpacingM) || command.answers.memberWidthM >= command.answers.repeatSpacingM || typeof command.answers.memberMaterial !== "string" || !command.answers.memberMaterial.trim() || command.answers.exteriorBoundary !== "external-wall" || command.answers.interiorBoundary !== "internal") return { outcome: "rejected", errorCode: "invalid_confirmation" };
+  const memberMaterial = topologyMaterialId(command.answers.memberMaterial);
+  const topologyLayers = command.opportunity.layers.map((layer) => ({ ...layer, material: { ...layer.material, value: topologyMaterialId(layer.material.value) } }));
+  if (!memberMaterial || topologyLayers.some((layer) => layer.material.value === null)) return { outcome: "rejected", errorCode: "unsupported_material_vocabulary" };
   const depthM = command.opportunity.layers.reduce((total, layer) => total + (layer.thicknessM.value ?? 0), 0);
   if (!positive(depthM)) return { outcome: "rejected", errorCode: "invalid_confirmation" };
   const confirmed = (value: string | number | boolean, key: string) => ({ value, authority: { state: "user-confirmed", sourceRefs: [`topology-review:${command.opportunity.opportunityId}:${key}`] } });
@@ -73,11 +78,11 @@ export function confirmIfcTopologyOpportunity(command: { opportunity: IfcTopolog
       topologyModule: { id: "repeating-parallel-profile-wall-2d", version: "1.0.0-draft" },
       periodicity: confirmed(command.answers.repeatSpacingM as number, "repeatSpacingM"),
       projectedArea: confirmed(command.answers.repeatSpacingM as number, "repeatSpacingM"),
-      layers: command.opportunity.layers.map((layer) => ({ id: layer.id, material: layer.material, thickness: layer.thicknessM })),
+      layers: topologyLayers.map((layer) => ({ id: layer.id, material: layer.material, thickness: layer.thicknessM })),
       rows: [{
         id: "confirmed-repeating-member",
         offsetX: confirmed(0, "offsetX"), originY: confirmed(0, "continuousThroughLayers"),
-        member: { placementMode: "continuous-parallel", primitive: { kind: "standard.rectangle", version: "1.0.0", parameters: { width: command.answers.memberWidthM as number, depth: depthM } }, material: confirmed(command.answers.memberMaterial.trim(), "memberMaterial") },
+        member: { placementMode: "continuous-parallel", primitive: { kind: "standard.rectangle", version: "1.0.0", parameters: { width: command.answers.memberWidthM as number, depth: depthM } }, material: confirmed(memberMaterial, "memberMaterial") },
       }],
       cavities: [], thermalBreaks: [],
       boundaries: { exterior: confirmed(command.answers.exteriorBoundary as string, "exteriorBoundary"), interior: confirmed(command.answers.interiorBoundary as string, "interiorBoundary"), left: "periodic", right: "periodic" },
@@ -115,4 +120,10 @@ function questions(): IfcTopologyOpportunity["card"]["criticalQuestions"] { retu
   { key: "interiorBoundary", label: "Interior boundary profile", whyItMatters: "Boundary conditions affect the thermal result." },
 ]; }
 function positive(value: unknown): value is number { return typeof value === "number" && Number.isFinite(value) && value > 0; }
+function topologyMaterialId(value: string | null): string | null {
+  if (value === null) return null;
+  const normalized = value.trim().toLowerCase().replace(/[_\s]+/g, "-");
+  const aliases: Record<string, string> = { "timber-stud": "softwood", "wood": "softwood", "mineral-wool": "mineral-wool", "gypsum": "gypsum", "gypsum-board": "gypsum", "sheathing": "sheathing", "softwood": "softwood", "galvanized-steel": "galvanized-steel" };
+  return aliases[normalized] ?? null;
+}
 function stableHash(value: string): string { let hash = 2166136261; for (let index = 0; index < value.length; index += 1) { hash ^= value.charCodeAt(index); hash = Math.imul(hash, 16777619); } return (hash >>> 0).toString(36); }
