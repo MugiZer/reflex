@@ -22,12 +22,12 @@ export async function submitJobTopologyReview(command: {
   const submission = parseSubmission(command.body);
   const job = command.jobs.getJob(command.jobId);
   if (!job) throw new Error("Job not found.");
-  if (!job.activeRevisionId) throw new Error("Topology review requires an active Revision.");
+  if (!job.activeRevisionId) return saveRejected(command, submission, "missing_active_revision");
   if (submission.sourceRevisionId !== job.activeRevisionId) return saveRejected(command, submission, "stale_source_revision");
   const loaded = await command.evidence.load(command.jobId, job.activeRevisionId);
   if (!loaded) return saveRejected(command, submission, "missing_review_evidence");
   const { calculationInputEvidence: evidence, activeRevision: revision } = loaded;
-  if (revision.revisionId !== job.activeRevisionId) return saveRejected(command, submission, "active_revision_identity_mismatch");
+  if (!revision || revision.revisionId !== job.activeRevisionId) return saveRejected(command, submission, "active_revision_identity_mismatch");
   const opportunity = detectIfcTopologyOpportunities({ calculationInputEvidence: evidence }).find((item) =>
     item.opportunityId === submission.opportunityId && item.thermalConstructionSignature === submission.thermalConstructionSignature,
   );
