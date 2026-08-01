@@ -125,6 +125,7 @@ function topologyReview(): JobTopologyReview {
     recipeHash: null,
     outcome: "failed",
     missingKeys: [],
+    decisiveNextInput: null,
     errorCode: "worker_failure",
     topologyResult: {
       requestId: "request_1",
