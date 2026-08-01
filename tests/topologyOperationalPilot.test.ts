@@ -25,5 +25,5 @@ describe("Topology operational pilot seam", () => {
 });
 
 function result(value: SubmitTopologyAnalysisRequest): TopologyResult {
-  return { requestId: "request_1", sourceRevisionId: value.sourceRevisionId, sourceAssemblyGroupId: value.sourceAssemblyGroupId, correlationId: value.correlationId, idempotencyKey: value.idempotencyKey, outcome: "preliminary-unsafe", bundle: value.bundle, layerOnlySnapshot: value.layerOnlySnapshot, effectiveUValueWPerM2K: 0.42, evidence: null, artifactDirectory: "artifacts/topology/request_1", errorCode: null, diagnostics: null };
+  return { requestId: "request_1", sourceRevisionId: value.sourceRevisionId, sourceAssemblyGroupId: value.sourceAssemblyGroupId, correlationId: value.correlationId, idempotencyKey: value.idempotencyKey, recipeHash: value.recipeHash, outcome: "preliminary-unsafe", bundle: value.bundle, layerOnlySnapshot: value.layerOnlySnapshot, effectiveUValueWPerM2K: 0.42, evidence: null, artifactDirectory: "artifacts/topology/request_1", errorCode: null, diagnostics: null };
 }

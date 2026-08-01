@@ -66,8 +66,26 @@ export function confirmIfcTopologyOpportunity(command: { opportunity: IfcTopolog
   if (command.answers.memberKind !== "rectangle") return { outcome: "rejected", errorCode: "unsupported_member_kind" };
   if (command.answers.continuousThroughLayers !== true || !positive(command.answers.memberWidthM) || !positive(command.answers.repeatSpacingM) || command.answers.memberWidthM >= command.answers.repeatSpacingM || typeof command.answers.memberMaterial !== "string" || !command.answers.memberMaterial.trim() || command.answers.exteriorBoundary !== "external-wall" || command.answers.interiorBoundary !== "internal") return { outcome: "rejected", errorCode: "invalid_confirmation" };
   const memberMaterial = topologyMaterialId(command.answers.memberMaterial);
-  const topologyLayers = command.opportunity.layers.map((layer) => ({ ...layer, material: { ...layer.material, value: topologyMaterialId(layer.material.value) } }));
-  if (!memberMaterial || topologyLayers.some((layer) => layer.material.value === null)) return { outcome: "rejected", errorCode: "unsupported_material_vocabulary" };
+  const topologyLayers = command.opportunity.layers.map((layer) => {
+    const resolution = topologyMaterialId(layer.material.value);
+    if (resolution.value === null) return { ...layer, material: { ...layer.material, value: null, authority: { ...layer.material.authority, reason: `Unsupported topology material vocabulary: ${layer.material.value ?? "(missing)"}.` } } };
+    if (resolution.wasAlias) {
+      return {
+        ...layer,
+        material: {
+          ...layer.material,
+          value: resolution.value,
+          authority: {
+            ...layer.material.authority,
+            sourceRefs: [...layer.material.authority.sourceRefs, `material-alias:${resolution.normalized}->${resolution.value}`],
+            reason: `Resolved exact registered material alias ${resolution.normalized} to ${resolution.value}.`,
+          },
+        },
+      };
+    }
+    return { ...layer, material: { ...layer.material, value: resolution.value } };
+  });
+  if (!memberMaterial.value || topologyLayers.some((layer) => layer.material.value === null)) return { outcome: "rejected", errorCode: "unsupported_material_vocabulary" };
   const depthM = command.opportunity.layers.reduce((total, layer) => total + (layer.thicknessM.value ?? 0), 0);
   if (!positive(depthM)) return { outcome: "rejected", errorCode: "invalid_confirmation" };
   const confirmed = (value: string | number | boolean, key: string) => ({ value, authority: { state: "user-confirmed", sourceRefs: [`topology-review:${command.opportunity.opportunityId}:${key}`] } });
@@ -82,7 +100,7 @@ export function confirmIfcTopologyOpportunity(command: { opportunity: IfcTopolog
       rows: [{
         id: "confirmed-repeating-member",
         offsetX: confirmed(0, "offsetX"), originY: confirmed(0, "continuousThroughLayers"),
-        member: { placementMode: "continuous-parallel", primitive: { kind: "standard.rectangle", version: "1.0.0", parameters: { width: command.answers.memberWidthM as number, depth: depthM } }, material: confirmed(memberMaterial, "memberMaterial") },
+        member: { placementMode: "continuous-parallel", primitive: { kind: "standard.rectangle", version: "1.0.0", parameters: { width: command.answers.memberWidthM as number, depth: depthM } }, material: confirmed(memberMaterial.value, "memberMaterial") },
       }],
       cavities: [], thermalBreaks: [],
       boundaries: { exterior: confirmed(command.answers.exteriorBoundary as string, "exteriorBoundary"), interior: confirmed(command.answers.interiorBoundary as string, "interiorBoundary"), left: "periodic", right: "periodic" },
@@ -120,10 +138,11 @@ function questions(): IfcTopologyOpportunity["card"]["criticalQuestions"] { retu
   { key: "interiorBoundary", label: "Interior boundary profile", whyItMatters: "Boundary conditions affect the thermal result." },
 ]; }
 function positive(value: unknown): value is number { return typeof value === "number" && Number.isFinite(value) && value > 0; }
-function topologyMaterialId(value: string | null): string | null {
-  if (value === null) return null;
+function topologyMaterialId(value: string | null): { value: string | null; normalized: string | null; wasAlias: boolean } {
+  if (value === null) return { value: null, normalized: null, wasAlias: false };
   const normalized = value.trim().toLowerCase().replace(/[_\s]+/g, "-");
-  const aliases: Record<string, string> = { "timber-stud": "softwood", "wood": "softwood", "mineral-wool": "mineral-wool", "gypsum": "gypsum", "gypsum-board": "gypsum", "sheathing": "sheathing", "softwood": "softwood", "galvanized-steel": "galvanized-steel" };
-  return aliases[normalized] ?? null;
+  const aliases: Record<string, string> = { "timber-stud": "softwood", "mineral-wool": "mineral-wool", "gypsum": "gypsum", "gypsum-board": "gypsum", "sheathing": "sheathing", "softwood": "softwood", "galvanized-steel": "galvanized-steel" };
+  const resolved = aliases[normalized] ?? null;
+  return { value: resolved, normalized, wasAlias: resolved !== null && resolved !== normalized };
 }
 function stableHash(value: string): string { let hash = 2166136261; for (let index = 0; index < value.length; index += 1) { hash ^= value.charCodeAt(index); hash = Math.imul(hash, 16777619); } return (hash >>> 0).toString(36); }

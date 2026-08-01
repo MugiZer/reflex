@@ -80,6 +80,8 @@ export type TopologyResult = {
   sourceAssemblyGroupId: string;
   correlationId: string;
   idempotencyKey: string;
+  /** Hash of the immutable Recipe used for this request, or null for no-request outcomes. */
+  recipeHash: string | null;
   outcome: TopologyAnalysisOutcome;
   bundle: TopologyBundleIdentity;
   layerOnlySnapshot: JsonValue;

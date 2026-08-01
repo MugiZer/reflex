@@ -16,6 +16,8 @@ export async function submitIfcTopologyConfirmation(command: {
   layerOnlySnapshot: JsonValue;
   bundle: TopologyBundleIdentity;
   requests: TopologyAnalysisRequestService;
+  deadlineAt?: string;
+  cancellationSignal?: AbortSignal;
 }) {
   const confirmation = confirmIfcTopologyOpportunity({ opportunity: command.opportunity, answers: command.answers });
   if (confirmation.outcome === "blocked") return { outcome: "blocked" as const, missingKeys: confirmation.missingKeys, layerOnlySnapshot: command.layerOnlySnapshot };
@@ -29,6 +31,8 @@ export async function submitIfcTopologyConfirmation(command: {
     recipeHash: createHash("sha256").update(canonicalTopologyJson(confirmation.recipe)).digest("hex"),
     bundle: command.bundle,
     layerOnlySnapshot: command.layerOnlySnapshot,
+    deadlineAt: command.deadlineAt,
+    cancellationSignal: command.cancellationSignal,
   });
   return { outcome: topologyRequest.outcome, topologyRequest, recipeHash: createHash("sha256").update(canonicalTopologyJson(confirmation.recipe)).digest("hex"), layerOnlySnapshot: command.layerOnlySnapshot };
 }

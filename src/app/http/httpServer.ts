@@ -102,9 +102,10 @@ export function createLocalhostApp(command: {
         return json(res, 200, { topologyReviews: jobs.listTopologyReviews(topologyReviewJobId) });
       }
       if (req.method === "POST" && topologyReviewJobId) {
+        const cancellation = requestCancellationSignal(req);
         try {
           const topologyEvidence = createLocalTopologyReviewEvidenceLoader(artifactStore);
-          const result = await submitJobTopologyReview({ jobId: topologyReviewJobId, body: await readJson(req), jobs, evidence: topologyEvidence, requests: topologyRequests, bundle: PROVEN_TOPOLOGY_BUNDLE });
+          const result = await submitJobTopologyReview({ jobId: topologyReviewJobId, body: await readJson(req), jobs, evidence: topologyEvidence, requests: topologyRequests, bundle: PROVEN_TOPOLOGY_BUNDLE, deadlineAt: parseTopologyDeadline(req), cancellationSignal: cancellation.signal });
           await refreshJobTopologyReport({
             jobId: topologyReviewJobId,
             jobs,
@@ -115,6 +116,8 @@ export function createLocalhostApp(command: {
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           return json(res, topologyReviewErrorStatus(message), { error: message });
+        } finally {
+          cancellation.dispose();
         }
       }
 
@@ -305,6 +308,22 @@ function linksFor(job: JobRecord): Record<string, string> {
 
 async function readJson(req: IncomingMessage): Promise<unknown> {
   return JSON.parse((await readBuffer(req)).toString("utf8"));
+}
+
+function parseTopologyDeadline(req: IncomingMessage): string | undefined {
+  const raw = req.headers["x-topology-deadline-at"];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (!value) return undefined;
+  const milliseconds = Date.parse(value);
+  return Number.isFinite(milliseconds) ? new Date(milliseconds).toISOString() : undefined;
+}
+
+function requestCancellationSignal(req: IncomingMessage): { signal: AbortSignal; dispose: () => void } {
+  const controller = new AbortController();
+  const onAborted = () => controller.abort();
+  if (req.aborted) controller.abort();
+  req.once("aborted", onAborted);
+  return { signal: controller.signal, dispose: () => req.off("aborted", onAborted) };
 }
 
 function matchPath(pathname: string, pattern: RegExp): string | null {

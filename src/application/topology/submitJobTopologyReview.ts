@@ -8,7 +8,7 @@ import { detectIfcTopologyOpportunities, type TopologyReviewAnswer } from "../..
 import type { JsonValue, TopologyBundleIdentity } from "../../domain/topology/topologyTypes.js";
 import { submitIfcTopologyConfirmation, type TopologyAnalysisRequestService } from "./submitIfcTopologyConfirmation.js";
 import type { TopologyReviewEvidenceLoader } from "./topologyReviewEvidence.js";
-import { requireCompleteTopologyResult } from "./createTopologyAnalysisRequestService.js";
+import { requireCompleteTopologyResult } from "../../domain/topology/topologyResultValidation.js";
 
 /** Loads immutable Job evidence, validates ownership, and persists optional topology enrichment. */
 export async function submitJobTopologyReview(command: {
@@ -18,6 +18,8 @@ export async function submitJobTopologyReview(command: {
   evidence: TopologyReviewEvidenceLoader;
   requests: TopologyAnalysisRequestService;
   bundle: TopologyBundleIdentity;
+  deadlineAt?: string;
+  cancellationSignal?: AbortSignal;
 }): Promise<JobTopologyReview> {
   const job = command.jobs.getJob(command.jobId);
   if (!job) throw new Error("Job not found.");
@@ -45,7 +47,7 @@ export async function submitJobTopologyReview(command: {
   const idempotencyKey = sha256(canonicalTopologyJson({ jobId: command.jobId, sourceRevisionId: job.activeRevisionId, sourceAssemblyGroupId: submission.sourceAssemblyGroupId, opportunityId: opportunity.opportunityId, signature: opportunity.thermalConstructionSignature, answers: submission.answers }));
   const existing = command.jobs.getTopologyReviewByIdempotencyKey(command.jobId, idempotencyKey);
   if (existing) return existing;
-  const response = await submitIfcTopologyConfirmation({ opportunity, answers: submission.answers, sourceRevisionId: job.activeRevisionId, sourceAssemblyGroupId: submission.sourceAssemblyGroupId, correlationId: randomUUID(), idempotencyKey, layerOnlySnapshot, bundle: command.bundle, requests: command.requests });
+  const response = await submitIfcTopologyConfirmation({ opportunity, answers: submission.answers, sourceRevisionId: job.activeRevisionId, sourceAssemblyGroupId: submission.sourceAssemblyGroupId, correlationId: randomUUID(), idempotencyKey, layerOnlySnapshot, bundle: command.bundle, requests: command.requests, deadlineAt: command.deadlineAt, cancellationSignal: command.cancellationSignal });
   const review: JobTopologyReview = response.outcome === "blocked"
     ? { topologyReviewId: `toprev_${randomUUID()}`, idempotencyKey, jobId: command.jobId, sourceRevisionId: job.activeRevisionId, sourceAssemblyGroupId: submission.sourceAssemblyGroupId, opportunity, opportunityId: opportunity.opportunityId, thermalConstructionSignature: opportunity.thermalConstructionSignature, answers: submission.answers, recipeHash: null, outcome: "blocked", missingKeys: (response as { missingKeys?: string[] }).missingKeys ?? [], errorCode: null, topologyResult: null, createdAt: new Date().toISOString() }
     : response.outcome === "rejected"

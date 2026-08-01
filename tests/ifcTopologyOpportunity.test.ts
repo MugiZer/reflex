@@ -34,16 +34,17 @@ describe("IFC topology opportunity review seam", () => {
     const [opportunity] = detectIfcTopologyOpportunities({ calculationInputEvidence: [wall()] });
     const submitted: unknown[] = [];
     const requests: TopologyAnalysisRequestService = { async submit(request) { submitted.push(request); return { outcome: "preliminary-unsafe", requestId: "top_1" }; } };
+    const cancellation = new AbortController();
 
     const result = await submitIfcTopologyConfirmation({
-      opportunity: opportunity!, sourceRevisionId: "rev_1", sourceAssemblyGroupId: "ag_1", correlationId: "cor_1", idempotencyKey: "topology-1", layerOnlySnapshot: { uValueWPerM2K: 0.31 }, bundle, requests,
+      opportunity: opportunity!, sourceRevisionId: "rev_1", sourceAssemblyGroupId: "ag_1", correlationId: "cor_1", idempotencyKey: "topology-1", layerOnlySnapshot: { uValueWPerM2K: 0.31 }, bundle, requests, deadlineAt: "2026-01-01T00:00:00.000Z", cancellationSignal: cancellation.signal,
       answers: { memberKind: "rectangle", memberMaterial: "softwood", memberWidthM: 0.045, repeatSpacingM: 0.6, continuousThroughLayers: true, exteriorBoundary: "external-wall", interiorBoundary: "internal" },
     });
 
     expect(result).toMatchObject({ outcome: "preliminary-unsafe", topologyRequest: { requestId: "top_1" } });
     expect(submitted).toHaveLength(1);
     const request = submitted[0] as { sourceRevisionId: string; sourceAssemblyGroupId: string; recipe: any };
-    expect(request).toMatchObject({ sourceRevisionId: "rev_1", sourceAssemblyGroupId: "ag_1" });
+    expect(request).toMatchObject({ sourceRevisionId: "rev_1", sourceAssemblyGroupId: "ag_1", deadlineAt: "2026-01-01T00:00:00.000Z", cancellationSignal: cancellation.signal });
     expect(request.recipe.rows[0]).toMatchObject({ member: { primitive: { kind: "standard.rectangle", parameters: { width: 0.045 } } } });
     expect(request.recipe.layers[0]).toMatchObject({ material: { value: "softwood", authority: { state: "ifc-derived" } } });
   });
@@ -56,5 +57,14 @@ describe("IFC topology opportunity review seam", () => {
       answers: { memberKind: "rectangle", memberMaterial: "softwood", memberWidthM: "i-dont-know", repeatSpacingM: 0.6, continuousThroughLayers: true, exteriorBoundary: "external-wall", interiorBoundary: "internal" },
     });
     expect(result).toEqual({ outcome: "blocked", missingKeys: ["memberWidthM"], layerOnlySnapshot: { uValueWPerM2K: 0.31 } });
+  });
+
+  it("does not silently treat ambiguous IFC material labels as registered topology materials", async () => {
+    const [opportunity] = detectIfcTopologyOpportunities({ calculationInputEvidence: [wall({ material: "wood stud" })] });
+    const result = confirmIfcTopologyOpportunity({
+      opportunity: opportunity!,
+      answers: { memberKind: "rectangle", memberMaterial: "softwood", memberWidthM: 0.045, repeatSpacingM: 0.6, continuousThroughLayers: true, exteriorBoundary: "external-wall", interiorBoundary: "internal" },
+    });
+    expect(result).toEqual({ outcome: "rejected", errorCode: "unsupported_material_vocabulary" });
   });
 });
