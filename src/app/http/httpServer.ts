@@ -12,6 +12,7 @@ import { createTopologyAnalysisRequestService } from "../../application/topology
 import type { TopologyWorkerRuntime } from "../../domain/topology/topologyTypes.js";
 import { PROVEN_TOPOLOGY_BUNDLE, createProvenPythonTopologyWorker } from "../../infrastructure/topology/createProvenPythonTopologyWorker.js";
 import { LocalTopologyArtifactStore } from "../../infrastructure/topology/localTopologyArtifactStore.js";
+import { createLocalTopologyReviewEvidenceLoader } from "../../infrastructure/topology/localTopologyReviewEvidenceLoader.js";
 import { submitThermalTreatmentConfirmation } from "../../application/thermal-treatment/submitThermalTreatmentConfirmation.js";
 import { continuousZGirtFamilyRegistry } from "../../domain/thermal-treatment/families/continuousZGirtFamily.js";
 import { OpenSource2dCalculationWorker } from "../../infrastructure/thermal-treatment/OpenSource2dCalculationWorker.js";
@@ -97,7 +98,7 @@ export function createLocalhostApp(command: {
         return json(res, 200, { topologyReviews: jobs.listTopologyReviews(topologyReviewJobId) });
       }
       if (req.method === "POST" && topologyReviewJobId) {
-        const result = await submitJobTopologyReview({ jobId: topologyReviewJobId, body: await readJson(req), jobs, artifactStore, requests: topologyRequests, bundle: PROVEN_TOPOLOGY_BUNDLE });
+        const result = await submitJobTopologyReview({ jobId: topologyReviewJobId, body: await readJson(req), jobs, evidence: createLocalTopologyReviewEvidenceLoader(artifactStore), requests: topologyRequests, bundle: PROVEN_TOPOLOGY_BUNDLE });
         return json(res, 202, result);
       }
 

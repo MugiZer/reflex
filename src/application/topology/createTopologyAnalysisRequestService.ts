@@ -9,6 +9,12 @@ const DEFAULT_WORKER_DEADLINE_MS = 120_000;
 const MAX_WORKER_OUTPUT_BYTES = 32 * 1024 * 1024;
 type WorkerFailure = { outcome: Extract<TopologyAnalysisOutcome, "blocked" | "rejected" | "failed" | "cancelled">; code: string; message: string; phase?: string; retryable?: boolean };
 
+/** Canonical boundary validator for persisted and application-consumed topology outcomes. */
+export function requireCompleteTopologyResult(value: unknown): TopologyResult {
+  if (!isTopologyResult(value)) throw new Error("Topology request seam returned an incomplete result.");
+  return value;
+}
+
 /** Coordinates the optional topology use case without owning persistence mechanics or layer-only state. */
 export function createTopologyAnalysisRequestService(options: Options) {
   const outcomesByKey = new Map<string, { semanticPayload: string; result: TopologyResult }>();
@@ -270,8 +276,9 @@ function evidenceMatchesRequest(evidence: TopologyEvidence, request: TopologyAna
 function isFiniteNumber(value: unknown): value is number { return typeof value === "number" && Number.isFinite(value); }
 function isSha256(value: string): boolean { return /^[a-f0-9]{64}$/.test(value); }
 function isTopologyResult(value: unknown): value is TopologyResult {
-  return isRecord(value) && typeof value.requestId === "string" && typeof value.sourceRevisionId === "string" && typeof value.sourceAssemblyGroupId === "string" && typeof value.correlationId === "string" && typeof value.idempotencyKey === "string" && typeof value.artifactDirectory === "string" && typeof value.outcome === "string" && (value.diagnostics === null || (isRecord(value.diagnostics) && typeof value.diagnostics.code === "string" && typeof value.diagnostics.message === "string")) && ((value.outcome === "preliminary-unsafe" && typeof value.effectiveUValueWPerM2K === "number" && isCompleteEvidence(value.evidence)) || (value.outcome !== "preliminary-unsafe" && value.effectiveUValueWPerM2K === null && value.evidence === null));
+  return isRecord(value) && typeof value.requestId === "string" && typeof value.sourceRevisionId === "string" && typeof value.sourceAssemblyGroupId === "string" && typeof value.correlationId === "string" && typeof value.idempotencyKey === "string" && typeof value.artifactDirectory === "string" && isTopologyOutcome(value.outcome) && (value.diagnostics === null || (isRecord(value.diagnostics) && typeof value.diagnostics.code === "string" && typeof value.diagnostics.message === "string")) && ((value.outcome === "preliminary-unsafe" && typeof value.effectiveUValueWPerM2K === "number" && isCompleteEvidence(value.evidence)) || (value.outcome !== "preliminary-unsafe" && value.effectiveUValueWPerM2K === null && value.evidence === null));
 }
+function isTopologyOutcome(value: unknown): value is TopologyAnalysisOutcome { return value === "not-requested" || value === "preliminary-unsafe" || value === "blocked" || value === "rejected" || value === "failed" || value === "cancelled"; }
 function safePathSegment(value: string): string { if (!SAFE_SEGMENT.test(value)) throw new Error("Topology idempotency key contains an unsafe artifact path segment."); return value; }
 function sha256(value: string): string { return createHash("sha256").update(value).digest("hex"); }
 const SAFE_SEGMENT = /^[A-Za-z0-9._-]+$/;

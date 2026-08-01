@@ -44,7 +44,7 @@ describe("IFC topology opportunity review seam", () => {
     expect(submitted).toHaveLength(1);
     const request = submitted[0] as { sourceRevisionId: string; sourceAssemblyGroupId: string; recipe: any };
     expect(request).toMatchObject({ sourceRevisionId: "rev_1", sourceAssemblyGroupId: "ag_1" });
-    expect(request.recipe.rows[0]).toMatchObject({ member: { primitive: { kind: "standard.rectangle", parameters: { width: { value: 0.045, authority: { state: "user-confirmed" } } } } } });
+    expect(request.recipe.rows[0]).toMatchObject({ member: { primitive: { kind: "standard.rectangle", parameters: { width: 0.045 } } } });
     expect(request.recipe.layers[0]).toMatchObject({ material: { value: "Timber stud", authority: { state: "ifc-derived" } } });
   });
 

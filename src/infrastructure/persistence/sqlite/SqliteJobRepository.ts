@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import type { ClosableJobRepository, JobUpdate } from "../../../domain/jobs/jobRepository.js";
-import type { JobRecord, JobReviewState, JobStatus, JobSummary } from "../../../domain/jobs/jobTypes.js";
+import type { JobRecord, JobReviewState, JobStatus, JobSummary, JobTopologyReview } from "../../../domain/jobs/jobTypes.js";
 
 type JobRow = {
   job_id: string;
@@ -24,6 +24,7 @@ export class SqliteJobRepository implements ClosableJobRepository {
   constructor(databasePath: string) {
     mkdirSync(dirname(databasePath), { recursive: true });
     this.db = new DatabaseSync(databasePath);
+    this.db.exec("pragma foreign_keys = on");
     this.db.exec(`
       create table if not exists jobs (
         job_id text primary key,
@@ -42,7 +43,21 @@ export class SqliteJobRepository implements ClosableJobRepository {
         requested_inputs_json text not null,
         foreign key(job_id) references jobs(job_id)
       );
+      create table if not exists job_topology_reviews (
+        topology_review_id text primary key,
+        job_id text not null,
+        source_revision_id text not null default '',
+        source_assembly_group_id text not null default '',
+        opportunity_id text not null default '',
+        construction_signature text not null default '',
+        idempotency_key text not null default '',
+        payload_json text not null,
+        created_at text not null,
+        foreign key(job_id) references jobs(job_id)
+      );
+      create index if not exists job_topology_reviews_by_job on job_topology_reviews(job_id, created_at);
     `);
+    this.ensureTopologyReviewColumns();
   }
 
   close(): void {
@@ -135,6 +150,40 @@ export class SqliteJobRepository implements ClosableJobRepository {
     const parsed = JSON.parse(row.requested_inputs_json) as JobReviewState["requestedInputs"] | JobReviewState;
     return Array.isArray(parsed) ? { jobId, requestedInputs: parsed } : parsed;
   }
+
+  saveTopologyReview(review: JobTopologyReview): void {
+    this.db.prepare("insert into job_topology_reviews (topology_review_id, job_id, source_revision_id, source_assembly_group_id, opportunity_id, construction_signature, idempotency_key, payload_json, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(review.topologyReviewId, review.jobId, review.sourceRevisionId, review.sourceAssemblyGroupId, review.opportunityId, review.thermalConstructionSignature, review.idempotencyKey, JSON.stringify(review), review.createdAt);
+  }
+
+  listTopologyReviews(jobId: string): JobTopologyReview[] {
+    const rows = this.db.prepare("select payload_json from job_topology_reviews where job_id = ? order by created_at asc").all(jobId) as { payload_json: string }[];
+    return rows.map((row) => parseTopologyReview(row.payload_json));
+  }
+
+  private ensureTopologyReviewColumns(): void {
+    const columns = new Set((this.db.prepare("pragma table_info(job_topology_reviews)").all() as Array<{ name: string }>).map((column) => column.name));
+    const required = [
+      ["source_revision_id", "text not null default ''"],
+      ["source_assembly_group_id", "text not null default ''"],
+      ["opportunity_id", "text not null default ''"],
+      ["construction_signature", "text not null default ''"],
+      ["idempotency_key", "text not null default ''"],
+    ] as const;
+    for (const [name, definition] of required) if (!columns.has(name)) this.db.exec(`alter table job_topology_reviews add column ${name} ${definition}`);
+    // Legacy rows receive an empty migration default; only real semantic keys are unique.
+    this.db.exec("create unique index if not exists job_topology_reviews_idempotency on job_topology_reviews(job_id, idempotency_key) where idempotency_key <> ''");
+  }
+
+  getTopologyReviewByIdempotencyKey(jobId: string, idempotencyKey: string): JobTopologyReview | null {
+    const row = this.db.prepare("select payload_json from job_topology_reviews where job_id = ? and idempotency_key = ?").get(jobId, idempotencyKey) as { payload_json: string } | undefined;
+    return row ? parseTopologyReview(row.payload_json) : null;
+  }
+}
+
+function parseTopologyReview(payload: string): JobTopologyReview {
+  const value = JSON.parse(payload) as Partial<JobTopologyReview>;
+  if (!value || typeof value.topologyReviewId !== "string" || typeof value.idempotencyKey !== "string" || typeof value.jobId !== "string" || typeof value.sourceRevisionId !== "string" || typeof value.sourceAssemblyGroupId !== "string" || typeof value.opportunityId !== "string" || typeof value.thermalConstructionSignature !== "string" || !Array.isArray(value.missingKeys) || !value.outcome) throw new Error("Persisted topology review is corrupt.");
+  return value as JobTopologyReview;
 }
 
 function mapJobRow(row: JobRow): JobRecord {

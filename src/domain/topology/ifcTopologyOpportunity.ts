@@ -77,10 +77,10 @@ export function confirmIfcTopologyOpportunity(command: { opportunity: IfcTopolog
       rows: [{
         id: "confirmed-repeating-member",
         offsetX: confirmed(0, "offsetX"), originY: confirmed(0, "continuousThroughLayers"),
-        member: { placementMode: "continuous-parallel", primitive: { kind: "standard.rectangle", version: "1.0.0", parameters: { width: confirmed(command.answers.memberWidthM as number, "memberWidthM"), depth: confirmed(depthM, "continuousThroughLayers") } }, material: confirmed(command.answers.memberMaterial.trim(), "memberMaterial") },
+        member: { placementMode: "continuous-parallel", primitive: { kind: "standard.rectangle", version: "1.0.0", parameters: { width: command.answers.memberWidthM as number, depth: depthM } }, material: confirmed(command.answers.memberMaterial.trim(), "memberMaterial") },
       }],
       cavities: [], thermalBreaks: [],
-      boundaries: { exterior: confirmed(command.answers.exteriorBoundary as string, "exteriorBoundary"), interior: confirmed(command.answers.interiorBoundary as string, "interiorBoundary"), left: confirmed("periodic", "periodicPair"), right: confirmed("periodic", "periodicPair") },
+      boundaries: { exterior: confirmed(command.answers.exteriorBoundary as string, "exteriorBoundary"), interior: confirmed(command.answers.interiorBoundary as string, "interiorBoundary"), left: "periodic", right: "periodic" },
     },
   };
 }
