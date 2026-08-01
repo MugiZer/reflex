@@ -124,7 +124,8 @@ function layersFrom(evidence: CalculationInputEvidence): Layer[] {
         values.add(input.value.trim().toLowerCase());
         materialValues.set(input.layer.layerIndex, values);
       }
-      layer.material = { value: typeof input.value === "string" ? input.value : null, authority: { state, sourceRefs, ...(input.reason ? { reason: input.reason } : {}) } };
+      const currentRank = layer.material ? authorityRank(layer.material.authority.state) : -1;
+      if (authorityRank(state) >= currentRank) layer.material = { value: typeof input.value === "string" ? input.value : null, authority: { state, sourceRefs, ...(input.reason ? { reason: input.reason } : {}) } };
     }
     if (input.field === "layer_thickness") layer.thicknessM = { value: typeof input.value === "number" && input.value > 0 ? input.value : null, authority: { state, sourceRefs, ...(input.reason ? { reason: input.reason } : {}) } };
     found.set(input.layer.layerIndex, layer);
@@ -134,6 +135,7 @@ function layersFrom(evidence: CalculationInputEvidence): Layer[] {
     return layer.material && layer.thicknessM ? [{ id: layer.id, material: layer.material, thicknessM: layer.thicknessM }] : [];
   });
 }
+function authorityRank(state: AuthorityState): number { return state === "ifc-derived" || state === "user-confirmed" || state === "validated-default" ? 2 : state === "preliminary-estimate" ? 1 : 0; }
 
 function signatureFor(evidence: CalculationInputEvidence, layers: readonly Layer[]): string {
   const inputs = [...evidence.fixedInputs, ...evidence.candidateInputs, ...evidence.missingInputs]
