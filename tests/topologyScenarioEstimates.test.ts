@@ -9,7 +9,7 @@ const baseRecipe = { schemaVersion: "1.0.0-draft", rows: [{ member: { primitive:
 
 describe("Topology scenario estimate seam", () => {
   it("uses only pack-compatible unknown ranges, persists every scenario, and returns tested extrema", async () => {
-    const pack = createComponentKnowledgeBase({ packId: "timber-wall", version: "1.0.0", supportedUnknowns: [{ key: "memberWidthM", values: [0.035, 0.06], label: "Member width" }], immaterialityGateWPerM2K: 0.03 });
+    const pack = createComponentKnowledgeBase({ packId: "timber-wall", version: "1.0.0", supportedUnknowns: [{ key: "memberWidthM", values: [0.035, 0.06], label: "Member width", binding: ["rows", 0, "member", "primitive", "parameters", "width", "value"] }], immaterialityGateWPerM2K: 0.03 });
     const plan = resolveTopologyScenarioPlan({ pack, recipe: baseRecipe, unknownKeys: ["memberWidthM"] });
     expect(plan).toMatchObject({ outcome: "ready", plan: { scenarios: [{ parameters: { memberWidthM: { authority: { state: "preliminary-estimate" } } } }, { parameters: { memberWidthM: { authority: { state: "preliminary-estimate" } } } }] } });
 
@@ -27,11 +27,18 @@ describe("Topology scenario estimate seam", () => {
   });
 
   it("refuses unsupported unknowns and never creates a screening value when a gate is not met", async () => {
-    const pack = createComponentKnowledgeBase({ packId: "timber-wall", version: "1.0.0", supportedUnknowns: [{ key: "memberWidthM", values: [0.035, 0.06], label: "Member width" }], immaterialityGateWPerM2K: 0.02 });
+    const pack = createComponentKnowledgeBase({ packId: "timber-wall", version: "1.0.0", supportedUnknowns: [{ key: "memberWidthM", values: [0.035, 0.06], label: "Member width", binding: ["rows", 0, "member", "primitive", "parameters", "width", "value"] }], immaterialityGateWPerM2K: 0.02 });
     expect(resolveTopologyScenarioPlan({ pack, recipe: baseRecipe, unknownKeys: ["repeatSpacingM"] })).toEqual({ outcome: "blocked", reason: "unsupported_unknown:repeatSpacingM" });
     const plan = resolveTopologyScenarioPlan({ pack, recipe: baseRecipe, unknownKeys: ["memberWidthM"] });
     const result = await runTopologyScenarioPlan({ plan: plan.outcome === "ready" ? plan.plan : fail("expected scenario plan"), sourceRevisionId: "rev_1", sourceAssemblyGroupId: "ag_1", correlationId: "00000000-0000-4000-8000-000000000002", idempotencyKey: hash("material"), layerOnlySnapshot: {}, bundle, projectThresholdUValueWPerM2K: 0.25, requests: { async submit(request) { return topologyResult(request, widthOf(request) === 0.035 ? 0.2 : 0.24); } } });
     expect(result).toMatchObject({ outcome: "preliminary-unsafe", conservativeScreeningValueWPerM2K: null, decisiveNextInput: { key: "memberWidthM" } });
+  });
+
+  it("uses declarative bindings only and rejects missing or incompatible targets", () => {
+    const pack = createComponentKnowledgeBase({ packId: "timber-wall", version: "1.0.0", supportedUnknowns: [{ key: "memberWidthM", values: [0.035, 0.06], label: "Member width", binding: ["rows", 0, "member", "primitive", "parameters", "width", "value"] }], immaterialityGateWPerM2K: 0.02 });
+    expect(resolveTopologyScenarioPlan({ pack, recipe: baseRecipe, unknownKeys: [] })).toMatchObject({ outcome: "ready", plan: { scenarios: [{ parameters: {} }] } });
+    const invalidPack = createComponentKnowledgeBase({ packId: "timber-wall", version: "1.0.0", supportedUnknowns: [{ key: "memberWidthM", values: [0.035, 0.06], label: "Member width", binding: ["rows", 2, "member", "primitive", "parameters", "width", "value"] }], immaterialityGateWPerM2K: 0.02 });
+    expect(resolveTopologyScenarioPlan({ pack: invalidPack, recipe: baseRecipe, unknownKeys: ["memberWidthM"] })).toEqual({ outcome: "rejected", reason: "invalid_binding:memberWidthM" });
   });
 });
 

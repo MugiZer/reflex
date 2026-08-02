@@ -4,7 +4,8 @@ import type { JsonValue } from "./topologyTypes.js";
 export type ComponentKnowledgeBase = {
   readonly packId: string;
   readonly version: string;
-  readonly supportedUnknowns: readonly { key: string; values: readonly number[]; label: string }[];
+  /** A binding names the exact existing Recipe scalar that a bounded value may replace. */
+  readonly supportedUnknowns: readonly { key: string; values: readonly number[]; label: string; binding: readonly (string | number)[] }[];
   readonly immaterialityGateWPerM2K: number;
 };
 
@@ -16,17 +17,18 @@ export type TopologyScenarioPlan = {
 /** Creates the narrow, versioned policy boundary for compatible preliminary scenarios. */
 export function createComponentKnowledgeBase(pack: ComponentKnowledgeBase): ComponentKnowledgeBase {
   if (!pack.packId || !/^\d+\./.test(pack.version) || !Number.isFinite(pack.immaterialityGateWPerM2K) || pack.immaterialityGateWPerM2K < 0) throw new Error("Component Knowledge Base identity and immateriality gate are invalid.");
-  if (!pack.supportedUnknowns.length || pack.supportedUnknowns.some((item) => !item.key || !item.label || item.values.length < 2 || item.values.some((value) => !Number.isFinite(value) || value <= 0))) throw new Error("Component Knowledge Base scenarios require credible bounded values.");
-  return Object.freeze({ ...pack, supportedUnknowns: pack.supportedUnknowns.map((item) => Object.freeze({ ...item, values: Object.freeze([...item.values]) })) });
+  if (pack.supportedUnknowns.some((item) => !item.key || !item.label || item.values.length < 2 || item.values.some((value) => !Number.isFinite(value) || value <= 0) || !validBinding(item.binding))) throw new Error("Component Knowledge Base scenarios require credible bounded values and declarative bindings.");
+  if (new Set(pack.supportedUnknowns.map((item) => item.key)).size !== pack.supportedUnknowns.length) throw new Error("Component Knowledge Base parameter keys must be unique.");
+  return Object.freeze({ ...pack, supportedUnknowns: pack.supportedUnknowns.map((item) => Object.freeze({ ...item, values: Object.freeze([...item.values]), binding: Object.freeze([...item.binding]) })) });
 }
 
 /** Resolves only explicitly pack-supported unknowns; all scenario values retain estimate authority and pack provenance. */
-export function resolveTopologyScenarioPlan(command: { pack: ComponentKnowledgeBase; recipe: JsonValue; unknownKeys: readonly string[] }): { outcome: "ready"; plan: TopologyScenarioPlan } | { outcome: "blocked"; reason: string } {
-  if (!command.unknownKeys.length) return { outcome: "blocked", reason: "no_supported_unknown" };
+export function resolveTopologyScenarioPlan(command: { pack: ComponentKnowledgeBase; recipe: JsonValue; unknownKeys: readonly string[] }): { outcome: "ready"; plan: TopologyScenarioPlan } | { outcome: "blocked" | "rejected"; reason: string } {
   const supported = new Map(command.pack.supportedUnknowns.map((item) => [item.key, item]));
   const unknown = [...new Set(command.unknownKeys)];
   const unsupported = unknown.find((key) => !supported.has(key));
   if (unsupported) return { outcome: "blocked", reason: `unsupported_unknown:${unsupported}` };
+  for (const key of unknown) if (!bindingTargetsFiniteNumber(command.recipe, supported.get(key)!.binding)) return { outcome: "rejected", reason: `invalid_binding:${key}` };
   const combinations = cartesian(unknown.map((key) => supported.get(key)!.values));
   return {
     outcome: "ready",
@@ -34,7 +36,7 @@ export function resolveTopologyScenarioPlan(command: { pack: ComponentKnowledgeB
       pack: { packId: command.pack.packId, version: command.pack.version, immaterialityGateWPerM2K: command.pack.immaterialityGateWPerM2K },
       scenarios: combinations.map((values, index) => {
         const parameters = Object.fromEntries(unknown.map((key, valueIndex) => [key, { value: values[valueIndex]!, authority: { state: "preliminary-estimate", sourceRefs: [`component-knowledge-base:${command.pack.packId}@${command.pack.version}:${key}`] } }])) as Record<string, JsonValue>;
-        return { scenarioId: `scenario-${index + 1}`, parameters, recipe: applyParameters(command.recipe, parameters) };
+        return { scenarioId: `scenario-${index + 1}`, parameters, recipe: applyParameters(command.recipe, parameters, supported) };
       }),
     },
   };
@@ -42,16 +44,35 @@ export function resolveTopologyScenarioPlan(command: { pack: ComponentKnowledgeB
 
 function cartesian(values: readonly (readonly number[])[]): number[][] { return values.reduce<number[][]>((all, next) => all.flatMap((prefix) => next.map((value) => [...prefix, value])), [[]]); }
 
-function applyParameters(recipe: JsonValue, parameters: Record<string, JsonValue>): JsonValue {
-  const copy = JSON.parse(canonicalTopologyJson(recipe)) as Record<string, any>;
-  if (!isRecord(copy) || !Array.isArray(copy.rows) || !isRecord(copy.rows[0]) || !isRecord(copy.rows[0].member) || !isRecord(copy.rows[0].member.primitive) || !isRecord(copy.rows[0].member.primitive.parameters)) throw new Error("A scenario-capable Recipe must contain the first member primitive parameters.");
-  const target = copy.rows[0].member.primitive.parameters;
+function applyParameters(recipe: JsonValue, parameters: Record<string, JsonValue>, supported: ReadonlyMap<string, ComponentKnowledgeBase["supportedUnknowns"][number]>): JsonValue {
+  const copy: unknown = JSON.parse(canonicalTopologyJson(recipe));
   for (const [key, value] of Object.entries(parameters)) {
-    const parameter = key === "memberWidthM" ? "width" : key === "repeatSpacingM" ? null : key;
-    if (parameter === null) copy.periodicity = value;
-    else target[parameter] = value;
+    const definition = supported.get(key);
+    const scalar = isRecord(value) ? value.value : undefined;
+    if (!definition || typeof scalar !== "number" || !Number.isFinite(scalar) || !setBindingValue(copy, definition.binding, scalar)) throw new Error(`Invalid Component Knowledge Base binding: ${key}`);
   }
-  return copy;
+  return copy as JsonValue;
 }
 
-function isRecord(value: JsonValue | Record<string, any>): value is Record<string, any> { return typeof value === "object" && value !== null && !Array.isArray(value); }
+function validBinding(binding: readonly (string | number)[]): boolean { return binding.length > 0 && binding.every((segment) => typeof segment === "string" ? segment.length > 0 : Number.isInteger(segment) && segment >= 0); }
+function bindingTargetsFiniteNumber(value: JsonValue, binding: readonly (string | number)[]): boolean {
+  let current: unknown = value;
+  for (const segment of binding) {
+    if (typeof segment === "number") { if (!Array.isArray(current)) return false; current = current[segment]; }
+    else { if (!isRecord(current)) return false; current = current[segment]; }
+  }
+  return typeof current === "number" && Number.isFinite(current);
+}
+function setBindingValue(value: unknown, binding: readonly (string | number)[], replacement: JsonValue): boolean {
+  let parent: unknown = value;
+  for (const segment of binding.slice(0, -1)) {
+    if (typeof segment === "number") { if (!Array.isArray(parent)) return false; parent = parent[segment]; }
+    else { if (!isRecord(parent)) return false; parent = parent[segment]; }
+  }
+  const final = binding.at(-1);
+  if (final === undefined || !bindingTargetsFiniteNumber(value as JsonValue, binding)) return false;
+  if (typeof final === "number") { if (!Array.isArray(parent)) return false; parent[final] = replacement; }
+  else { if (!isRecord(parent)) return false; parent[final] = replacement; }
+  return true;
+}
+function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
