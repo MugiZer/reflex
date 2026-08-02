@@ -1,0 +1,534 @@
+{
+  "schemaVersion": "durable-component-scenario-verifier/v1",
+  "startedAt": "2026-08-02T15:45:39.799Z",
+  "completedAt": "2026-08-02T15:48:42.200Z",
+  "durationMs": 182407,
+  "command": [
+    "C:\\Program Files\\nodejs\\node.exe",
+    "node_modules\\vitest\\vitest.mjs",
+    "run",
+    "tests/componentScenarioHttpE2e.test.ts",
+    "tests/componentOccurrenceHttp.test.ts",
+    "tests/componentPatternInterpreter.test.ts",
+    "tests/componentEvaluationAggregate.test.ts",
+    "tests/componentPatternPromotion.test.ts",
+    "tests/componentEvaluationSqlite.test.ts",
+    "--reporter=verbose"
+  ],
+  "workingDirectory": "C:\\dev\\conformity",
+  "exitStatus": 0,
+  "workerExecutable": ".scratch/component-topology-kernel/conformance-proof/.venv/Scripts/python.exe",
+  "counts": {
+    "selected": 13,
+    "passed": 13,
+    "failed": 0,
+    "unexecuted": 0
+  },
+  "cases": [
+    {
+      "caseId": "exact-known",
+      "name": "Exact known promoted match",
+      "testName": "known promoted match runs one durable Python scenario",
+      "status": "passed",
+      "evidence": {
+        "caseId": "exact-known",
+        "publicOutcome": "exact-known",
+        "stableDiagnostic": "not-applicable",
+        "recordIdentities": {
+          "recipeIds": [
+            "7f63e5f4f939e51d1d6c45741b06ce27d91317d5fe5278a118ed387f37b8481d"
+          ],
+          "requestIds": [
+            "3ddc7071f782a99cc756e5231247b9cfe5df335184066bbc8170ebc8bd693c72"
+          ],
+          "resultIds": [
+            "8826dcce4acec5b9ec730237c0a01c6765f49bb4ac9fadec23b5e73a22af8ba1"
+          ]
+        },
+        "workerInvocation": {
+          "executable": "C:\\dev\\conformity\\.scratch\\component-topology-kernel\\conformance-proof\\.venv\\Scripts\\python.exe",
+          "runtimeHashes": [
+            "b741ef6c97cec8a826ea89dc7d2c654d5b9a8b5d17eedb118d6acf4b4d8efbd6"
+          ]
+        },
+        "artifactHashes": [
+          "0544f4bf049667f2be71195ddd2d56eb99431e94ffd35d096536d77414d13499"
+        ],
+        "freshReloadOutcome": "equal",
+        "protectedStateHashes": "not-applicable",
+        "scenarioCount": 1,
+        "value": 0.9136190712232274,
+        "workerRuntimeHash": "b741ef6c97cec8a826ea89dc7d2c654d5b9a8b5d17eedb118d6acf4b4d8efbd6",
+        "reloaded": true,
+        "workerLaunched": true
+      }
+    },
+    {
+      "caseId": "bounded-unknown",
+      "name": "Supported bounded unknown with all three real scenarios",
+      "testName": "bounded unknown runs all three durable Python scenarios",
+      "status": "passed",
+      "evidence": {
+        "caseId": "bounded-unknown",
+        "publicOutcome": "bounded-unknown",
+        "stableDiagnostic": "not-applicable",
+        "recordIdentities": {
+          "recipeIds": [
+            "9ebae4086f55e090e980b4905672226b2e747fcd946e99a6109761325efa0b13",
+            "7f63e5f4f939e51d1d6c45741b06ce27d91317d5fe5278a118ed387f37b8481d",
+            "b87daeef2b2db957e2d9d9f5f5d7b44a831bd1c6824f0b9bdab1a59db17b5edd"
+          ],
+          "requestIds": [
+            "c3225e31ba9afe06014ea09c01a56f72db2cbed7a78d40b82d96ae6bbc96b98c",
+            "480242f13a684509e3aaafda1c69b777e5fd3a604a531d826aeacb8276ef5d66",
+            "a52c71ccb90bee59bd3c55dcca1bac12637194bfe3aab23d06324477ab3c17b9"
+          ],
+          "resultIds": [
+            "6be8e88eea5266845adb17e6b76f04fa466c3b91b31dcc8464f64737873edb05",
+            "53705177a538b765692d58947d74d0c1325dc0b2a91d07b78770f179d6f018bd",
+            "ef697ea9f0f26c2ac84f51cee4d1502151081f870e4dcf51912e9f9c553ef0f9"
+          ]
+        },
+        "workerInvocation": {
+          "executable": "C:\\dev\\conformity\\.scratch\\component-topology-kernel\\conformance-proof\\.venv\\Scripts\\python.exe",
+          "runtimeHashes": [
+            "b741ef6c97cec8a826ea89dc7d2c654d5b9a8b5d17eedb118d6acf4b4d8efbd6"
+          ]
+        },
+        "artifactHashes": [
+          "cd441c66f98adf21da1b06dcd9e8f324629e390c04932f389340a7cc5d6f584a",
+          "9f4963a36cdf4e2a353130e66af2d18ccaa56e2832e122ad8e859397c40b607a",
+          "7ec44c96b0128b850aca23017a54744c171e66b37023c1419c89511d115221f7"
+        ],
+        "freshReloadOutcome": "equal",
+        "protectedStateHashes": {
+          "ifcBefore": "68a4762fadc42730a4638a77de7794075cfd388bbb004b3563e8fab1008ed6f7",
+          "ifcAfter": "68a4762fadc42730a4638a77de7794075cfd388bbb004b3563e8fab1008ed6f7",
+          "layerBefore": "4a5d24e3cdc0a50ccf4bc23f318977d2f6231d22fc2ff24e8c34e68b5b0e33d3",
+          "layerAfter": "4a5d24e3cdc0a50ccf4bc23f318977d2f6231d22fc2ff24e8c34e68b5b0e33d3"
+        },
+        "scenarioCount": 3,
+        "values": [
+          0.8424804269783203,
+          0.9136190712232274,
+          0.9955419279501067
+        ],
+        "reloaded": true
+      }
+    },
+    {
+      "caseId": "conservative-range",
+      "name": "Conservative immaterial range below threshold",
+      "testName": "conservative immaterial screening is public and durable",
+      "status": "passed",
+      "evidence": {
+        "caseId": "conservative-range",
+        "publicOutcome": "conservative-range",
+        "stableDiagnostic": "not-applicable",
+        "recordIdentities": {
+          "recipeIds": [
+            "ec3a7e8de328ef86dc768f01d0cafe46e950f1468419c1b86c4e98cb7bfc744e",
+            "7f63e5f4f939e51d1d6c45741b06ce27d91317d5fe5278a118ed387f37b8481d",
+            "32b8543f2b42a88605e617bf0f1eb3d73eccb8e7c2907f1fae96295d449079e4"
+          ],
+          "requestIds": [
+            "2135fad4ec95c39b56341c5d9186db02bbbd6a69f6e540cea56aac1f6280f2cb",
+            "7b64a42259cfc142557807800b9cdcb39b5ce0cea4ca4529add42831de04a7f5",
+            "dc55a0d09c8e98939c15637e5e1e4ff6c989435858fa780625338750b65204bb"
+          ],
+          "resultIds": [
+            "e31dadf811c30ffadc5ff2a2042f31ae2fe7a2b0af9180bf4b4af228e538ef60",
+            "037417ce9f4477e06ce648c605dcb3624828fa531da3154785dd33acba3b2c2d",
+            "e36b9ffb900181df3b29f19ef97f0b6a9ebad4693c5798ace327d0b8e1dd6692"
+          ]
+        },
+        "workerInvocation": {
+          "executable": "C:\\dev\\conformity\\.scratch\\component-topology-kernel\\conformance-proof\\.venv\\Scripts\\python.exe",
+          "runtimeHashes": [
+            "b741ef6c97cec8a826ea89dc7d2c654d5b9a8b5d17eedb118d6acf4b4d8efbd6"
+          ]
+        },
+        "artifactHashes": [
+          "615509e723737adeac6e6408b35824e0dcbd301e770ce8a44186f0503dbd9a0a",
+          "c52ffea3fa7bc93bfe0ed690d797a230b4b561f56091547595f87400f9df2e8e",
+          "d21e6ac9396a57129245e6ad097e2bb1bab61b9735937f4983af6f4a46ef8d14"
+        ],
+        "freshReloadOutcome": "equal",
+        "protectedStateHashes": "not-applicable",
+        "values": [
+          0.9109808178444151,
+          0.9136190712232274,
+          0.9163107753412083
+        ],
+        "proposal": 0.9163107753412083,
+        "reloaded": true
+      }
+    },
+    {
+      "caseId": "material-range",
+      "name": "Material/crossing range with decisive next input",
+      "testName": "restart recomputes the same range from stored scenarios",
+      "status": "passed",
+      "evidence": {
+        "caseId": "material-range",
+        "publicOutcome": "material-range",
+        "stableDiagnostic": "not-applicable",
+        "recordIdentities": {
+          "recipeIds": [
+            "9ebae4086f55e090e980b4905672226b2e747fcd946e99a6109761325efa0b13",
+            "7f63e5f4f939e51d1d6c45741b06ce27d91317d5fe5278a118ed387f37b8481d",
+            "b87daeef2b2db957e2d9d9f5f5d7b44a831bd1c6824f0b9bdab1a59db17b5edd"
+          ],
+          "requestIds": [
+            "382acb7824d12f682eaa381dfe209f67c012c7d8b84039f437e77470c95700b9",
+            "b85cbcf929fd63d7de4c345211b12ba311d4576a0cdf28be3491f1a451eb9519",
+            "7d90eee5ea3bb292228d38c0d96386ae9096d5859d72408cc3027029d52bcbf2"
+          ],
+          "resultIds": [
+            "8c0f2340ee44333a7ea3c8a2d62ec4dd14066e87a320d95eb6003a7cecc66064",
+            "f21cc0799c9f35b2a010d7ccf0223585660bfb30aa9b953cbec37ddc79590af4",
+            "b3e2c1f621f95d8de76b21f427144b7371ad45a0b6510be04a24b18081eda2f6"
+          ]
+        },
+        "workerInvocation": {
+          "executable": "C:\\dev\\conformity\\.scratch\\component-topology-kernel\\conformance-proof\\.venv\\Scripts\\python.exe",
+          "runtimeHashes": [
+            "b741ef6c97cec8a826ea89dc7d2c654d5b9a8b5d17eedb118d6acf4b4d8efbd6"
+          ]
+        },
+        "artifactHashes": [
+          "01ce864e07dca0473f95d424b49d59f62798e1f94ac5983fbaa076e3a9ca0a40",
+          "bcf599d308569b706e11b591f439b401d13eee7a36cb57d3cf203ed21c470031",
+          "328021a50c91268b2626bd1c2046962e49b161eaab9d2ae1487ae3cba84e5b88"
+        ],
+        "freshReloadOutcome": "equal",
+        "protectedStateHashes": "not-applicable",
+        "min": 0.8424804269783203,
+        "max": 0.9955419279501067,
+        "decisiveNextInput": "memberWidthM",
+        "reloaded": true
+      }
+    },
+    {
+      "caseId": "blocked",
+      "name": "Blocked missing authority/input",
+      "testName": "blocked and rejected interpreter outcomes are public and durable",
+      "status": "passed",
+      "evidence": {
+        "caseId": "blocked",
+        "publicOutcome": "blocked",
+        "stableDiagnostic": [
+          "blocked"
+        ],
+        "recordIdentities": "not-applicable",
+        "workerInvocation": "not-applicable",
+        "artifactHashes": "not-applicable",
+        "freshReloadOutcome": "equal",
+        "protectedStateHashes": "not-applicable",
+        "outcome": "blocked",
+        "diagnostic": [
+          "blocked"
+        ],
+        "reloaded": true
+      }
+    },
+    {
+      "caseId": "rejected",
+      "name": "Rejected conflicting/out-of-range input or binding",
+      "testName": "blocked and rejected interpreter outcomes are public and durable",
+      "status": "passed",
+      "evidence": {
+        "caseId": "rejected",
+        "publicOutcome": "rejected",
+        "stableDiagnostic": [
+          "rejected"
+        ],
+        "recordIdentities": "not-applicable",
+        "workerInvocation": "not-applicable",
+        "artifactHashes": "not-applicable",
+        "freshReloadOutcome": "equal",
+        "protectedStateHashes": "not-applicable",
+        "outcome": "rejected",
+        "diagnostic": [
+          "rejected"
+        ],
+        "reloaded": true
+      }
+    },
+    {
+      "caseId": "unmatched",
+      "name": "Unmatched durable unresolved occurrence",
+      "testName": "localhost IFC review records unresolved evidence without solving",
+      "status": "passed",
+      "evidence": {
+        "caseId": "unmatched",
+        "publicOutcome": "unmatched",
+        "stableDiagnostic": [
+          "unmatched"
+        ],
+        "recordIdentities": {
+          "unresolvedGroupId": "67e1e8a54cc81c207903178d69fd4a8ace166bccd6bc88d47c4cedc71069b6b6"
+        },
+        "workerInvocation": "not-applicable",
+        "artifactHashes": "not-applicable",
+        "freshReloadOutcome": "equal",
+        "protectedStateHashes": "not-applicable",
+        "outcome": "unmatched",
+        "unresolvedGroupId": "67e1e8a54cc81c207903178d69fd4a8ace166bccd6bc88d47c4cedc71069b6b6",
+        "reloaded": true
+      }
+    },
+    {
+      "caseId": "ambiguous",
+      "name": "Ambiguous promoted candidates",
+      "testName": "ambiguous and non-promoted runtime outcomes are public and durable",
+      "status": "passed",
+      "evidence": {
+        "caseId": "ambiguous",
+        "publicOutcome": "ambiguous",
+        "stableDiagnostic": "not-applicable",
+        "recordIdentities": "not-applicable",
+        "workerInvocation": "not-applicable",
+        "artifactHashes": "not-applicable",
+        "freshReloadOutcome": "equal",
+        "protectedStateHashes": "not-applicable",
+        "outcome": "ambiguous",
+        "candidateCount": 2,
+        "reloaded": true
+      }
+    },
+    {
+      "caseId": "lifecycle",
+      "name": "Draft/candidate/rejected pattern ignored at runtime",
+      "testName": "ambiguous and non-promoted runtime outcomes are public and durable",
+      "status": "passed",
+      "evidence": {
+        "caseId": "lifecycle",
+        "publicOutcome": "lifecycle",
+        "stableDiagnostic": "not-applicable",
+        "recordIdentities": "not-applicable",
+        "workerInvocation": "not-applicable",
+        "artifactHashes": "not-applicable",
+        "freshReloadOutcome": "equal",
+        "protectedStateHashes": "not-applicable",
+        "configuredLifecycles": [
+          "draft",
+          "candidate",
+          "rejected"
+        ],
+        "runtimeMatched": false,
+        "lifecycleOutcomes": [
+          {
+            "lifecycle": "draft",
+            "outcome": "unmatched",
+            "reloaded": true
+          },
+          {
+            "lifecycle": "candidate",
+            "outcome": "unmatched",
+            "reloaded": true
+          },
+          {
+            "lifecycle": "rejected",
+            "outcome": "unmatched",
+            "reloaded": true
+          }
+        ],
+        "reloaded": true
+      }
+    },
+    {
+      "caseId": "mixed-terminal",
+      "name": "One scenario non-success with no aggregate range",
+      "testName": "one scenario non-success prevents a successful range",
+      "status": "passed",
+      "evidence": {
+        "caseId": "mixed-terminal",
+        "publicOutcome": "mixed-terminal",
+        "stableDiagnostic": "not-applicable",
+        "recordIdentities": {
+          "recipeIds": [
+            "c3f1ba1af5e939a41da8e701e7f646c79d31296b42675fa6e9f0e149350fed01",
+            "d28642b7f5b512563af4eb7404fcbfba908678922abc89a04372e33f1ae75985",
+            "6f5f01bc5b7ecd5b11abd76cf5ba550202a82443aa527033b7032cc0f177e378"
+          ],
+          "requestIds": [
+            "4958a5c69931205e616d3772d70df514ec1e10c0a59a6a24f014d00c2ffef8cc",
+            "c7f703d12bbfd845aeb66795663558543fad041379dc20b21d75ae4992d1aed4",
+            "cf48c07ca8f60cb1a0cae5b6d9243a52864bcf38512af03fde529a41dbc07252"
+          ],
+          "resultIds": [
+            "479bb9324e35aaa9b89e65c7d9e51097d0d9f25668fdbc0acec2e4e687bf2210",
+            "a214d0a5054691cf4d43a614d54cbca71077625b97307a3567cd07a63fb8067c",
+            "02f9b3351a447aed8fa6e197fe5950903739d7dd5181ce830737d11fbe55051e"
+          ]
+        },
+        "workerInvocation": {
+          "executable": "C:\\dev\\conformity\\.scratch\\component-topology-kernel\\conformance-proof\\.venv\\Scripts\\python.exe",
+          "runtimeHashes": [
+            "b741ef6c97cec8a826ea89dc7d2c654d5b9a8b5d17eedb118d6acf4b4d8efbd6"
+          ]
+        },
+        "artifactHashes": [
+          "0df3b1f84a2552555a22b5d4e009a981fb6906233724a204d9f5c489485d503a",
+          "c7b2266b914b70626ec609fee4e28cc128da1806dc7756e0ebeb7041f3c0721b",
+          "1c1e59f4e3ad9225e3d06d41db1d3f37a9d2447383c1119477bc35b95f067919"
+        ],
+        "freshReloadOutcome": "equal",
+        "protectedStateHashes": {
+          "ifcBefore": "fb4ae09147264cc01f60156a4386cad0f5470cf33bceeb9cbcfdaf4d85f7a196",
+          "ifcAfter": "fb4ae09147264cc01f60156a4386cad0f5470cf33bceeb9cbcfdaf4d85f7a196",
+          "layerBefore": "08eff8253c521bda1cdc6cd5bba19924e13ce411980e5cc9eaa1a9a110e96a30",
+          "layerAfter": "08eff8253c521bda1cdc6cd5bba19924e13ce411980e5cc9eaa1a9a110e96a30"
+        },
+        "outcomes": [
+          "preliminary-unsafe",
+          "preliminary-unsafe",
+          "rejected"
+        ],
+        "aggregateRange": false,
+        "reloaded": true
+      }
+    },
+    {
+      "caseId": "duplicates",
+      "name": "Sequential, restarted, retried, and truly simultaneous duplicate submission",
+      "testName": "simultaneous duplicate submission publishes one immutable evaluation",
+      "status": "passed",
+      "evidence": {
+        "caseId": "duplicates",
+        "publicOutcome": "duplicates",
+        "stableDiagnostic": "not-applicable",
+        "recordIdentities": {
+          "recipeIds": [
+            "9ebae4086f55e090e980b4905672226b2e747fcd946e99a6109761325efa0b13",
+            "7f63e5f4f939e51d1d6c45741b06ce27d91317d5fe5278a118ed387f37b8481d",
+            "b87daeef2b2db957e2d9d9f5f5d7b44a831bd1c6824f0b9bdab1a59db17b5edd"
+          ],
+          "requestIds": [
+            "817e9c187dd255715d569ae6537303b8d543a6cd51cf3e4c6ff7e996fcbf8ad3",
+            "14b763bd43773a9ad8aa22dc1484d13f7f64c393c1d88f1342005ac5e70aa3b8",
+            "8299685a13778e81a09f3342f4564bd51a235c01c1e0360d8ee24da394632e06"
+          ],
+          "resultIds": [
+            "7c42847592b547f737d0844482d65f96baba776b5646e9d8aab6569302d6ecf3",
+            "c067c1091a401f1aeac937a3ef20f3296c6ce7048ecb24eff3d6cce7e1ce6d4e",
+            "f2156b4c5ab040c610ff56bba46c93df457d289df6499b317e925a041053684a"
+          ]
+        },
+        "workerInvocation": {
+          "executable": "C:\\dev\\conformity\\.scratch\\component-topology-kernel\\conformance-proof\\.venv\\Scripts\\python.exe",
+          "runtimeHashes": [
+            "b741ef6c97cec8a826ea89dc7d2c654d5b9a8b5d17eedb118d6acf4b4d8efbd6"
+          ]
+        },
+        "artifactHashes": [
+          "dff90add619b583e2cab1728f3213cb24069eb0748c7c59d9f793ce00310f0e3",
+          "6b1c7e5bce77851f3a43059bd00f84a39ad77870dd66129c15a7e362a6faa9b6",
+          "f0eb8f3e30adc859a8d4901a13243aaecdac024d214c59735fd1f819f257332f"
+        ],
+        "freshReloadOutcome": "equal",
+        "protectedStateHashes": "not-applicable",
+        "scenarioCount": 3,
+        "evaluationCount": 1,
+        "simultaneous": true,
+        "restarted": true,
+        "retried": true,
+        "reloaded": true
+      }
+    },
+    {
+      "caseId": "replay",
+      "name": "Append-only historical replay",
+      "testName": "append-only historical replay crosses public HTTP and fresh reload",
+      "status": "passed",
+      "evidence": {
+        "caseId": "replay",
+        "publicOutcome": "replay",
+        "stableDiagnostic": "not-applicable",
+        "recordIdentities": {
+          "originalEvaluationId": "5bf8cba976f6caea20e361cbe479802f984f57575897d7b06436894e1ce06d94"
+        },
+        "workerInvocation": "not-applicable",
+        "artifactHashes": "not-applicable",
+        "freshReloadOutcome": "equal",
+        "protectedStateHashes": "not-applicable",
+        "originalEvaluationId": "5bf8cba976f6caea20e361cbe479802f984f57575897d7b06436894e1ce06d94",
+        "evaluationCount": 2,
+        "originalRetained": true,
+        "version": "2.0.0",
+        "reloaded": true
+      }
+    },
+    {
+      "caseId": "corruption",
+      "name": "Corrupted match, Recipe, result, and artifact fail-closed retrieval",
+      "testName": "report refuses altered or incomplete success evidence",
+      "status": "passed",
+      "evidence": {
+        "caseId": "corruption",
+        "publicOutcome": "corruption",
+        "stableDiagnostic": "not-applicable",
+        "recordIdentities": {
+          "recipeIds": [
+            "7f63e5f4f939e51d1d6c45741b06ce27d91317d5fe5278a118ed387f37b8481d"
+          ],
+          "requestIds": [
+            "ee4dc5158610a88bc5c178144cf53a5916f51a8e0c83663ceec905bb795fe17f"
+          ],
+          "resultIds": [
+            "241cf1b6e99ccfac2cde2dfcc42e465ac1dccf170a617004a3dd1ebf6c1adc71"
+          ]
+        },
+        "workerInvocation": {
+          "executable": "C:\\dev\\conformity\\.scratch\\component-topology-kernel\\conformance-proof\\.venv\\Scripts\\python.exe",
+          "runtimeHashes": [
+            "b741ef6c97cec8a826ea89dc7d2c654d5b9a8b5d17eedb118d6acf4b4d8efbd6"
+          ]
+        },
+        "artifactHashes": [
+          "1e30a34d3810148cfaccc9fdc83cd4e850bdb672dc7b20c1bdf7b1a979af5e00"
+        ],
+        "freshReloadOutcome": "fail-closed-after-persisted-corruption",
+        "protectedStateHashes": "not-applicable",
+        "mutations": [
+          "match",
+          "recipe",
+          "result",
+          "artifact"
+        ],
+        "failClosed": true,
+        "layerPreserved": true
+      }
+    }
+  ],
+  "sensitivity": {
+    "missingScenarioRejected": true,
+    "fabricatedValueRejected": true,
+    "candidateLifecycleRejected": true,
+    "nonSuccessRangeRejected": true,
+    "protectedMutationRejected": true,
+    "skippedRestartClassified": true,
+    "sequentialConcurrencyClassified": true,
+    "missingWorkerClassified": true
+  },
+  "protectedStateObservations": [
+    {
+      "caseId": "bounded-unknown",
+      "ifcBefore": "68a4762fadc42730a4638a77de7794075cfd388bbb004b3563e8fab1008ed6f7",
+      "ifcAfter": "68a4762fadc42730a4638a77de7794075cfd388bbb004b3563e8fab1008ed6f7",
+      "layerBefore": "4a5d24e3cdc0a50ccf4bc23f318977d2f6231d22fc2ff24e8c34e68b5b0e33d3",
+      "layerAfter": "4a5d24e3cdc0a50ccf4bc23f318977d2f6231d22fc2ff24e8c34e68b5b0e33d3"
+    },
+    {
+      "caseId": "mixed-terminal",
+      "ifcBefore": "fb4ae09147264cc01f60156a4386cad0f5470cf33bceeb9cbcfdaf4d85f7a196",
+      "ifcAfter": "fb4ae09147264cc01f60156a4386cad0f5470cf33bceeb9cbcfdaf4d85f7a196",
+      "layerBefore": "08eff8253c521bda1cdc6cd5bba19924e13ce411980e5cc9eaa1a9a110e96a30",
+      "layerAfter": "08eff8253c521bda1cdc6cd5bba19924e13ce411980e5cc9eaa1a9a110e96a30"
+    }
+  ],
+  "stdoutSha256": "f9a377d2994f1435a3b6d15fa9097d9747192abd7c2280e197da19c5f572697f",
+  "stderrSha256": "0a8c6dfd41e115de347d64d06dcde349bce43060f12a2266a58371b2a684727c",
+  "decision": "GO"
+}

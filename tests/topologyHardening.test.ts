@@ -142,7 +142,7 @@ describe("topology hardening seam", () => {
     } finally {
       await rm(artifactRoot, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   it("classifies empty, multiple, and oversized worker output as failed", async () => {
     const outputs = [

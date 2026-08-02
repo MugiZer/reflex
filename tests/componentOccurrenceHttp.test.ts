@@ -37,6 +37,7 @@ describe("component occurrence localhost recording", () => {
       expect(reloaded.componentEvaluations[0]).toMatchObject({ match: { outcome: "unmatched" }, aggregate: null, recipes: [], requests: [], results: [], unresolvedGroups: [{ evidenceSignature: expect.any(String) }] });
       const restarted = await restart();
       expect(restarted.job.componentEvaluations[0]).toEqual(reloaded.componentEvaluations[0]);
+      console.log("CASE_EVIDENCE "+JSON.stringify({caseId:"unmatched",publicOutcome:"unmatched",stableDiagnostic:reloaded.componentEvaluations[0].match.reasons,recordIdentities:{unresolvedGroupId:reloaded.componentEvaluations[0].unresolvedGroups[0].unresolvedGroupId},workerInvocation:"not-applicable",artifactHashes:"not-applicable",freshReloadOutcome:"equal",protectedStateHashes:"not-applicable",outcome:"unmatched",unresolvedGroupId:reloaded.componentEvaluations[0].unresolvedGroups[0].unresolvedGroupId,reloaded:true}));
     });
   });
 

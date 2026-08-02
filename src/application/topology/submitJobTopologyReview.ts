@@ -9,9 +9,10 @@ import type { JsonValue, TopologyBundleIdentity } from "../../domain/topology/to
 import { submitIfcTopologyConfirmation, type TopologyAnalysisRequestService } from "./submitIfcTopologyConfirmation.js";
 import type { TopologyReviewEvidenceLoader } from "./topologyReviewEvidence.js";
 import { requireCompleteTopologyResult } from "../../domain/topology/topologyResultValidation.js";
-import { interpretComponentPattern } from "../../domain/topology/componentPatternInterpreter.js";
+import { interpretComponentPattern, type ComponentPattern } from "../../domain/topology/componentPatternInterpreter.js";
 import { REPEATING_C_PROFILE_PATTERN } from "../../domain/topology/patterns/repeatingCProfilePattern.js";
-import type { ComponentEvaluationGraph } from "../../domain/topology/componentEvaluationRecords.js";
+import { resultArtifactIdentity, type ComponentEvaluationGraph } from "../../domain/topology/componentEvaluationRecords.js";
+import { deriveComponentEvaluationAggregate } from "../../domain/topology/componentEvaluationAggregate.js";
 
 /** Loads immutable Job evidence, validates ownership, and persists optional topology enrichment. */
 export async function submitJobTopologyReview(command: {
@@ -23,6 +24,8 @@ export async function submitJobTopologyReview(command: {
   bundle: TopologyBundleIdentity;
   deadlineAt?: string;
   cancellationSignal?: AbortSignal;
+  componentPatterns?: readonly ComponentPattern[];
+  screeningThresholdWPerM2K?: number | null;
 }): Promise<JobTopologyReview | ComponentEvaluationGraph> {
   const job = command.jobs.getJob(command.jobId);
   if (!job) throw new Error("Job not found.");
@@ -47,7 +50,7 @@ export async function submitJobTopologyReview(command: {
   const snapshot = revision.calculationSnapshots.find((item) => item.assemblyGroupId === submission.sourceAssemblyGroupId);
   if (!snapshot) return saveRejected(command, submission, "missing_layer_only_snapshot");
   const layerOnlySnapshot = JSON.parse(JSON.stringify(snapshot)) as JsonValue;
-  const component = recordComponentInterpretation({ command, job, submission, evidence, opportunity });
+  const component = recordComponentInterpretation({ command, job, submission, evidence, opportunity, revisionCreatedAt: revision.createdAt });
   if (component?.interpretation.outcome === "matched") return await executeComponentScenarios({ command, graph: component.graph, plan: bindIfcLayers(component.interpretation.plan, opportunity, layerOnlySnapshot), layerOnlySnapshot });
   const idempotencyKey = sha256(canonicalTopologyJson({ jobId: command.jobId, sourceRevisionId: job.activeRevisionId, sourceAssemblyGroupId: submission.sourceAssemblyGroupId, opportunityId: opportunity.opportunityId, signature: opportunity.thermalConstructionSignature, answers: submission.answers }));
   const existing = command.jobs.getTopologyReviewByIdempotencyKey(command.jobId, idempotencyKey);
@@ -68,9 +71,9 @@ export async function submitJobTopologyReview(command: {
   }
 }
 
-function recordComponentInterpretation(input: { command: Parameters<typeof submitJobTopologyReview>[0]; job: NonNullable<ReturnType<JobRepository["getJob"]>>; submission: TopologyReviewSubmission; evidence: readonly unknown[]; opportunity: ReturnType<typeof detectIfcTopologyOpportunities>[number] }): { graph: ComponentEvaluationGraph; interpretation: ReturnType<typeof interpretComponentPattern> } | null {
+function recordComponentInterpretation(input: { command: Parameters<typeof submitJobTopologyReview>[0]; job: NonNullable<ReturnType<JobRepository["getJob"]>>; submission: TopologyReviewSubmission; evidence: readonly unknown[]; opportunity: ReturnType<typeof detectIfcTopologyOpportunities>[number]; revisionCreatedAt: string }): { graph: ComponentEvaluationGraph; interpretation: ReturnType<typeof interpretComponentPattern> } | null {
   if (!input.command.jobs.appendComponentEvaluation) return null;
-  const at = new Date().toISOString();
+  const at = input.revisionCreatedAt;
   const evidencePayload = { fileHash: input.job.fileHash, calculationInputEvidence: input.evidence } as unknown as JsonValue;
   const evidenceSha256 = sha256(canonicalTopologyJson(evidencePayload));
   const occurrenceId = sha256(canonicalTopologyJson({ evidenceSha256, opportunityId: input.opportunity.opportunityId, elementStepIds: input.opportunity.affectedElementStepIds }));
@@ -78,8 +81,11 @@ function recordComponentInterpretation(input: { command: Parameters<typeof submi
   const annotationId = sha256(canonicalTopologyJson({ occurrenceId, annotationPayload, authority: "user-confirmed" }));
   const memberKind = typeof input.submission.answers.memberKind === "string" ? input.submission.answers.memberKind : "";
   const memberMaterial = typeof input.submission.answers.memberMaterial === "string" ? input.submission.answers.memberMaterial : "";
-  const interpretation = interpretComponentPattern({ evidence: { evidenceSignature: sha256(input.opportunity.thermalConstructionSignature), profileKind: memberKind, materialLabel: memberMaterial, values: { memberWidthM: input.submission.answers.memberWidthM as JsonValue | "i-dont-know" }, authoritativeKeys: [memberKind ? "profileKind" : "", memberMaterial ? "memberMaterial" : ""].filter(Boolean), conflictingKeys: [] }, patterns: [REPEATING_C_PROFILE_PATTERN] });
-  const selected = interpretation.outcome === "matched" ? REPEATING_C_PROFILE_PATTERN : null;
+  const patterns = input.command.componentPatterns ?? [REPEATING_C_PROFILE_PATTERN];
+  const authoritativeKeys = [memberKind && input.submission.answers.memberKindAuthority !== "missing" ? "profileKind" : "", memberMaterial && input.submission.answers.memberMaterialAuthority !== "missing" ? "memberMaterial" : ""].filter(Boolean);
+  const conflictingKeys = input.submission.answers.memberWidthConflict === true ? ["memberWidthM"] : [];
+  const interpretation = interpretComponentPattern({ evidence: { evidenceSignature: sha256(input.opportunity.thermalConstructionSignature), profileKind: memberKind, materialLabel: memberMaterial, values: { memberWidthM: input.submission.answers.memberWidthM as JsonValue | "i-dont-know" }, authoritativeKeys, conflictingKeys }, patterns });
+  const selected = interpretation.outcome === "matched" ? patterns.find((item) => item.patternId === interpretation.patternId && item.version === interpretation.patternVersion) ?? null : null;
   const matchOutcome = interpretation.outcome;
   const matchId = sha256(canonicalTopologyJson({ occurrenceId, annotationId, outcome: matchOutcome, patternId: selected?.patternId ?? null, patternVersion: selected?.version ?? null }));
   const evaluationId = sha256(canonicalTopologyJson({ occurrenceId, matchId, jobId: input.job.jobId, revisionId: input.job.activeRevisionId }));
@@ -128,15 +134,20 @@ async function executeComponentScenarios(input: { command: Parameters<typeof sub
     const recipe = recipes[index]!, request = requests[index]!;
     const outcome = await input.command.requests.submit({ sourceRevisionId: input.graph.sourceRevisionId, sourceAssemblyGroupId: input.graph.sourceAssemblyGroupId, correlationId: randomUUID(), idempotencyKey: request.idempotencyKey, recipe: recipe.canonicalRecipe, recipeHash: recipe.recipeSha256, bundle: input.command.bundle, layerOnlySnapshot: input.layerOnlySnapshot, deadlineAt: input.command.deadlineAt, cancellationSignal: input.command.cancellationSignal });
     const payload = outcome as unknown as JsonValue;
-    const artifactDescriptor: JsonValue = {
-      artifactDirectory: outcome.artifactDirectory ?? null,
-      evidence: (outcome.evidence ?? null) as JsonValue,
-    };
-    results.push({ scenarioResultId: sha256(canonicalTopologyJson({ scenarioRequestId: request.scenarioRequestId, requestId: outcome.requestId, outcome: outcome.outcome })), scenarioRequestId: request.scenarioRequestId, outcome: outcome.outcome, resultPayload: payload, artifactIdentity: outcome.artifactDirectory ? sha256(canonicalTopologyJson(artifactDescriptor)) : null, createdAt: at });
+    const durablePayload: JsonValue = { recipeHash: outcome.recipeHash ?? null, effectiveUValueWPerM2K: outcome.effectiveUValueWPerM2K ?? null, evidence: (outcome.evidence ?? null) as JsonValue, errorCode: outcome.errorCode ?? null };
+    const artifactContentSha256 = outcome.evidence ? sha256(canonicalTopologyJson(outcome.evidence.artifactIndex as unknown as JsonValue)) : sha256(canonicalTopologyJson(durablePayload));
+    const artifactIdentity = resultArtifactIdentity({ requestId: outcome.requestId, outcome: outcome.outcome, payload: durablePayload, artifactSha256: artifactContentSha256 });
+    results.push({ scenarioResultId: sha256(canonicalTopologyJson({ scenarioRequestId: request.scenarioRequestId, requestId: outcome.requestId, outcome: outcome.outcome })), scenarioRequestId: request.scenarioRequestId, outcome: outcome.outcome, resultPayload: payload, artifactIdentity, createdAt: at });
     input.command.jobs.appendComponentEvaluation({ ...planned, results: [...results] });
   }
   const completed: ComponentEvaluationGraph = { ...planned, results };
-  return completed;
+  if (!input.command.jobs.getComponentEvaluation) throw new Error("Component evaluation read repository is not composed.");
+  const persisted = input.command.jobs.getComponentEvaluation(completed.evaluation.evaluationId);
+  if (!persisted) throw new Error("Persisted component evaluation is unavailable for aggregation.");
+  const aggregate = deriveComponentEvaluationAggregate(persisted, { screeningThresholdWPerM2K: input.command.screeningThresholdWPerM2K ?? null, immaterialityGateWPerM2K: input.plan.pack.immaterialityGateWPerM2K });
+  const published: ComponentEvaluationGraph = { ...persisted, aggregate, state: "published" };
+  input.command.jobs.appendComponentEvaluation(published);
+  return published;
 }
 
 function saveRejected(command: { jobId: string; jobs: JobRepository }, submission: { opportunityId: string; thermalConstructionSignature: string; sourceRevisionId: string; sourceAssemblyGroupId: string; answers: Record<string, TopologyReviewAnswer> }, errorCode: string): JobTopologyReview {

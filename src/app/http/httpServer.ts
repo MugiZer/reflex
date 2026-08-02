@@ -12,6 +12,8 @@ import { createTopologyAnalysisRequestService } from "../../application/topology
 import { refreshJobTopologyReport } from "../../application/topology/refreshJobTopologyReport.js";
 import { generateHtmlReport } from "../../application/reports/generateHtmlReport.js";
 import type { TopologyWorkerRuntime } from "../../domain/topology/topologyTypes.js";
+import type { ComponentPattern } from "../../domain/topology/componentPatternInterpreter.js";
+import { ReplayComponentEvaluationError, replayJobComponentEvaluation } from "../../application/topology/replayJobComponentEvaluation.js";
 import { PROVEN_TOPOLOGY_BUNDLE, createProvenPythonTopologyWorker } from "../../infrastructure/topology/createProvenPythonTopologyWorker.js";
 import { LocalTopologyArtifactStore } from "../../infrastructure/topology/localTopologyArtifactStore.js";
 import { createLocalTopologyReviewEvidenceLoader } from "../../infrastructure/topology/localTopologyReviewEvidenceLoader.js";
@@ -43,6 +45,8 @@ export function createLocalhostApp(command: {
   workerOverrides?: Partial<Pick<ProcessIfcJobDeps, "extractCalculationInputEvidence">>;
   topologyWorker?: TopologyWorkerRuntime;
   topologyRequests?: ReturnType<typeof createTopologyAnalysisRequestService>;
+  componentPatterns?: readonly ComponentPattern[];
+  componentScreeningThresholdWPerM2K?: number | null;
 }): LocalhostApp {
   const jobs = new SqliteJobRepository(command.databasePath);
   const storage = new LocalJobFileStorage(command.storageRoot);
@@ -101,11 +105,17 @@ export function createLocalhostApp(command: {
         if (!jobs.getJob(topologyReviewJobId)) return json(res, 404, { error: "Job not found" });
         return json(res, 200, { topologyReviews: jobs.listTopologyReviews(topologyReviewJobId) });
       }
+      const replayJobId = matchPath(url.pathname, /^\/api\/jobs\/([^/]+)\/component-evaluations\/replay$/);
+      if (req.method === "POST" && replayJobId) {
+        const body = await readJson(req);
+        if (!isRecord(body) || typeof body.evaluationId !== "string" || typeof body.patternId !== "string" || typeof body.patternVersion !== "string") return json(res,400,{error:"evaluationId, patternId, and patternVersion are required."});
+        try{return json(res,202,replayJobComponentEvaluation({jobId:replayJobId,evaluationId:body.evaluationId,patternId:body.patternId,patternVersion:body.patternVersion,jobs,patterns:command.componentPatterns??[]}));}catch(error){const status=error instanceof ReplayComponentEvaluationError&&error.code==="component_evaluation_not_found"?404:422;return json(res,status,{error:error instanceof Error?error.message:String(error)});}
+      }
       if (req.method === "POST" && topologyReviewJobId) {
         const cancellation = requestCancellationSignal(req);
         try {
           const topologyEvidence = createLocalTopologyReviewEvidenceLoader(artifactStore);
-          const result = await submitJobTopologyReview({ jobId: topologyReviewJobId, body: await readJson(req), jobs, evidence: topologyEvidence, requests: topologyRequests, bundle: PROVEN_TOPOLOGY_BUNDLE, deadlineAt: parseTopologyDeadline(req), cancellationSignal: cancellation.signal });
+          const result = await submitJobTopologyReview({ jobId: topologyReviewJobId, body: await readJson(req), jobs, evidence: topologyEvidence, requests: topologyRequests, bundle: PROVEN_TOPOLOGY_BUNDLE, deadlineAt: parseTopologyDeadline(req), cancellationSignal: cancellation.signal, componentPatterns: command.componentPatterns, screeningThresholdWPerM2K: command.componentScreeningThresholdWPerM2K });
           await refreshJobTopologyReport({
             jobId: topologyReviewJobId,
             jobs,
@@ -141,7 +151,7 @@ export function createLocalhostApp(command: {
 
       const reportJobId = matchPath(url.pathname, /^\/api\/jobs\/([^/]+)\/report$/);
       if (req.method === "GET" && reportJobId) {
-        return await sendReport(res, jobs, reportJobId);
+        return await sendReport(res, jobs, topologyRequests, reportJobId);
       }
 
       const ifcJobId = matchPath(url.pathname, /^\/api\/jobs\/([^/]+)\/ifc$/);
@@ -201,6 +211,7 @@ async function sendJob(
   if (!workspace) {
     return json(res, 404, { error: "Job not found" });
   }
+  const componentProjection = await safeComponentEvaluations(jobs, topologyIntegrity, jobId);
   return json(res, 200, {
     ...workspace.job,
     review: workspace.review,
@@ -209,7 +220,8 @@ async function sendJob(
     thermalTreatmentCards: workspace.thermalTreatmentCards,
     topologyOpportunities: workspace.topologyOpportunities,
     topologyReviews: workspace.topologyReviews,
-    componentEvaluations: jobs.listComponentEvaluations?.(jobId) ?? [],
+    componentEvaluations: componentProjection.evaluations,
+    componentEvaluationDiagnostic: componentProjection.diagnostic,
     links: linksFor(workspace.job),
   });
 }
@@ -225,6 +237,7 @@ function parseArchitectTarget(value: string | null): number | null {
 async function sendReport(
   res: ServerResponse,
   jobs: JobRepository,
+  topologyIntegrity: ReturnType<typeof createTopologyAnalysisRequestService>,
   jobId: string,
 ): Promise<void> {
   const job = jobs.getJob(jobId);
@@ -234,8 +247,38 @@ async function sendReport(
   if (!job.reportPath) {
     return json(res, 404, { error: "Report has not been generated." });
   }
-  return html(res, 200, await readFile(job.reportPath, "utf8"));
+  const stored = await readFile(job.reportPath, "utf8");
+  const projection = await safeComponentEvaluations(jobs, topologyIntegrity, jobId);
+  const componentSection = projection.diagnostic
+    ? `<section class="material-values topology-result"><h3>Component topology result unavailable</h3><p>${escapeHtml(projection.diagnostic)}</p></section>`
+    : projection.evaluations.map(renderComponentEvaluation).join("");
+  return html(res, 200, stored.replace("</main>", componentSection + "</main>"));
 }
+
+async function safeComponentEvaluations(jobs: JobRepository, integrity: ReturnType<typeof createTopologyAnalysisRequestService>, jobId: string): Promise<{ evaluations: readonly import("../../domain/topology/componentEvaluationRecords.js").ComponentEvaluationGraph[]; diagnostic: string | null }> {
+  try {
+    const evaluations = jobs.listComponentEvaluations?.(jobId) ?? [];
+    for (const graph of evaluations) for (const result of graph.results) if (result.outcome === "preliminary-unsafe") await integrity.verifyPersistedResult(result.resultPayload as unknown as import("../../domain/topology/topologyTypes.js").TopologyResult);
+    return { evaluations, diagnostic: null };
+  } catch { return { evaluations: [], diagnostic: "Persisted component evaluation evidence failed integrity validation; no topology value is available." }; }
+}
+
+function renderComponentEvaluation(graph: import("../../domain/topology/componentEvaluationRecords.js").ComponentEvaluationGraph): string {
+  if (!graph.aggregate) return "";
+  const payload = graph.aggregate.payload as Record<string, unknown>;
+  const range = typeof payload.minUValueWPerM2K === "number" && typeof payload.maxUValueWPerM2K === "number" ? `${payload.minUValueWPerM2K.toFixed(3)}–${payload.maxUValueWPerM2K.toFixed(3)} W/m2K` : "No topology range";
+  const lineage = graph.requests.map((request) => {
+    const recipe = graph.recipes.find((item) => item.recipeId === request.recipeId)!;
+    const result = graph.results.find((item) => item.scenarioRequestId === request.scenarioRequestId)!;
+    const resultPayload = result.resultPayload as Record<string, unknown>;
+    const bundle = resultPayload.bundle as Record<string, unknown> | undefined;
+    return `<li>Recipe ${escapeHtml(recipe.recipeId)} · request ${escapeHtml(request.scenarioRequestId)} · result ${escapeHtml(result.scenarioResultId)} · artifact ${escapeHtml(result.artifactIdentity ?? "none")} · worker bundle ${escapeHtml(String(bundle?.moduleId ?? "unknown"))}/${escapeHtml(String(bundle?.moduleVersion ?? "unknown"))} registry ${escapeHtml(String(bundle?.registryHash ?? "unknown"))} pack ${escapeHtml(String(bundle?.packHash ?? "unknown"))} runtime ${escapeHtml(String(bundle?.runtimeHash ?? "unknown"))}</li>`;
+  }).join("");
+  return `<section class="material-values topology-result"><div class="section-title"><div><span class="eyebrow">Component topology evaluation</span><h3>Preliminary — not verified</h3></div></div><p><b>Outcome:</b> ${escapeHtml(graph.aggregate.outcome)} · <b>Range:</b> ${escapeHtml(range)}</p><p><b>Evaluation:</b> ${escapeHtml(graph.evaluation.evaluationId)} · <b>Aggregate:</b> ${escapeHtml(graph.aggregate.aggregateId)}</p><ul>${lineage}</ul></section>`;
+}
+
+function escapeHtml(value: string): string { return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;"); }
+function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 
 async function sendIfc(
   res: ServerResponse,

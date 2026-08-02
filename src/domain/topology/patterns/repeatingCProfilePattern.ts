@@ -5,6 +5,7 @@ export const REPEATING_C_PROFILE_PATTERN: ComponentPattern = Object.freeze({
   patternId: "repeating-metal-c-profile",
   version: "1.0.0",
   lifecycle: "promoted",
+  promotedAt: "2026-08-02T00:00:00.000Z",
   recognition: { profileKinds: ["c"], materialTokens: ["steel", "metal", "montant métallique"] },
   requiredAuthorities: ["profileKind", "memberMaterial"],
   permittedUnknowns: [{ key: "memberWidthM", values: [0.041, 0.075, 0.1], label: "Member width", binding: ["rows", 0, "member", "primitive", "parameters", "depth"] }],

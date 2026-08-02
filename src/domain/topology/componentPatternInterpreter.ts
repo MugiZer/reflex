@@ -7,6 +7,7 @@ export type ComponentPattern = Readonly<{
   patternId: string;
   version: string;
   lifecycle: "draft" | "candidate" | "promoted" | "rejected";
+  promotedAt?: string;
   recognition: Readonly<{ profileKinds: readonly string[]; materialTokens: readonly string[] }>;
   requiredAuthorities: readonly string[];
   permittedUnknowns: readonly { key: string; values: readonly number[]; label: string; binding: readonly (string | number)[] }[];

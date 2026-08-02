@@ -239,7 +239,7 @@ Compose promoted matches into the existing pinned request service. A known compl
 - [x] The supported-unknown E2E is behavioral red before production composition changes and green afterward.
 - [x] All three scenarios cross HTTP → application → SQLite → pinned Python worker → artifacts → SQLite.
 - [x] A fake request service or in-memory repository cannot make this gate pass.
-- [ ] Changes 1–5 and the Gate 5 public test form the minimum first commit.
+- [x] Changes 1–5 and the Gate 5 public test form the minimum first commit (`efb2008`).
 
 ## Change 6 — Persist and project the honest aggregate
 
@@ -266,9 +266,9 @@ Derive exact/range/conservative/material-uncertainty outcomes only from complete
 
 ### Gate 6
 
-- [ ] The report never derives topology numbers from caller input or `JobTopologyReview` alone.
-- [ ] Every displayed number links to persisted Recipe, request, result, worker, bundle, and artifact identities.
-- [ ] Layer-only output remains byte-identical for every outcome.
+- [x] The report never derives topology numbers from caller input or `JobTopologyReview` alone.
+- [x] Every displayed number links to persisted Recipe, request, result, worker, bundle, and artifact identities.
+- [x] Layer-only output remains byte-identical for every outcome.
 
 ## Change 7 — Gate promotion with frozen datasets and append-only replay
 
@@ -290,9 +290,9 @@ Make pattern promotion depend on independently reviewed development, negative, v
 
 ### Gate 7
 
-- [ ] Promotion decision has independently reviewable metrics and zero unsafe false positives in the safety set.
-- [ ] Draft/candidate/rejected versions never match at runtime.
-- [ ] Historical replay is append-only and idempotent under retry/concurrency.
+- [x] Promotion decision has independently reviewable metrics and zero unsafe false positives in the safety set.
+- [x] Draft/candidate/rejected versions never match at runtime.
+- [x] Historical replay is append-only and idempotent under retry/concurrency.
 
 ## Change 8 — Replace the false green with one authoritative verifier
 
@@ -329,9 +329,9 @@ For every case, capture public outcome, stable diagnostic, relevant record ident
 
 ### Gate 8
 
-- [ ] The focused verifier reports selected/passed/failed/unexecuted counts and exits normally.
-- [ ] Every acceptance claim reaches its required public/durable depth.
-- [ ] `audit-proof-gaps` returns GO for the bounded-unknown tracer and then for the complete outcome matrix.
+- [x] The focused verifier reports selected/passed/failed/unexecuted counts and exits normally.
+- [x] Every acceptance claim reaches its required public/durable depth.
+- [x] `audit-proof-gaps` returns GO for the bounded-unknown tracer and then for the complete outcome matrix.
 
 ## Change 9 — Produce the evidence-backed completion artifact
 
@@ -349,14 +349,14 @@ The structural validator is supporting evidence only. Final readiness still requ
 
 ### Gate 9 — Completion
 
-- [ ] Focused evaluator/verifier passes with a normal exit.
-- [ ] Ticket 02, Ticket 03, and Ticket 06 verifiers pass with normal exits.
-- [ ] `npm test` passes; any timeout is reported as unexecuted scope, never green.
-- [ ] `npm run typecheck` passes.
-- [ ] `graphify update .` completes after code changes.
-- [ ] `audit-proof-gaps` returns GO at the required P5 durable lifecycle and P6 independent-oracle depths.
-- [ ] `code-review` finds no unresolved P0/P1 issues and both Standards and Spec axes approve the fixed-point diff.
-- [ ] The completion report records exact commands, counts, exits, durations, identities, hashes, unresolved lower-severity findings, and the final GO/NO-GO decision.
+- [x] Focused evaluator/verifier passes with a normal exit.
+- [x] Ticket 02, Ticket 03, and Ticket 06 verifiers pass with normal exits.
+- [x] `npm test` passes; any timeout is reported as unexecuted scope, never green.
+- [x] `npm run typecheck` passes.
+- [x] `graphify update .` completes after code changes.
+- [x] `audit-proof-gaps` returns GO at the required P5 durable lifecycle and P6 independent-oracle depths.
+- [x] `code-review` finds no unresolved P0/P1 issues and both Standards and Spec axes approve the fixed-point diff.
+- [x] The completion report records exact commands, counts, exits, durations, identities, hashes, unresolved lower-severity findings, and the final GO/NO-GO decision.
 
 ## Required TDD execution order
 
