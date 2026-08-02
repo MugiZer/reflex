@@ -13,6 +13,36 @@ const recipeHash = createHash("sha256").update(canonicalTopologyJson(recipe)).di
 const bundle = { moduleId: "repeating-parallel-profile-wall-2d", moduleVersion: "1.0.0", registryHash: "a".repeat(64), packHash: "b".repeat(64), runtimeHash: "c".repeat(64) };
 
 describe("Topology Analysis Request seam", () => {
+  it("returns defensive immutable snapshots after caller mutation", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "topology-request-immutable-"));
+    try {
+      const command = {
+        sourceRevisionId: "rev_immutable",
+        sourceAssemblyGroupId: "ag_immutable",
+        correlationId: correlationId(1),
+        idempotencyKey: idempotencyKey("immutable-result"),
+        recipe,
+        recipeHash,
+        bundle,
+        layerOnlySnapshot: { uValueWPerM2K: 0.315, readinessState: "ready" },
+      } as const;
+      const service = createTopologyAnalysisRequestService({
+        artifactStore: new LocalTopologyArtifactStore(artifactRoot),
+        worker: successfulWorker(),
+      });
+      const first = await service.submit(command);
+      const original = structuredClone(first);
+
+      (first as { effectiveUValueWPerM2K: number | null }).effectiveUValueWPerM2K = 9.999;
+      (first.layerOnlySnapshot as { uValueWPerM2K: number }).uValueWPerM2K = 8.888;
+
+      expect(service.getByIdempotencyKey(command.idempotencyKey)).toEqual(original);
+      expect(await service.submit({ ...command, correlationId: correlationId(2) })).toEqual(original);
+    } finally {
+      await rm(artifactRoot, { recursive: true, force: true });
+    }
+  });
+
   it("persists one immutable preliminary result without changing the layer-only revision", async () => {
     const artifactRoot = await mkdtemp(join(tmpdir(), "topology-request-"));
     try {

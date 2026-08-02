@@ -41,7 +41,7 @@ describe("Ticket 03 real Job topology review", () => {
         sourceAssemblyGroupId: candidate.sourceAssemblyGroupIds[0],
         answers: { memberKind: "rectangle", memberMaterial: "softwood", memberWidthM: 0.045, repeatSpacingM: 0.6, continuousThroughLayers: true, exteriorBoundary: "external-wall", interiorBoundary: "internal" },
       });
-      const requestedDeadline = new Date(Date.now() + 30_000).toISOString();
+      const requestedDeadline = new Date(Date.now() + 120_000).toISOString();
       const blockedResponse = await fetch(`${baseUrl}/api/jobs/${created.jobId}/topology-reviews`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

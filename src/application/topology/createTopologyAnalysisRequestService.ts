@@ -23,39 +23,42 @@ export function createTopologyAnalysisRequestService(options: Options) {
       const existing = outcomesByKey.get(idempotencyKey);
       if (existing) {
         if (existing.semanticPayload !== semanticPayload) {
-          return publishDurableFailure(command, semanticPayload, idempotencyKey, failure("rejected", "idempotency_conflict", "Topology idempotency key was already used with a different semantic payload."));
+          return snapshot(await publishDurableFailure(command, semanticPayload, idempotencyKey, failure("rejected", "idempotency_conflict", "Topology idempotency key was already used with a different semantic payload.")));
         }
         try {
           const persisted = await readPersistedOutcome(existing.result.artifactDirectory, semanticPayload, options.worker, options.artifactStore);
-          if (persisted) return persisted;
+          if (persisted) return snapshot(persisted);
         } catch (error) {
-          return publishDurableFailure(command, semanticPayload, idempotencyKey, classifyPersistenceFailure(error));
+          return snapshot(await publishDurableFailure(command, semanticPayload, idempotencyKey, classifyPersistenceFailure(error)));
         }
       }
 
       const inFlight = inFlightByKey.get(idempotencyKey);
       if (inFlight) {
         if (inFlight.semanticPayload !== semanticPayload) {
-          return publishDurableFailure(command, semanticPayload, idempotencyKey, failure("rejected", "idempotency_conflict", "Topology idempotency key was already used with a different semantic payload."));
+          return snapshot(await publishDurableFailure(command, semanticPayload, idempotencyKey, failure("rejected", "idempotency_conflict", "Topology idempotency key was already used with a different semantic payload.")));
         }
-        return inFlight.promise;
+        return snapshot(await inFlight.promise);
       }
 
       const promise = submitFresh(command, semanticPayload, idempotencyKey);
       inFlightByKey.set(idempotencyKey, { semanticPayload, promise });
       try {
-        return await promise;
+        return snapshot(await promise);
       } finally {
         if (inFlightByKey.get(idempotencyKey)?.promise === promise) inFlightByKey.delete(idempotencyKey);
       }
     },
-    getByIdempotencyKey(idempotencyKey: string): TopologyResult | null { return outcomesByKey.get(idempotencyKey)?.result ?? null; },
+    getByIdempotencyKey(idempotencyKey: string): TopologyResult | null {
+      const result = outcomesByKey.get(idempotencyKey)?.result;
+      return result ? snapshot(result) : null;
+    },
     async verifyPersistedResult(expected: TopologyResult): Promise<TopologyResult> {
       const manifest = await options.artifactStore.readManifest(expected.artifactDirectory) as { semanticPayload?: unknown } | null;
       if (!manifest || typeof manifest.semanticPayload !== "string") throw Object.assign(new Error("Persisted topology artifact manifest is incomplete and cannot be used."), { code: "artifact_integrity_failure" });
       const persisted = await readPersistedOutcome(expected.artifactDirectory, manifest.semanticPayload, options.worker, options.artifactStore, manifest);
       if (!persisted || canonicalTopologyJson(persisted as unknown as JsonValue) !== canonicalTopologyJson(expected as unknown as JsonValue)) throw Object.assign(new Error("Persisted topology result does not match its immutable Job review."), { code: "artifact_integrity_failure" });
-      return persisted;
+      return snapshot(persisted);
     },
   };
 
@@ -146,6 +149,10 @@ export function createTopologyAnalysisRequestService(options: Options) {
   }
 }
 
+function snapshot(result: TopologyResult): TopologyResult {
+  return structuredClone(result);
+}
+
 function createRequestMessage(command: SubmitTopologyAnalysisRequest, base: { requestId: string; sourceRevisionId: string; sourceAssemblyGroupId: string; correlationId: string; idempotencyKey: string; bundle: SubmitTopologyAnalysisRequest["bundle"]; createdAt: string }, workspace: TopologyArtifactWorkspace): TopologyAnalysisRequestMessage | null {
   if (command.recipe === null || command.recipeHash === null) return null;
   return { schema: "topology-analysis.request.v1", ...base, recipe: command.recipe, recipeHash: command.recipeHash, artifactDestination: workspace.workerArtifactDirectory };
@@ -193,6 +200,7 @@ async function readPersistedOutcome(finalDirectory: string, semanticPayload: str
 
 function validateCommand(command: SubmitTopologyAnalysisRequest, worker: TopologyWorkerRuntime): void {
   if (!command.sourceRevisionId || !command.sourceAssemblyGroupId || !command.correlationId || !command.idempotencyKey) throw failure("rejected", "invalid_request", "Topology request identities are incomplete.");
+  if (command.deadlineAt !== undefined && !Number.isFinite(Date.parse(command.deadlineAt))) throw failure("rejected", "invalid_deadline", "Topology request deadline must be a valid timestamp.");
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(command.correlationId)) throw failure("rejected", "invalid_correlation_id", "Topology correlation identifier must be a UUID.");
   if (!isSha256(command.idempotencyKey)) throw failure("rejected", "invalid_idempotency_key", "Topology idempotency key must be a SHA-256 identity.");
   if ((command.recipe === null) !== (command.recipeHash === null)) throw failure("rejected", "invalid_request", "Topology Recipe and recipe hash must be supplied together.");

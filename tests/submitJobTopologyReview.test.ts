@@ -26,6 +26,7 @@ describe("Job topology review persistence seam", () => {
       const replay = await submitJobTopologyReview(command);
 
       expect(first).toMatchObject({ outcome: "rejected", errorCode: "stale_source_revision", opportunity: null, sourceRevisionId: "rev_stale" });
+      if (!("topologyReviewId" in first) || !("topologyReviewId" in replay)) throw new Error("Expected topology review rejection records.");
       expect(replay.topologyReviewId).toBe(first.topologyReviewId);
       expect(repository.listTopologyReviews("job_topology")).toHaveLength(1);
       expect(evidenceLoads).toBe(0);

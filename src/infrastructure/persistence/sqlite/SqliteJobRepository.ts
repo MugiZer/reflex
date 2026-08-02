@@ -6,6 +6,8 @@ import type { ClosableJobRepository, JobUpdate } from "../../../domain/jobs/jobR
 import type { JobRecord, JobReviewState, JobStatus, JobSummary, JobTopologyReview } from "../../../domain/jobs/jobTypes.js";
 import { canonicalTopologyJson } from "../../../domain/topology/canonicalTopologyJson.js";
 import { isValidTopologyRecipeHash, requireCompleteTopologyResult } from "../../../domain/topology/topologyResultValidation.js";
+import type { ComponentEvaluationGraph } from "../../../domain/topology/componentEvaluationRecords.js";
+import { SqliteComponentEvaluationRepository } from "./SqliteComponentEvaluationRepository.js";
 
 type JobRow = {
   job_id: string;
@@ -22,10 +24,12 @@ type JobRow = {
 
 export class SqliteJobRepository implements ClosableJobRepository {
   private readonly db: DatabaseSync;
+  private readonly componentEvaluations: SqliteComponentEvaluationRepository;
 
   constructor(databasePath: string) {
     mkdirSync(dirname(databasePath), { recursive: true });
     this.db = new DatabaseSync(databasePath);
+    this.componentEvaluations = new SqliteComponentEvaluationRepository(databasePath);
     this.db.exec("pragma foreign_keys = on");
     this.db.exec(`
       create table if not exists jobs (
@@ -66,8 +70,13 @@ export class SqliteJobRepository implements ClosableJobRepository {
   }
 
   close(): void {
+    this.componentEvaluations.close();
     this.db.close();
   }
+
+  appendComponentEvaluation(graph: ComponentEvaluationGraph): void { this.componentEvaluations.append(graph); }
+  getComponentEvaluation(evaluationId: string): ComponentEvaluationGraph | null { return this.componentEvaluations.getByEvaluationId(evaluationId); }
+  listComponentEvaluations(jobId: string): readonly ComponentEvaluationGraph[] { return this.componentEvaluations.listByJobId(jobId); }
 
   createJob(record: JobRecord): void {
     this.db.prepare(`
@@ -199,7 +208,12 @@ function parseTopologyReview(payload: string, row: PersistedTopologyReviewRow): 
   if (value.topologyResult === null) {
     if (value.outcome === "preliminary-unsafe") throw new Error("Persisted topology review is corrupt.");
   } else {
-    const result = requireCompleteTopologyResult(value.topologyResult);
+    let result;
+    try {
+      result = requireCompleteTopologyResult(value.topologyResult);
+    } catch {
+      throw new Error("Persisted topology review is corrupt.");
+    }
     if (result.sourceRevisionId !== value.sourceRevisionId || result.sourceAssemblyGroupId !== value.sourceAssemblyGroupId || result.idempotencyKey !== value.idempotencyKey || result.outcome !== value.outcome || result.recipeHash !== value.recipeHash || row.request_id !== result.requestId || row.bundle_json !== canonicalTopologyJson(result.bundle)) throw new Error("Persisted topology review is corrupt.");
   }
   if (value.jobId !== row.job_id || value.sourceRevisionId !== row.source_revision_id || value.sourceAssemblyGroupId !== row.source_assembly_group_id || value.opportunityId !== row.opportunity_id || value.thermalConstructionSignature !== row.construction_signature || value.idempotencyKey !== row.idempotency_key || value.recipeHash !== row.recipe_hash) throw new Error("Persisted topology review is corrupt.");

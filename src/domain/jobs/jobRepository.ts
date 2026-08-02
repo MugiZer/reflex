@@ -1,4 +1,5 @@
 import type { JobRecord, JobReviewState, JobStatus, JobSummary, JobTopologyReview } from "./jobTypes.js";
+import type { ComponentEvaluationGraph } from "../topology/componentEvaluationRecords.js";
 
 export type JobUpdate = {
   jobStatus?: JobStatus;
@@ -18,6 +19,9 @@ export interface JobRepository {
   saveTopologyReview(review: JobTopologyReview): void;
   listTopologyReviews(jobId: string): JobTopologyReview[];
   getTopologyReviewByIdempotencyKey(jobId: string, idempotencyKey: string): JobTopologyReview | null;
+  appendComponentEvaluation?(graph: ComponentEvaluationGraph): void;
+  getComponentEvaluation?(evaluationId: string): ComponentEvaluationGraph | null;
+  listComponentEvaluations?(jobId: string): readonly ComponentEvaluationGraph[];
 }
 
 export interface ClosableJobRepository extends JobRepository {

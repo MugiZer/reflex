@@ -1,6 +1,7 @@
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import type { JobRecord, JobTopologyReview } from "../src/domain/jobs/jobTypes.js";
 import { SqliteJobRepository } from "../src/infrastructure/persistence/sqlite/SqliteJobRepository.js";
@@ -91,6 +92,54 @@ describe("SqliteJobRepository contract", () => {
     } finally {
       repo.close();
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses changed persisted U-values manifest identities and outcomes after restart", async () => {
+    const corruptions = [
+      {
+        name: "U-value",
+        mutate(review: JobTopologyReview) {
+          return { ...review, topologyResult: { ...review.topologyResult!, effectiveUValueWPerM2K: 0.42 } };
+        },
+        indexedBundle: null,
+      },
+      {
+        name: "manifest identity",
+        mutate(review: JobTopologyReview) { return review; },
+        indexedBundle: JSON.stringify({ moduleId: "tampered" }),
+      },
+      {
+        name: "outcome",
+        mutate(review: JobTopologyReview) {
+          return { ...review, outcome: "fabricated" as JobTopologyReview["outcome"] };
+        },
+        indexedBundle: null,
+      },
+    ];
+
+    for (const corruption of corruptions) {
+      const root = join(tmpdir(), `sqlite-job-repo-corrupt-${Date.now()}-${corruption.name}`);
+      const databasePath = join(root, "data", "app.db");
+      const writer = new SqliteJobRepository(databasePath);
+      const review = topologyReview();
+      writer.createJob(jobRecord("job_topology", "completed"));
+      writer.saveTopologyReview(review);
+      writer.close();
+
+      const database = new DatabaseSync(databasePath);
+      database.prepare("update job_topology_reviews set payload_json = ?, bundle_json = coalesce(?, bundle_json) where topology_review_id = ?")
+        .run(JSON.stringify(corruption.mutate(review)), corruption.indexedBundle, review.topologyReviewId);
+      database.close();
+
+      const reader = new SqliteJobRepository(databasePath);
+      try {
+        expect(() => reader.listTopologyReviews(review.jobId), corruption.name)
+          .toThrow("Persisted topology review is corrupt.");
+      } finally {
+        reader.close();
+        await rm(root, { recursive: true, force: true });
+      }
     }
   });
 });

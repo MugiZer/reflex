@@ -106,7 +106,7 @@ async function verifyArtifacts(
 }
 
 function resolvePinnedPath(value: string, label: string): string {
-  if (!value || (!isAbsolute(value) && value === "python")) {
+  if (!value || !isAbsolute(value)) {
     throw new Error(`${label} must be an explicit pinned filesystem path.`);
   }
   return resolve(value);

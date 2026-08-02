@@ -8,12 +8,16 @@
     "demo:core": "tsx scripts/demo-core.ts",
     "serve:localhost": "tsx scripts/serve-localhost.ts",
     "verify:milestone-4": "tsx scripts/verify-milestone-4.ts",
+    "verify:topology-request-spine-regression": "tsx scripts/verify-topology-request-spine-regression.ts",
+    "verify:topology-request-contract": "tsx scripts/verify-topology-request-contract.ts",
+    "verify:topology-worker-failure-regression": "tsx scripts/verify-topology-worker-failure-regression.ts",
     "verify:e2e": "tsx scripts/verify-e2e.ts",
     "verify:e2e:local": "tsx scripts/verify-e2e-local.ts",
     "verify:revit-layer-recovery:local": "tsx scripts/verify-revit-layer-recovery-local.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "verify:milestone-1": "tsx scripts/verify-milestone-1.ts"
+    "verify:milestone-1": "tsx scripts/verify-milestone-1.ts",
+    "verify:topology-localhost-fake-seam-regression": "tsx scripts/verify-topology-localhost-fake-seam-regression.ts"
   },
   "repository": {
     "type": "git",

@@ -209,6 +209,7 @@ async function sendJob(
     thermalTreatmentCards: workspace.thermalTreatmentCards,
     topologyOpportunities: workspace.topologyOpportunities,
     topologyReviews: workspace.topologyReviews,
+    componentEvaluations: jobs.listComponentEvaluations?.(jobId) ?? [],
     links: linksFor(workspace.job),
   });
 }

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { createTopologyAnalysisRequestService } from "../src/application/topology/createTopologyAnalysisRequestService.js";
 import { LocalTopologyArtifactStore } from "../src/infrastructure/topology/localTopologyArtifactStore.js";
+import { createProvenPythonTopologyWorker } from "../src/infrastructure/topology/createProvenPythonTopologyWorker.js";
 import type { JsonValue, TopologyWorkerRuntime } from "../src/domain/topology/topologyTypes.js";
 
 const recipe = { schema: "declarative-construction-recipe.v1", layers: [{ material: "mineral-wool", thicknessM: 0.12 }] };
@@ -13,6 +14,30 @@ const bundle = { moduleId: "repeating-parallel-profile-wall-2d", moduleVersion: 
 const recipeHash = sha256(recipe);
 
 describe("topology hardening seam", () => {
+  it("rejects non-absolute runtime paths and invalid deadlines deterministically", async () => {
+    expect(() => createProvenPythonTopologyWorker({ pythonExecutable: "relative/python.exe" }))
+      .toThrow("Python executable must be an explicit pinned filesystem path.");
+
+    const artifactRoot = await mkdtemp(join(tmpdir(), "topology-hardening-deadline-"));
+    let launched = false;
+    try {
+      const worker = delayedWorker();
+      worker.runJsonl = async () => { launched = true; return ""; };
+      const result = await createTopologyAnalysisRequestService({
+        artifactStore: new LocalTopologyArtifactStore(artifactRoot),
+        worker,
+      }).submit({ ...request("invalid-deadline"), deadlineAt: "not-a-deadline" });
+
+      expect(result.outcome).toBe("rejected");
+      expect(result.errorCode).toBe("invalid_deadline");
+      expect(result.effectiveUValueWPerM2K).toBeNull();
+      expect(result.evidence).toBeNull();
+      expect(launched).toBe(false);
+    } finally {
+      await rm(artifactRoot, { recursive: true, force: true });
+    }
+  });
+
   it("shares one durable outcome across independent service instances", async () => {
     const artifactRoot = await mkdtemp(join(tmpdir(), "topology-hardening-"));
     let invocations = 0;

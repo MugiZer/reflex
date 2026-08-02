@@ -154,7 +154,7 @@ function questions(): IfcTopologyOpportunity["card"]["criticalQuestions"] { retu
   { key: "interiorBoundary", label: "Interior boundary profile", whyItMatters: "Boundary conditions affect the thermal result." },
 ]; }
 function positive(value: unknown): value is number { return typeof value === "number" && Number.isFinite(value) && value > 0; }
-function topologyMaterialId(value: string | null): { value: string | null; normalized: string | null; wasAlias: boolean } {
+export function topologyMaterialId(value: string | null): { value: string | null; normalized: string | null; wasAlias: boolean } {
   if (value === null) return { value: null, normalized: null, wasAlias: false };
   const normalized = value.trim().toLowerCase().replace(/[_\s]+/g, "-");
   const aliases: Record<string, string> = { "timber-stud": "softwood", "mineral-wool": "mineral-wool", "gypsum": "gypsum", "gypsum-board": "gypsum", "sheathing": "sheathing", "softwood": "softwood", "galvanized-steel": "galvanized-steel" };
