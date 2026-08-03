@@ -301,8 +301,10 @@ function sensitivityPassed(caseId: string, evidence: CaseEvidence | undefined, p
   return false;
 }
 
-function validProtectedState(evidence: CaseEvidence): boolean {
-  return isRecord(evidence.protectedStateHashes) && ["ifcBefore", "ifcAfter", "layerBefore", "layerAfter"].every((key) => typeof evidence.protectedStateHashes[key] === "string" && evidence.protectedStateHashes[key].length > 0) && evidence.protectedStateHashes.ifcBefore === evidence.protectedStateHashes.ifcAfter && evidence.protectedStateHashes.layerBefore === evidence.protectedStateHashes.layerAfter;
+function validProtectedState(evidence: unknown): boolean {
+  if (!isRecord(evidence)) return false;
+  const hashes = isRecord(evidence.protectedStateHashes) ? evidence.protectedStateHashes : evidence;
+  return ["ifcBefore", "ifcAfter", "layerBefore", "layerAfter"].every((key) => typeof hashes[key] === "string" && hashes[key].length > 0) && hashes.ifcBefore === hashes.ifcAfter && hashes.layerBefore === hashes.layerAfter;
 }
 
 function requiredMutationResults(selectedGate: FoundationGateDefinition, proofResults: readonly ProofResult[], sensitivity: Readonly<Record<string, boolean>>): Record<string, boolean> {
