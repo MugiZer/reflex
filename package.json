@@ -18,7 +18,9 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "verify:milestone-1": "tsx scripts/verify-milestone-1.ts",
-    "verify:topology-localhost-fake-seam-regression": "tsx scripts/verify-topology-localhost-fake-seam-regression.ts"
+    "verify:topology-localhost-fake-seam-regression": "tsx scripts/verify-topology-localhost-fake-seam-regression.ts",
+    "verify:component-topology-foundation": "tsx scripts/verify-component-topology-foundation.ts",
+    "verify:component-topology-foundation:completion": "tsx scripts/verify-component-topology-foundation-completion.ts"
   },
   "repository": {
     "type": "git",
