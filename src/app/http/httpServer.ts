@@ -25,6 +25,8 @@ import type { ClosableJobRepository, JobRepository } from "../../domain/jobs/job
 import type { JobRecord } from "../../domain/jobs/jobTypes.js";
 import { WebIfcViewerGeometryExtractor } from "../../infrastructure/ifc/web-ifc/WebIfcViewerGeometryExtractor.js";
 import { SqliteJobRepository } from "../../infrastructure/persistence/sqlite/SqliteJobRepository.js";
+import { SqliteComponentEvaluationRepository } from "../../infrastructure/persistence/sqlite/SqliteComponentEvaluationRepository.js";
+import type { ComponentEvaluationRepository } from "../../domain/topology/componentEvaluationRecords.js";
 import { LocalJobArtifactStore } from "../../infrastructure/storage/local-files/jobArtifactStore.js";
 import { LocalJobFileStorage } from "../../infrastructure/storage/local-files/jobFileStorage.js";
 import { LocalViewerGeometryCache } from "../../infrastructure/storage/local-files/viewerGeometryCache.js";
@@ -36,6 +38,7 @@ import { renderAppShell } from "./renderAppShell.js";
 export type LocalhostApp = {
   server: Server;
   jobs: ClosableJobRepository;
+  close(): void;
 };
 
 export function createLocalhostApp(command: {
@@ -49,6 +52,7 @@ export function createLocalhostApp(command: {
   componentScreeningThresholdWPerM2K?: number | null;
 }): LocalhostApp {
   const jobs = new SqliteJobRepository(command.databasePath);
+  const componentEvaluations = new SqliteComponentEvaluationRepository(command.databasePath);
   const storage = new LocalJobFileStorage(command.storageRoot);
   const artifactStore = new LocalJobArtifactStore(command.outputRoot);
   const viewerGeometryCache = new LocalViewerGeometryCache(artifactStore);
@@ -87,6 +91,7 @@ export function createLocalhostApp(command: {
         return await sendJob(
           res,
           jobs,
+          componentEvaluations,
           createLocalJobWorkspaceEvidenceLoader(artifactStore),
           topologyRequests,
           jobId,
@@ -109,13 +114,13 @@ export function createLocalhostApp(command: {
       if (req.method === "POST" && replayJobId) {
         const body = await readJson(req);
         if (!isRecord(body) || typeof body.evaluationId !== "string" || typeof body.patternId !== "string" || typeof body.patternVersion !== "string") return json(res,400,{error:"evaluationId, patternId, and patternVersion are required."});
-        try{return json(res,202,replayJobComponentEvaluation({jobId:replayJobId,evaluationId:body.evaluationId,patternId:body.patternId,patternVersion:body.patternVersion,jobs,patterns:command.componentPatterns??[]}));}catch(error){const status=error instanceof ReplayComponentEvaluationError&&error.code==="component_evaluation_not_found"?404:422;return json(res,status,{error:error instanceof Error?error.message:String(error)});}
+        try{return json(res,202,replayJobComponentEvaluation({jobId:replayJobId,evaluationId:body.evaluationId,patternId:body.patternId,patternVersion:body.patternVersion,jobs,componentEvaluations,patterns:command.componentPatterns??[]}));}catch(error){const status=error instanceof ReplayComponentEvaluationError&&error.code==="component_evaluation_not_found"?404:422;return json(res,status,{error:error instanceof Error?error.message:String(error)});}
       }
       if (req.method === "POST" && topologyReviewJobId) {
         const cancellation = requestCancellationSignal(req);
         try {
           const topologyEvidence = createLocalTopologyReviewEvidenceLoader(artifactStore);
-          const result = await submitJobTopologyReview({ jobId: topologyReviewJobId, body: await readJson(req), jobs, evidence: topologyEvidence, requests: topologyRequests, bundle: PROVEN_TOPOLOGY_BUNDLE, deadlineAt: parseTopologyDeadline(req), cancellationSignal: cancellation.signal, componentPatterns: command.componentPatterns, screeningThresholdWPerM2K: command.componentScreeningThresholdWPerM2K });
+          const result = await submitJobTopologyReview({ jobId: topologyReviewJobId, body: await readJson(req), jobs, componentEvaluations, evidence: topologyEvidence, requests: topologyRequests, bundle: PROVEN_TOPOLOGY_BUNDLE, deadlineAt: parseTopologyDeadline(req), cancellationSignal: cancellation.signal, componentPatterns: command.componentPatterns, screeningThresholdWPerM2K: command.componentScreeningThresholdWPerM2K });
           await refreshJobTopologyReport({
             jobId: topologyReviewJobId,
             jobs,
@@ -151,7 +156,7 @@ export function createLocalhostApp(command: {
 
       const reportJobId = matchPath(url.pathname, /^\/api\/jobs\/([^/]+)\/report$/);
       if (req.method === "GET" && reportJobId) {
-        return await sendReport(res, jobs, topologyRequests, reportJobId);
+        return await sendReport(res, jobs, componentEvaluations, topologyRequests, reportJobId);
       }
 
       const ifcJobId = matchPath(url.pathname, /^\/api\/jobs\/([^/]+)\/ifc$/);
@@ -190,12 +195,13 @@ export function createLocalhostApp(command: {
       });
     }
   });
-  return { server, jobs };
+  return { server, jobs, close: () => { try { componentEvaluations.close(); } finally { jobs.close(); } } };
 }
 
 async function sendJob(
   res: ServerResponse,
   jobs: JobRepository,
+  componentEvaluations: ComponentEvaluationRepository,
   evidence: ReturnType<typeof createLocalJobWorkspaceEvidenceLoader>,
   topologyIntegrity: ReturnType<typeof createTopologyAnalysisRequestService>,
   jobId: string,
@@ -211,7 +217,7 @@ async function sendJob(
   if (!workspace) {
     return json(res, 404, { error: "Job not found" });
   }
-  const componentProjection = await safeComponentEvaluations(jobs, topologyIntegrity, jobId);
+  const componentProjection = await safeComponentEvaluations(componentEvaluations, topologyIntegrity, jobId);
   return json(res, 200, {
     ...workspace.job,
     review: workspace.review,
@@ -237,6 +243,7 @@ function parseArchitectTarget(value: string | null): number | null {
 async function sendReport(
   res: ServerResponse,
   jobs: JobRepository,
+  componentEvaluations: ComponentEvaluationRepository,
   topologyIntegrity: ReturnType<typeof createTopologyAnalysisRequestService>,
   jobId: string,
 ): Promise<void> {
@@ -248,16 +255,16 @@ async function sendReport(
     return json(res, 404, { error: "Report has not been generated." });
   }
   const stored = await readFile(job.reportPath, "utf8");
-  const projection = await safeComponentEvaluations(jobs, topologyIntegrity, jobId);
+  const projection = await safeComponentEvaluations(componentEvaluations, topologyIntegrity, jobId);
   const componentSection = projection.diagnostic
     ? `<section class="material-values topology-result"><h3>Component topology result unavailable</h3><p>${escapeHtml(projection.diagnostic)}</p></section>`
     : projection.evaluations.map(renderComponentEvaluation).join("");
   return html(res, 200, stored.replace("</main>", componentSection + "</main>"));
 }
 
-async function safeComponentEvaluations(jobs: JobRepository, integrity: ReturnType<typeof createTopologyAnalysisRequestService>, jobId: string): Promise<{ evaluations: readonly import("../../domain/topology/componentEvaluationRecords.js").ComponentEvaluationGraph[]; diagnostic: string | null }> {
+async function safeComponentEvaluations(componentEvaluations: ComponentEvaluationRepository, integrity: ReturnType<typeof createTopologyAnalysisRequestService>, jobId: string): Promise<{ evaluations: readonly import("../../domain/topology/componentEvaluationRecords.js").ComponentEvaluationGraph[]; diagnostic: string | null }> {
   try {
-    const evaluations = jobs.listComponentEvaluations?.(jobId) ?? [];
+    const evaluations = componentEvaluations.listByJobId(jobId);
     for (const graph of evaluations) for (const result of graph.results) if (result.outcome === "preliminary-unsafe") await integrity.verifyPersistedResult(result.resultPayload as unknown as import("../../domain/topology/topologyTypes.js").TopologyResult);
     return { evaluations, diagnostic: null };
   } catch { return { evaluations: [], diagnostic: "Persisted component evaluation evidence failed integrity validation; no topology value is available." }; }

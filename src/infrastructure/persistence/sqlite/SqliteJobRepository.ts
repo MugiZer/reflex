@@ -6,8 +6,6 @@ import type { ClosableJobRepository, JobUpdate } from "../../../domain/jobs/jobR
 import type { JobRecord, JobReviewState, JobStatus, JobSummary, JobTopologyReview } from "../../../domain/jobs/jobTypes.js";
 import { canonicalTopologyJson } from "../../../domain/topology/canonicalTopologyJson.js";
 import { isValidTopologyRecipeHash, requireCompleteTopologyResult } from "../../../domain/topology/topologyResultValidation.js";
-import type { ComponentEvaluationGraph } from "../../../domain/topology/componentEvaluationRecords.js";
-import { SqliteComponentEvaluationRepository } from "./SqliteComponentEvaluationRepository.js";
 
 type JobRow = {
   job_id: string;
@@ -24,12 +22,10 @@ type JobRow = {
 
 export class SqliteJobRepository implements ClosableJobRepository {
   private readonly db: DatabaseSync;
-  private readonly componentEvaluations: SqliteComponentEvaluationRepository;
 
   constructor(databasePath: string) {
     mkdirSync(dirname(databasePath), { recursive: true });
     this.db = new DatabaseSync(databasePath);
-    this.componentEvaluations = new SqliteComponentEvaluationRepository(databasePath);
     this.db.exec("pragma foreign_keys = on");
     this.db.exec(`
       create table if not exists jobs (
@@ -70,13 +66,8 @@ export class SqliteJobRepository implements ClosableJobRepository {
   }
 
   close(): void {
-    this.componentEvaluations.close();
     this.db.close();
   }
-
-  appendComponentEvaluation(graph: ComponentEvaluationGraph): void { this.componentEvaluations.append(graph); }
-  getComponentEvaluation(evaluationId: string): ComponentEvaluationGraph | null { return this.componentEvaluations.getByEvaluationId(evaluationId); }
-  listComponentEvaluations(jobId: string): readonly ComponentEvaluationGraph[] { return this.componentEvaluations.listByJobId(jobId); }
 
   createJob(record: JobRecord): void {
     this.db.prepare(`

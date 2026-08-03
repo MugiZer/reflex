@@ -52,6 +52,7 @@ describe("component occurrence localhost recording", () => {
       expect(reloaded.fileHash).toBe(job.fileHash);
     });
   });
+
 });
 
 async function withJob(run: (value: { baseUrl: string; job: any; restart: () => Promise<{ baseUrl: string; job: any }> }) => Promise<void>) {
@@ -82,6 +83,6 @@ async function postReview(baseUrl: string, job: any, candidate: any, answers: Re
 async function waitForJob(baseUrl: string, jobId: string) { for (let i = 0; i < 100; i++) { const job = await json<any>(await fetch(`${baseUrl}/api/jobs/${jobId}`)); if (job.jobStatus !== "queued" && job.jobStatus !== "processing") return job; await new Promise((resolveWait) => setTimeout(resolveWait, 20)); } throw new Error("Job did not settle"); }
 async function waitForActiveRevision(baseUrl: string, jobId: string) { for (let i = 0; i < 100; i++) { const job = await json<any>(await fetch(`${baseUrl}/api/jobs/${jobId}`)); if (job.activeRevisionId) return job; await new Promise((resolveWait) => setTimeout(resolveWait, 20)); } throw new Error("Job did not produce an active Revision"); }
 async function listen(app: ReturnType<typeof createLocalhostApp>) { app.server.listen(0, "127.0.0.1"); await new Promise<void>((resolveListen) => app.server.once("listening", resolveListen)); const address = app.server.address(); if (!address || typeof address === "string") throw new Error("not bound"); return `http://127.0.0.1:${address.port}`; }
-async function close(app: ReturnType<typeof createLocalhostApp>) { await new Promise<void>((resolveClose, reject) => app.server.close((error) => error ? reject(error) : resolveClose())); app.jobs.close(); }
+async function close(app: ReturnType<typeof createLocalhostApp>) { await new Promise<void>((resolveClose, reject) => app.server.close((error) => error ? reject(error) : resolveClose())); app.close(); }
 async function json<T>(response: Response): Promise<T> { return await response.json() as T; }
 async function responseHash(url: string): Promise<string> { return createHash("sha256").update(Buffer.from(await (await fetch(url)).arrayBuffer())).digest("hex"); }
