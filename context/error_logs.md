@@ -74,6 +74,57 @@ Regression: for every durable feature, require proof of (1) invariant definition
 
 --------------------
 
+2026-08-03 — Ticket 02 explicit persistence-seam audit findings
+
+Status: NO-GO. The implementation seam is structurally improved, but the required Gate 2 proof was not executable and the repository-wide completion gate was not green.
+
+- High process/release risk — The gate plan required `npm run verify:component-topology-foundation -- --gate=2`, but `package.json` does not register that script. The required `foundation-gate-evidence.json` was also absent before the audit. Focused adapter and HTTP tests therefore cannot authorize the P5 gate.
+- Medium — Splitting Component Evaluation into a second SQLite repository initially left that connection open. Existing callers closed only `app.jobs`, producing Windows `EBUSY` cleanup failures. The composition root now needs one lifecycle owner that closes both repositories.
+- Medium — The real pinned-worker scenario failed once under the full-suite load but passed in isolation. This is a suite-isolation/contention signal, not evidence to dismiss as harmless flakiness; shared resources and synchronization need classification.
+- High gate failure — `npm test` exited non-zero (194/198 tests passed), including a stale completion-manifest assertion. `npm run typecheck` passed, but FND-P10 requires both gates to pass.
+
+Root cause: acceptance and evidence drift at the release boundary. The code change updated dependency ownership, but the declared verifier, lifecycle preflight, and clean-suite proof were not treated as part of the same production change.
+
+Regression rules:
+
+- Gate design must preflight every named proof command before implementation: verify the package/CI registration, invoke it with a deliberately failing or empty selection, and record the exact command and exit class.
+- A gate plan is not executable until its verifier entry point, evidence schema, and decision-artifact path exist in the tested revision.
+- Any new composed resource must have one root-owned shutdown path, and lifecycle tests must exercise restart/cleanup on the target operating systems.
+- Full-suite contention failures must be reproduced alone and under controlled overlap; an isolated rerun may classify a failure but cannot erase the original suite failure.
+
+Gate-design skill improvement: add an explicit “proof preflight” step requiring command registration, verifier discovery, evidence-artifact creation, and a known-red probe before the gate can be considered implementation-ready. The current skill already requires executable proofs and reproducible evidence, so this is a missing enforcement checkpoint rather than a change to the gate-depth model.
+
+--------------------
+
+2026-08-03 — Post-gate-design Ticket 01 identity audit findings
+
+Status: NO-GO. This is a post-gate-design finding: the gate plan correctly required P5 public durable proof, but the implementation still contains identity-contract defects and the authoritative tracer did not complete.
+
+- High — Incomplete semantic identity input is accepted. `componentEvaluationIdentities.exactRecipe({ recipe: null, ... })` returns a durable identity instead of rejecting the malformed Recipe. The recursive validator treats `null` as complete for every field, so FND-I07 is not proved.
+- High — Contract split-brain remains. The centralized `patternVersion()` identity exists, but SQLite uses the alternate `${patternId}@${version}` node key. FND-I01/I02 therefore still have more than one production identity formula.
+- High — P5 durability is unproven. Focused identity, aggregate, replay, and SQLite tests pass, but the localhost durable verifier/HTTP duplicate run exceeded the harness's 64-second command limit before producing attributable evidence. Unit and adapter green cannot certify restart, replay, concurrency, corruption, publication, or protected-state behavior.
+
+Root cause: the identity contract was added after gate design, but the implementation did not finish the boundary migration or field-specific semantic validation, and the proof workflow did not produce a completed public tracer artifact.
+
+Post-gate-design / skill-improvement lesson:
+
+- `gate-design` must freeze the identity owner, required depth, protected state, and red-capable tracer before implementation.
+- `tdd` must keep the proof map executable: each claimed P5 row needs a public-seam test, an independent oracle, and an attributable run result; a timeout is harness-blocked, not green.
+- `to-tickets` must carry these invariants into explicit acceptance rows: malformed input rejection, one identity owner, duplicate/restart/replay/concurrency, corruption, and protected-state preservation. Each row needs a named test and durable observation.
+- Future completion reviews must reject a ticket when any identity producer/index remains outside the contract or when only P1/P2 tests are available for a P5 claim.
+
+Regression rule: do not mark FND-G1 GO until every identity producer and durable index uses the same contract, field-specific malformed-input probes fail closed, and the real localhost tracer completes with restart, replay, concurrency, corruption, publication, and protected-state evidence.
+
+Remediation recorded 2026-08-03:
+
+- The identity validator now rejects null required values, non-finite numbers, and empty required identity arrays while preserving explicitly nullable outcome fields.
+- SQLite pattern nodes now use `componentEvaluationIdentities.patternVersion(...)`; the alternate `${patternId}@${version}` key is covered by a regression assertion.
+- A localhost public-seam proof now covers concurrent duplicate submission, fresh restart equality, and promoted append-only replay. The focused identity/SQLite/localhost suite passes 14/14, and the real duplicate/replay HTTP tests pass 2/2; `npm run typecheck` passes.
+
+Gate status remains NO-GO until the complete authoritative tracer (including publication, corruption, and protected-state evidence) produces its bounded attributable artifact; focused green tests are remediation evidence, not a substituted P5 gate.
+
+--------------------
+
 2026-08-01 — Ticket 03 topology review boundary findings
 
 Severity: medium-high overall. The happy path passed, but trust, durability, and public-seam evidence were incomplete.

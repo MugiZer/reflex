@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 
 import type { ComponentEvaluationGraph } from "../src/domain/topology/componentEvaluationRecords.js";
+import { componentEvaluationIdentities } from "../src/domain/topology/componentEvaluationRecords.js";
 import { SqliteComponentEvaluationRepository } from "../src/infrastructure/persistence/sqlite/SqliteComponentEvaluationRepository.js";
 
 describe("component evaluation SQLite graph", () => {
@@ -77,6 +78,20 @@ describe("component evaluation SQLite graph", () => {
       finally { reader.close(); }
       const db = new DatabaseSync(path);
       expect((db.prepare("select count(*) as count from component_evaluations where evaluation_id = ?").get(graph.evaluation.evaluationId) as { count: number }).count).toBe(1);
+      db.close();
+    });
+  });
+
+  it("uses the centralized pattern-version identity for the durable node key", async () => {
+    await withDatabase(async (path) => {
+      const graph = fixture();
+      const writer = new SqliteComponentEvaluationRepository(path);
+      writer.append(graph);
+      writer.close();
+      const db = new DatabaseSync(path);
+      const row = db.prepare("select record_id from component_evaluation_nodes where evaluation_id = ? and record_kind = 'pattern'").get(graph.evaluation.evaluationId) as { record_id: string };
+      expect(row.record_id).toBe(componentEvaluationIdentities.patternVersion({ patternId: graph.pattern!.patternId, version: graph.pattern!.version, canonicalPattern: graph.pattern!.canonicalPattern }));
+      expect(row.record_id).not.toBe(`${graph.pattern!.patternId}@${graph.pattern!.version}`);
       db.close();
     });
   });

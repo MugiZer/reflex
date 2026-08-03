@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { canonicalTopologyJson } from "../../../domain/topology/canonicalTopologyJson.js";
-import type { ComponentEvaluationGraph, ComponentEvaluationRepository } from "../../../domain/topology/componentEvaluationRecords.js";
+import { componentEvaluationIdentities, type ComponentEvaluationGraph, type ComponentEvaluationRepository } from "../../../domain/topology/componentEvaluationRecords.js";
 import type { JsonValue } from "../../../domain/topology/topologyTypes.js";
 
 type Fault = "planned-scenarios" | "first-result";
@@ -138,7 +138,7 @@ function nodes(graph: ComponentEvaluationGraph): Array<{ kind: string; id: strin
     ...graph.results.map((item) => ({ kind: "result", id: item.scenarioResultId, parentId: item.scenarioRequestId, payload: item as unknown as JsonValue })),
     ...graph.unresolvedGroups.map((item) => ({ kind: "unresolved", id: item.unresolvedGroupId, parentId: null, payload: item as unknown as JsonValue })),
   ];
-  if (graph.pattern) rows.push({ kind: "pattern", id: `${graph.pattern.patternId}@${graph.pattern.version}`, parentId: null, payload: graph.pattern as unknown as JsonValue });
+  if (graph.pattern) rows.push({ kind: "pattern", id: componentEvaluationIdentities.patternVersion({ patternId: graph.pattern.patternId, version: graph.pattern.version, canonicalPattern: graph.pattern.canonicalPattern }), parentId: null, payload: graph.pattern as unknown as JsonValue });
   if (graph.aggregate) rows.push({ kind: "aggregate", id: graph.aggregate.aggregateId, parentId: graph.evaluation.evaluationId, payload: graph.aggregate as unknown as JsonValue });
   return rows;
 }

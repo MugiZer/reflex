@@ -35,6 +35,14 @@ describe("component evaluation identity contract", () => {
     expect(componentEvaluationIdentities.scenarioRequest({ recipeId, sourceRevisionId: "revision-1", sourceAssemblyGroupId: "assembly-1", workerBundleIdentity: "worker-1", purpose: "replay" })).not.toBe(requestId);
   });
 
+  it("fails closed for malformed required identity values", () => {
+    const completeRecipe = recipe(0.075);
+    expect(() => componentEvaluationIdentities.exactRecipe({ recipe: null as never, patternId: "pattern", patternVersion: "1.0.0", compilerVersion: "compiler-1", primitiveRegistryHash: "registry-1", materialPackHash: "materials-1", runtimeHash: "runtime-1", boundaryVersion: "boundary-1" })).toThrow("Component evaluation identity input is incomplete");
+    expect(() => componentEvaluationIdentities.occurrence({ evidenceSnapshotId: "evidence", opportunityId: "opportunity", elementStepIds: [] })).toThrow("Component evaluation identity input is incomplete");
+    expect(() => componentEvaluationIdentities.exactRecipe({ recipe: completeRecipe, patternId: "", patternVersion: "1.0.0", compilerVersion: "compiler-1", primitiveRegistryHash: "registry-1", materialPackHash: "materials-1", runtimeHash: "runtime-1", boundaryVersion: "boundary-1" })).toThrow("Component evaluation identity input is incomplete");
+    expect(componentEvaluationIdentities.patternMatch({ occurrenceId: "occurrence", annotationId: null, outcome: "unmatched", patternId: null, patternVersion: null })).toMatch(/^[a-f0-9]{64}$/);
+  });
+
   it("component evaluation identities separate topology from dimensions", () => {
     const patternId = "repeating-metal-c-profile";
     const recipes = [0.041, 0.075, 0.1].map((depth) => recipe(depth));

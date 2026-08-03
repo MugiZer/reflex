@@ -87,15 +87,19 @@ function identity(value: JsonValue): string {
 
 function identityContract(kind: string, input: unknown): string {
   const required = requiredIdentityFields[kind];
-  if (!isRecord(input) || !required || required.some((field) => !(field in input)) || !isCompleteIdentityInput(input)) throw new Error("Component evaluation identity input is incomplete.");
+  const nullable = nullableIdentityFields[kind] ?? [];
+  const nonEmptyArrays = nonEmptyArrayIdentityFields[kind] ?? [];
+  if (!isRecord(input) || !required || required.some((field) => !(field in input)) || nonEmptyArrays.some((field) => Array.isArray(input[field]) && input[field].length === 0) || !isCompleteIdentityInput(input, new Set(nullable), true)) throw new Error("Component evaluation identity input is incomplete.");
   return identity({ kind, input } as JsonValue);
 }
 
-function isCompleteIdentityInput(value: unknown): boolean {
+function isCompleteIdentityInput(value: unknown, nullableFields?: ReadonlySet<string>, root = false): boolean {
   if (typeof value === "string") return value.trim().length > 0;
-  if (typeof value === "number" || typeof value === "boolean" || value === null) return true;
-  if (Array.isArray(value)) return value.every(isCompleteIdentityInput);
-  return isRecord(value) && Object.keys(value).length > 0 && Object.values(value).every((item) => item !== undefined && isCompleteIdentityInput(item));
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value === "boolean") return true;
+  if (value === null) return !root;
+  if (Array.isArray(value)) return value.every((item) => item === null || isCompleteIdentityInput(item));
+  return isRecord(value) && Object.keys(value).length > 0 && Object.entries(value).every(([key, item]) => item !== undefined && (item === null ? !root || Boolean(nullableFields?.has(key)) : isCompleteIdentityInput(item)));
 }
 
 const requiredIdentityFields: Readonly<Record<string, readonly string[]>> = {
@@ -112,6 +116,17 @@ const requiredIdentityFields: Readonly<Record<string, readonly string[]>> = {
   "evaluation-aggregate": ["evaluationId", "outcome", "payload"],
   "unresolved-occurrence-group": ["evidenceSignature", "occurrenceIds"],
   "legacy-evidence-snapshot": ["value"],
+};
+
+const nullableIdentityFields: Readonly<Record<string, readonly string[]>> = {
+  "pattern-match": ["annotationId", "patternId", "patternVersion"],
+  "scenario-result-artifact": ["artifactSha256"],
+};
+
+const nonEmptyArrayIdentityFields: Readonly<Record<string, readonly string[]>> = {
+  "component-occurrence": ["elementStepIds"],
+  "evaluation-run": ["recipeIds"],
+  "unresolved-occurrence-group": ["occurrenceIds"],
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
