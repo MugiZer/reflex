@@ -122,7 +122,11 @@ function validateRows(db: DatabaseSync, graph: ComponentEvaluationGraph): void {
   for (const result of graph.results) { const row = db.prepare("select * from component_evaluation_results where scenario_result_id = ?").get(result.scenarioResultId) as any; if (!row || row.scenario_request_id !== result.scenarioRequestId || row.outcome !== result.outcome || row.artifact_identity !== result.artifactIdentity || row.payload_json !== json(result.resultPayload) || row.payload_sha256 !== hashJson(result.resultPayload)) throw new Error(`result row mismatch:${result.scenarioResultId}`); }
   const storedNodes = db.prepare("select record_kind, record_id, parent_id, payload_json, payload_sha256 from component_evaluation_nodes where evaluation_id = ?").all(graph.evaluation.evaluationId) as any[];
   const expected = nodes(graph);
-  for (const node of expected) { const row = storedNodes.find((item) => item.record_kind === node.kind && item.record_id === node.id); if (!row || row.parent_id !== node.parentId || row.payload_json !== json(node.payload) || row.payload_sha256 !== hashJson(node.payload)) throw new Error(`node row mismatch:${node.kind}:${node.id}`); }
+  for (const node of expected) {
+    const row = storedNodes.find((item) => item.record_kind === node.kind && item.record_id === node.id)
+      ?? (node.kind === "pattern" && graph.pattern ? storedNodes.find((item) => item.record_kind === "pattern" && item.record_id === legacyPatternNodeId(graph.pattern!)) : undefined);
+    if (!row || row.parent_id !== node.parentId || row.payload_json !== json(node.payload) || row.payload_sha256 !== hashJson(node.payload)) throw new Error(`node row mismatch:${node.kind}:${node.id}`);
+  }
 }
 
 function nodes(graph: ComponentEvaluationGraph): Array<{ kind: string; id: string; parentId: string | null; payload: JsonValue }> {
@@ -157,3 +161,5 @@ function insertImmutable(db: DatabaseSync, table: string, values: SqlValue[], ke
 function json(value: unknown): string { return canonicalTopologyJson(value as JsonValue); }
 function hashJson(value: unknown): string { return sha256(json(value)); }
 function sha256(value: string): string { return createHash("sha256").update(value).digest("hex"); }
+/** Read-only compatibility for databases written before patternVersion became the sole node identity. */
+function legacyPatternNodeId(pattern: NonNullable<ComponentEvaluationGraph["pattern"]>): string { return `${pattern.patternId}@${pattern.version}`; }

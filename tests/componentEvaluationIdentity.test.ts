@@ -17,13 +17,13 @@ describe("component evaluation identity contract", () => {
   it("derives durable identities from complete semantic inputs", () => {
     const evidence = { sourceRevisionId: "revision-1", ifcContentSha256: "a".repeat(64), parserVersion: "web-ifc-0.0.77", canonicalEvidence: { profile: "c" } } as const;
     const evidenceSnapshotId = componentEvaluationIdentities.evidenceSnapshot(evidence);
-    const annotationId = componentEvaluationIdentities.annotation({ evidenceSnapshotId, authority: "user-confirmed", payload: { memberWidthM: 0.075 } });
+    const annotationId = componentEvaluationIdentities.annotation({ evidenceSnapshotId, occurrenceId: "occurrence-1", authority: "user-confirmed", payload: { memberWidthM: 0.075 } });
     const recipeId = componentEvaluationIdentities.exactRecipe({ recipe: recipe(0.075), patternId: "repeating-metal-c-profile", patternVersion: "1.0.0", compilerVersion: "compiler-1", primitiveRegistryHash: "registry-1", materialPackHash: "materials-1", runtimeHash: "runtime-1", boundaryVersion: "boundary-1" });
     const requestId = componentEvaluationIdentities.scenarioRequest({ recipeId, sourceRevisionId: "revision-1", sourceAssemblyGroupId: "assembly-1", workerBundleIdentity: "worker-1", purpose: "component-scenario" });
 
     expect({ evidenceSnapshotId, annotationId, recipeId, requestId }).toEqual({
       evidenceSnapshotId: "20e9033fe73f8691b82f922652be15a8145025a3360d7d0c774e7f1b9b7b215b",
-      annotationId: "740a55006751d5c99abfa6be9f3aca28ad29be2e363dc960050ae3c0108ac726",
+      annotationId: "4079c8c39d4129fdfcbc2c0f719fbd95c028c87a1247577ca29c08edf11d6ccb",
       recipeId: "5a89fff65afd1099b5e3c0edef09fd14e77b938c454d7ed06e15363e0fb97993",
       requestId: "c56afbabb527a13631b4317ebff923d93a463657ba3b386b38ad17a8600a696b",
     });
@@ -40,6 +40,9 @@ describe("component evaluation identity contract", () => {
     expect(() => componentEvaluationIdentities.exactRecipe({ recipe: null as never, patternId: "pattern", patternVersion: "1.0.0", compilerVersion: "compiler-1", primitiveRegistryHash: "registry-1", materialPackHash: "materials-1", runtimeHash: "runtime-1", boundaryVersion: "boundary-1" })).toThrow("Component evaluation identity input is incomplete");
     expect(() => componentEvaluationIdentities.occurrence({ evidenceSnapshotId: "evidence", opportunityId: "opportunity", elementStepIds: [] })).toThrow("Component evaluation identity input is incomplete");
     expect(() => componentEvaluationIdentities.exactRecipe({ recipe: completeRecipe, patternId: "", patternVersion: "1.0.0", compilerVersion: "compiler-1", primitiveRegistryHash: "registry-1", materialPackHash: "materials-1", runtimeHash: "runtime-1", boundaryVersion: "boundary-1" })).toThrow("Component evaluation identity input is incomplete");
+    expect(() => componentEvaluationIdentities.occurrence({ evidenceSnapshotId: "evidence", opportunityId: "opportunity", elementStepIds: "not-an-array" as never })).toThrow("Component evaluation identity input is incomplete");
+    expect(() => componentEvaluationIdentities.evaluationRun({ occurrenceId: "occurrence", matchId: "match", sourceRevisionId: "revision", recipeIds: ["", "recipe"] })).toThrow("Component evaluation identity input is incomplete");
+    expect(() => componentEvaluationIdentities.annotation({ evidenceSnapshotId: "evidence", occurrenceId: "", authority: "user-confirmed", payload: { answer: true } })).toThrow("Component evaluation identity input is incomplete");
     expect(componentEvaluationIdentities.patternMatch({ occurrenceId: "occurrence", annotationId: null, outcome: "unmatched", patternId: null, patternVersion: null })).toMatch(/^[a-f0-9]{64}$/);
   });
 

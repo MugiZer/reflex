@@ -95,6 +95,22 @@ describe("component evaluation SQLite graph", () => {
       db.close();
     });
   });
+
+  it("reloads an immutable database written with the legacy pattern node key", async () => {
+    await withDatabase(async (path) => {
+      const graph = fixture();
+      const writer = new SqliteComponentEvaluationRepository(path);
+      writer.append(graph);
+      writer.close();
+      const db = new DatabaseSync(path);
+      const patternRow = db.prepare("select record_id from component_evaluation_nodes where evaluation_id = ? and record_kind = 'pattern'").get(graph.evaluation.evaluationId) as { record_id: string };
+      db.prepare("update component_evaluation_nodes set record_id = ? where evaluation_id = ? and record_kind = 'pattern' and record_id = ?").run(`${graph.pattern!.patternId}@${graph.pattern!.version}`, graph.evaluation.evaluationId, patternRow.record_id);
+      db.close();
+      const reader = new SqliteComponentEvaluationRepository(path);
+      try { expect(reader.getByEvaluationId(graph.evaluation.evaluationId)).toEqual(graph); }
+      finally { reader.close(); }
+    });
+  });
 });
 
 async function withDatabase(run: (path: string) => Promise<void>) {

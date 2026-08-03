@@ -50,7 +50,7 @@ export const componentEvaluationIdentities = Object.freeze({
   ifcImport: (input: Readonly<{ jobId: string; sourceRevisionId: string; contentSha256: string; parserVersion: string }>) => identityContract("ifc-import", input),
   evidenceSnapshot: (input: Readonly<{ sourceRevisionId: string; ifcContentSha256: string; parserVersion: string; canonicalEvidence: JsonValue }>) => identityContract("evidence-snapshot", input),
   occurrence: (input: Readonly<{ evidenceSnapshotId: string; opportunityId: string; elementStepIds: readonly number[] }>) => identityContract("component-occurrence", input),
-  annotation: (input: Readonly<{ evidenceSnapshotId: string; occurrenceId?: string; authority: string; payload: JsonValue }>) => identityContract("component-annotation", input),
+  annotation: (input: Readonly<{ evidenceSnapshotId: string; occurrenceId: string; authority: string; payload: JsonValue }>) => identityContract("component-annotation", input),
   patternVersion: (input: Readonly<{ patternId: string; version: string; canonicalPattern: JsonValue }>) => identityContract("pattern-version", input),
   patternMatch: (input: Readonly<{ occurrenceId: string; annotationId: string | null; outcome: string; patternId: string | null; patternVersion: string | null }>) => identityContract("pattern-match", input),
   exactRecipe: (input: Readonly<{ recipe: JsonValue; patternId: string; patternVersion: string; compilerVersion: string; primitiveRegistryHash: string; materialPackHash: string; runtimeHash: string; boundaryVersion: string }>) => identityContract("exact-recipe", input),
@@ -76,7 +76,7 @@ export function exactRecipeIdentity(input: Readonly<{
 }
 
 export function evidenceSnapshotIdentity(canonicalEvidence: JsonValue): string { return identityContract("legacy-evidence-snapshot", { value: canonicalEvidence }); }
-export function annotationIdentity(input: Readonly<{ evidenceSnapshotId: string; authority: string; payload: JsonValue }>): string { return componentEvaluationIdentities.annotation(input); }
+export function annotationIdentity(input: Readonly<{ evidenceSnapshotId: string; occurrenceId: string; authority: string; payload: JsonValue }>): string { return componentEvaluationIdentities.annotation(input); }
 export function requestIdentity(input: Readonly<{ recipeId: string; sourceRevisionId: string; sourceAssemblyGroupId: string; workerBundleIdentity: string; purpose: string }>): string { return componentEvaluationIdentities.scenarioRequest(input); }
 export function resultArtifactIdentity(input: Readonly<{ requestId: string; outcome: TopologyAnalysisOutcome; payload: JsonValue; artifactSha256: string | null }>): string { return componentEvaluationIdentities.scenarioResultArtifact({ scenarioRequestId: input.requestId, workerRequestId: input.requestId, outcome: input.outcome, payload: input.payload, artifactSha256: input.artifactSha256 }); }
 export function evaluationIdentity(input: Readonly<{ occurrenceId: string; matchId: string; sourceRevisionId: string; recipeIds: readonly string[] }>): string { return componentEvaluationIdentities.evaluationRun(input); }
@@ -88,9 +88,18 @@ function identity(value: JsonValue): string {
 function identityContract(kind: string, input: unknown): string {
   const required = requiredIdentityFields[kind];
   const nullable = nullableIdentityFields[kind] ?? [];
-  const nonEmptyArrays = nonEmptyArrayIdentityFields[kind] ?? [];
-  if (!isRecord(input) || !required || required.some((field) => !(field in input)) || nonEmptyArrays.some((field) => Array.isArray(input[field]) && input[field].length === 0) || !isCompleteIdentityInput(input, new Set(nullable), true)) throw new Error("Component evaluation identity input is incomplete.");
+  const shapes = identityFieldShapes[kind];
+  if (!isRecord(input) || !required || !shapes || required.some((field) => !(field in input) || !isIdentityFieldComplete(input[field], shapes[field], new Set(nullable))) || !isCompleteIdentityInput(input, new Set(nullable), true)) throw new Error("Component evaluation identity input is incomplete.");
   return identity({ kind, input } as JsonValue);
+}
+
+type IdentityFieldShape = "string" | "nullable-string" | "json" | "number-array" | "string-array";
+function isIdentityFieldComplete(value: unknown, shape: IdentityFieldShape | undefined, nullableFields: ReadonlySet<string>): boolean {
+  if (shape === "string") return typeof value === "string" && value.trim().length > 0;
+  if (shape === "nullable-string") return value === null || (typeof value === "string" && value.trim().length > 0);
+  if (shape === "number-array") return Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "number" && Number.isInteger(item) && Number.isFinite(item));
+  if (shape === "string-array") return Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string" && item.trim().length > 0);
+  return value !== null && isCompleteIdentityInput(value, nullableFields);
 }
 
 function isCompleteIdentityInput(value: unknown, nullableFields?: ReadonlySet<string>, root = false): boolean {
@@ -123,10 +132,20 @@ const nullableIdentityFields: Readonly<Record<string, readonly string[]>> = {
   "scenario-result-artifact": ["artifactSha256"],
 };
 
-const nonEmptyArrayIdentityFields: Readonly<Record<string, readonly string[]>> = {
-  "component-occurrence": ["elementStepIds"],
-  "evaluation-run": ["recipeIds"],
-  "unresolved-occurrence-group": ["occurrenceIds"],
+const identityFieldShapes: Readonly<Record<string, Readonly<Record<string, IdentityFieldShape>>>> = {
+  "ifc-import": { jobId: "string", sourceRevisionId: "string", contentSha256: "string", parserVersion: "string" },
+  "evidence-snapshot": { sourceRevisionId: "string", ifcContentSha256: "string", parserVersion: "string", canonicalEvidence: "json" },
+  "component-occurrence": { evidenceSnapshotId: "string", opportunityId: "string", elementStepIds: "number-array" },
+  "component-annotation": { evidenceSnapshotId: "string", occurrenceId: "string", authority: "string", payload: "json" },
+  "pattern-version": { patternId: "string", version: "string", canonicalPattern: "json" },
+  "pattern-match": { occurrenceId: "string", annotationId: "nullable-string", outcome: "string", patternId: "nullable-string", patternVersion: "nullable-string" },
+  "exact-recipe": { recipe: "json", patternId: "string", patternVersion: "string", compilerVersion: "string", primitiveRegistryHash: "string", materialPackHash: "string", runtimeHash: "string", boundaryVersion: "string" },
+  "scenario-request": { recipeId: "string", sourceRevisionId: "string", sourceAssemblyGroupId: "string", workerBundleIdentity: "string", purpose: "string" },
+  "scenario-result-artifact": { scenarioRequestId: "string", workerRequestId: "string", outcome: "string", payload: "json", artifactSha256: "nullable-string" },
+  "evaluation-run": { occurrenceId: "string", matchId: "string", sourceRevisionId: "string", recipeIds: "string-array" },
+  "evaluation-aggregate": { evaluationId: "string", outcome: "string", payload: "json" },
+  "unresolved-occurrence-group": { evidenceSignature: "string", occurrenceIds: "string-array" },
+  "legacy-evidence-snapshot": { value: "json" },
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
