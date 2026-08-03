@@ -1,7 +1,4 @@
-import { createHash } from "node:crypto";
-
-import { canonicalTopologyJson } from "./canonicalTopologyJson.js";
-import type { ComponentEvaluationGraph, EvaluationAggregateRecord } from "./componentEvaluationRecords.js";
+import { componentEvaluationIdentities, type ComponentEvaluationGraph, type EvaluationAggregateRecord } from "./componentEvaluationRecords.js";
 import type { JsonValue } from "./topologyTypes.js";
 
 type AggregatePolicy = Readonly<{ screeningThresholdWPerM2K: number | null; immaterialityGateWPerM2K: number }>;
@@ -36,8 +33,7 @@ export function deriveComponentEvaluationAggregate(graph: ComponentEvaluationGra
     gateInputs: { screeningThresholdWPerM2K: policy.screeningThresholdWPerM2K, immaterialityGateWPerM2K: policy.immaterialityGateWPerM2K, rangeWidthWPerM2K: width, worstCredibleUValueWPerM2K: max },
     scenarioLineage: lineage as unknown as JsonValue,
   };
-  return { aggregateId: sha256(canonicalTopologyJson({ evaluationId: graph.evaluation.evaluationId, outcome, payload })), evaluationId: graph.evaluation.evaluationId, outcome, payload, createdAt: graph.evaluation.createdAt };
+  return { aggregateId: componentEvaluationIdentities.aggregate({ evaluationId: graph.evaluation.evaluationId, outcome, payload }), evaluationId: graph.evaluation.evaluationId, outcome, payload, createdAt: graph.evaluation.createdAt };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
-function sha256(value: string): string { return createHash("sha256").update(value).digest("hex"); }

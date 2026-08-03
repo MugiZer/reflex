@@ -45,6 +45,22 @@ export interface ComponentEvaluationRepository {
   close(): void;
 }
 
+/** The sole deterministic identity authority for immutable component-evaluation records. */
+export const componentEvaluationIdentities = Object.freeze({
+  ifcImport: (input: Readonly<{ jobId: string; sourceRevisionId: string; contentSha256: string; parserVersion: string }>) => identityContract("ifc-import", input),
+  evidenceSnapshot: (input: Readonly<{ sourceRevisionId: string; ifcContentSha256: string; parserVersion: string; canonicalEvidence: JsonValue }>) => identityContract("evidence-snapshot", input),
+  occurrence: (input: Readonly<{ evidenceSnapshotId: string; opportunityId: string; elementStepIds: readonly number[] }>) => identityContract("component-occurrence", input),
+  annotation: (input: Readonly<{ evidenceSnapshotId: string; occurrenceId?: string; authority: string; payload: JsonValue }>) => identityContract("component-annotation", input),
+  patternVersion: (input: Readonly<{ patternId: string; version: string; canonicalPattern: JsonValue }>) => identityContract("pattern-version", input),
+  patternMatch: (input: Readonly<{ occurrenceId: string; annotationId: string | null; outcome: string; patternId: string | null; patternVersion: string | null }>) => identityContract("pattern-match", input),
+  exactRecipe: (input: Readonly<{ recipe: JsonValue; patternId: string; patternVersion: string; compilerVersion: string; primitiveRegistryHash: string; materialPackHash: string; runtimeHash: string; boundaryVersion: string }>) => identityContract("exact-recipe", input),
+  scenarioRequest: (input: Readonly<{ recipeId: string; sourceRevisionId: string; sourceAssemblyGroupId: string; workerBundleIdentity: string; purpose: string }>) => identityContract("scenario-request", input),
+  scenarioResultArtifact: (input: Readonly<{ scenarioRequestId: string; workerRequestId: string; outcome: TopologyAnalysisOutcome; payload: JsonValue; artifactSha256: string | null }>) => identityContract("scenario-result-artifact", input),
+  evaluationRun: (input: Readonly<{ occurrenceId: string; matchId: string; sourceRevisionId: string; recipeIds: readonly string[] }>) => identityContract("evaluation-run", input),
+  aggregate: (input: Readonly<{ evaluationId: string; outcome: string; payload: JsonValue }>) => identityContract("evaluation-aggregate", input),
+  unresolvedGroup: (input: Readonly<{ evidenceSignature: string; occurrenceIds: readonly string[] }>) => identityContract("unresolved-occurrence-group", input),
+});
+
 /** Hash inputs are explicit: adding or changing any semantic version changes the exact Recipe identity. */
 export function exactRecipeIdentity(input: Readonly<{
   recipe: JsonValue;
@@ -56,15 +72,46 @@ export function exactRecipeIdentity(input: Readonly<{
   runtimeHash: string;
   boundaryVersion: string;
 }>): string {
-  return identity(input as unknown as JsonValue);
+  return componentEvaluationIdentities.exactRecipe(input);
 }
 
-export function evidenceSnapshotIdentity(canonicalEvidence: JsonValue): string { return identity(canonicalEvidence); }
-export function annotationIdentity(input: Readonly<{ evidenceSnapshotId: string; authority: string; payload: JsonValue }>): string { return identity(input as unknown as JsonValue); }
-export function requestIdentity(input: Readonly<{ recipeId: string; sourceRevisionId: string; sourceAssemblyGroupId: string }>): string { return identity(input as unknown as JsonValue); }
-export function resultArtifactIdentity(input: Readonly<{ requestId: string; outcome: TopologyAnalysisOutcome; payload: JsonValue; artifactSha256: string | null }>): string { return identity(input as unknown as JsonValue); }
-export function evaluationIdentity(input: Readonly<{ occurrenceId: string; matchId: string; recipeIds: readonly string[] }>): string { return identity(input as unknown as JsonValue); }
+export function evidenceSnapshotIdentity(canonicalEvidence: JsonValue): string { return identityContract("legacy-evidence-snapshot", { value: canonicalEvidence }); }
+export function annotationIdentity(input: Readonly<{ evidenceSnapshotId: string; authority: string; payload: JsonValue }>): string { return componentEvaluationIdentities.annotation(input); }
+export function requestIdentity(input: Readonly<{ recipeId: string; sourceRevisionId: string; sourceAssemblyGroupId: string; workerBundleIdentity: string; purpose: string }>): string { return componentEvaluationIdentities.scenarioRequest(input); }
+export function resultArtifactIdentity(input: Readonly<{ requestId: string; outcome: TopologyAnalysisOutcome; payload: JsonValue; artifactSha256: string | null }>): string { return componentEvaluationIdentities.scenarioResultArtifact({ scenarioRequestId: input.requestId, workerRequestId: input.requestId, outcome: input.outcome, payload: input.payload, artifactSha256: input.artifactSha256 }); }
+export function evaluationIdentity(input: Readonly<{ occurrenceId: string; matchId: string; sourceRevisionId: string; recipeIds: readonly string[] }>): string { return componentEvaluationIdentities.evaluationRun(input); }
 
 function identity(value: JsonValue): string {
   return createHash("sha256").update(canonicalTopologyJson(value)).digest("hex");
 }
+
+function identityContract(kind: string, input: unknown): string {
+  const required = requiredIdentityFields[kind];
+  if (!isRecord(input) || !required || required.some((field) => !(field in input)) || !isCompleteIdentityInput(input)) throw new Error("Component evaluation identity input is incomplete.");
+  return identity({ kind, input } as JsonValue);
+}
+
+function isCompleteIdentityInput(value: unknown): boolean {
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "number" || typeof value === "boolean" || value === null) return true;
+  if (Array.isArray(value)) return value.every(isCompleteIdentityInput);
+  return isRecord(value) && Object.keys(value).length > 0 && Object.values(value).every((item) => item !== undefined && isCompleteIdentityInput(item));
+}
+
+const requiredIdentityFields: Readonly<Record<string, readonly string[]>> = {
+  "ifc-import": ["jobId", "sourceRevisionId", "contentSha256", "parserVersion"],
+  "evidence-snapshot": ["sourceRevisionId", "ifcContentSha256", "parserVersion", "canonicalEvidence"],
+  "component-occurrence": ["evidenceSnapshotId", "opportunityId", "elementStepIds"],
+  "component-annotation": ["evidenceSnapshotId", "authority", "payload"],
+  "pattern-version": ["patternId", "version", "canonicalPattern"],
+  "pattern-match": ["occurrenceId", "annotationId", "outcome", "patternId", "patternVersion"],
+  "exact-recipe": ["recipe", "patternId", "patternVersion", "compilerVersion", "primitiveRegistryHash", "materialPackHash", "runtimeHash", "boundaryVersion"],
+  "scenario-request": ["recipeId", "sourceRevisionId", "sourceAssemblyGroupId", "workerBundleIdentity", "purpose"],
+  "scenario-result-artifact": ["scenarioRequestId", "workerRequestId", "outcome", "payload", "artifactSha256"],
+  "evaluation-run": ["occurrenceId", "matchId", "sourceRevisionId", "recipeIds"],
+  "evaluation-aggregate": ["evaluationId", "outcome", "payload"],
+  "unresolved-occurrence-group": ["evidenceSignature", "occurrenceIds"],
+  "legacy-evidence-snapshot": ["value"],
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
