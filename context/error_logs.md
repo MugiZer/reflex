@@ -121,7 +121,7 @@ Remediation recorded 2026-08-03:
 - Field-specific shape checks now reject wrong-shaped arrays/strings and require annotation occurrence ownership; nullable fields remain explicit rather than universal.
 - SQLite pattern nodes now use `componentEvaluationIdentities.patternVersion(...)`; the alternate `${patternId}@${version}` key is covered by a regression assertion.
 - SQLite reads retain a named legacy-key compatibility path for immutable databases written before the migration; new writes never emit the legacy formula.
-- A localhost public-seam proof now covers concurrent duplicate submission, fresh restart equality, and promoted append-only replay. The focused identity/SQLite/localhost suite passes 14/14, and the real duplicate/replay HTTP tests pass 2/2; `npm run typecheck` passes.
+- A localhost public-seam proof now covers concurrent duplicate submission, fresh restart equality, and promoted append-only replay. The focused identity/SQLite/localhost suite passes 15/15, and the real duplicate/replay HTTP tests pass 2/2; `npm run typecheck` passes.
 
 Gate status remains NO-GO until the complete authoritative tracer (including pinned-worker success, publication, corruption, and protected-state evidence) produces its bounded attributable artifact; focused green tests are remediation evidence, not a substituted P5 gate.
 
