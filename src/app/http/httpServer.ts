@@ -267,7 +267,7 @@ async function safeComponentEvaluations(componentEvaluations: ComponentEvaluatio
     const evaluations = componentEvaluations.listByJobId(jobId);
     for (const graph of evaluations) for (const result of graph.results) if (result.outcome === "preliminary-unsafe") await integrity.verifyPersistedResult(result.resultPayload as unknown as import("../../domain/topology/topologyTypes.js").TopologyResult);
     return { evaluations, diagnostic: null };
-  } catch { return { evaluations: [], diagnostic: "Persisted component evaluation evidence failed integrity validation; no topology value is available." }; }
+  } catch { return { evaluations: [], diagnostic: "component_evaluation_corrupted: persisted component evaluation evidence failed integrity validation; no topology value is available." }; }
 }
 
 function renderComponentEvaluation(graph: import("../../domain/topology/componentEvaluationRecords.js").ComponentEvaluationGraph): string {

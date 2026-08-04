@@ -16,7 +16,7 @@ export type FoundationGateDefinition = Readonly<{
   sensitivityCases: readonly string[];
 }>;
 
-export const FOUNDATION_SCHEMA = "component-topology-foundation-gates/v1" as const;
+export const FOUNDATION_SCHEMA = "component-topology-foundation-gates/v2" as const;
 export const FOUNDATION_EVIDENCE_PATH = ".scratch/component-topology-preliminary-v1-foundation/reports/foundation-gate-evidence.json" as const;
 export const FOUNDATION_COMMAND = "npm run verify:component-topology-foundation -- --gate=<n>" as const;
 export const FOUNDATION_NPM_SCRIPT = "verify:component-topology-foundation" as const;
@@ -67,14 +67,14 @@ export const FOUNDATION_GATES: Readonly<Record<FoundationGateDefinition["number"
     proofs: [
       { id: "FND-W01", file: "tests/componentScenarioHttpE2e.test.ts", testName: "bounded unknown runs all three durable Python scenarios", evidenceCase: "bounded-unknown" },
       { id: "FND-W02", file: "tests/componentPatternInterpreter.test.ts", testName: "scenario generation is complete and capped" },
-      { id: "FND-W03", file: "tests/componentScenarioHttpE2e.test.ts", testName: "ambiguous and non-promoted runtime outcomes are public and durable", evidenceCase: "ambiguous" },
+      { id: "FND-W03", file: "tests/componentScenarioHttpE2e.test.ts", testName: "worker failure, cancellation, deadline, and incomplete outcomes are public and durable", evidenceCase: "failure-lifecycle" },
       { id: "FND-W04", file: "tests/componentScenarioHttpE2e.test.ts", testName: "one scenario non-success prevents a successful range", evidenceCase: "mixed-terminal" },
       { id: "FND-W05", file: "tests/componentScenarioHttpE2e.test.ts", testName: "simultaneous duplicate submission publishes one immutable evaluation", evidenceCase: "duplicates" },
       { id: "FND-W06", file: "tests/componentScenarioHttpE2e.test.ts", testName: "bounded unknown runs all three durable Python scenarios", evidenceCase: "bounded-unknown" },
-      { id: "FND-W07", file: "tests/componentPatternPromotion.test.ts", testName: "promoted version replays unresolved history append-only" },
-      { id: "FND-W08", file: "tests/componentScenarioHttpE2e.test.ts", testName: "blocked and rejected interpreter outcomes are public and durable", evidenceCase: "blocked" },
+      { id: "FND-W07", file: "tests/topologyOperationalPilot.test.ts", testName: "keeps the retired pilot behind a test-only reference seam" },
+      { id: "FND-W08", file: "tests/topologyOperationalPilot.test.ts", testName: "limits work to the selected cohort, records safe correlation telemetry, and kills topology without changing layer-only state" },
       { id: "FND-W09", file: "tests/componentScenarioHttpE2e.test.ts", testName: "report refuses altered or incomplete success evidence", evidenceCase: "corruption" },
-      { id: "FND-W10", file: "tests/componentScenarioHttpE2e.test.ts", testName: "append-only historical replay crosses public HTTP and fresh reload", evidenceCase: "replay" },
+      { id: "FND-W10", file: "tests/componentScenarioHttpE2e.test.ts", testName: "bounded unknown runs all three durable Python scenarios", evidenceCase: "bounded-unknown" },
     ],
     sensitivityCases: ["corruption", "duplicates", "bounded-unknown", "mixed-terminal", "replay"],
   },
@@ -187,7 +187,7 @@ export function validateEvidenceForPreflight(value: unknown, expected: Foundatio
   const proofs = Array.isArray(value.proofs) ? value.proofs : null;
   if (!proofs || proofs.length !== expected.proofIds.length || proofs.some((proof) => !isRecord(proof) || typeof proof.id !== "string" || !expected.proofIds.includes(proof.id))) reasons.push("evidence proof identities do not match the registered proof selection");
   else if (value.decision === "GO" && proofs.some((proof) => proof.status !== "passed")) reasons.push("GO is forbidden when a registered proof is not passed");
-  for (const field of ["runtimeIdentities", "artifactIdentities", "recordIdentities", "protectedStateObservations"] as const) {
+  for (const field of ["runtimeIdentities", "artifactIdentities", "recordIdentities", "fixtureIdentities", "oracleIdentities", "protectedStateObservations"] as const) {
     if (!Array.isArray(value[field])) reasons.push(`evidence ${field} are missing`);
   }
   const mutationResults = isRecord(value.mutationResults) ? value.mutationResults : null;

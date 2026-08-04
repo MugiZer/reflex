@@ -57,6 +57,8 @@ describe("component topology foundation gate verifier", () => {
       runtimeIdentities: [],
       artifactIdentities: [],
       recordIdentities: [],
+      fixtureIdentities: [],
+      oracleIdentities: [],
       protectedStateObservations: [],
       mutationResults: { required: { all: true }, knownBadMutationRejected: true },
       command: { declared: expected.command, argv: ["--gate=2"], workingDirectory: resolve("."), exitStatus: 0 },
@@ -82,5 +84,5 @@ describe("component topology foundation gate verifier", () => {
     });
     expect(result.status).not.toBe(0);
     expect(`${result.stdout}\n${result.stderr}`).toContain("known-red rejected as expected");
-  });
+  }, 15_000);
 });

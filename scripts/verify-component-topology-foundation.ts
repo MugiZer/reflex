@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { performance } from "node:perf_hooks";
 
 import {
@@ -143,6 +143,8 @@ async function main(selectedGate: FoundationGateDefinition): Promise<void> {
     runtimeIdentities: collectRuntimeIdentities(runner.caseEvidence),
     artifactIdentities: collectArtifactIdentities(runner.caseEvidence),
     recordIdentities: collectRecordIdentities(runner.caseEvidence),
+    fixtureIdentities: collectFixtureIdentities(runner.caseEvidence),
+    oracleIdentities: collectOracleIdentities(runner.caseEvidence),
     protectedStateObservations,
     mutationResults: {
       sensitivity,
@@ -277,8 +279,11 @@ function evaluateProofs(selectedGate: FoundationGateDefinition, report: VitestRe
 function validCaseEvidence(caseId: string, evidence: CaseEvidence | null): boolean {
   if (!evidence || evidence.caseId !== caseId) return false;
   if (evidence.freshReloadOutcome === "not-applicable") return false;
-  if (["exact-known", "bounded-unknown", "material-range", "duplicates", "corruption", "conservative-range"].includes(caseId)) {
+  if (["exact-known", "bounded-unknown", "material-range", "duplicates", "corruption", "conservative-range", "failure-lifecycle"].includes(caseId)) {
     if (!isRecord(evidence.recordIdentities) || !isRecord(evidence.workerInvocation) || !Array.isArray(evidence.artifactHashes)) return false;
+  }
+  if (["exact-known", "bounded-unknown", "material-range", "duplicates", "corruption", "conservative-range", "failure-lifecycle"].includes(caseId)) {
+    if (!fixtureIdentityMatchesWorkspace(evidence.fixtureIdentity) || !oracleIdentityMatchesWorkspace(evidence.oracleIdentity)) return false;
   }
   if (["bounded-unknown", "mixed-terminal"].includes(caseId)) {
     if (!validProtectedState(evidence)) return false;
@@ -287,7 +292,44 @@ function validCaseEvidence(caseId: string, evidence: CaseEvidence | null): boole
   if (caseId === "corruption" && evidence.failClosed !== true) return false;
   if (caseId === "mixed-terminal" && evidence.aggregateRange !== false) return false;
   if (caseId === "replay" && (evidence.evaluationCount !== 2 || evidence.originalRetained !== true)) return false;
+  if (caseId === "failure-lifecycle" && (!Array.isArray(evidence.lifecycle) || evidence.lifecycle.length !== 4 || evidence.lifecycle.some((item: unknown) => !isRecord(item) || typeof item.id !== "string" || typeof item.outcome !== "string" || typeof item.errorCode !== "string" || item.reloaded !== true))) return false;
   return true;
+}
+
+function validFixtureIdentity(value: unknown): boolean {
+  return isRecord(value) && typeof value.fixtureId === "string" && typeof value.path === "string" && /^[a-f0-9]{64}$/.test(String(value.sha256));
+}
+
+function validOracleIdentity(value: unknown): boolean {
+  return isRecord(value) && typeof value.oracleId === "string" && typeof value.path === "string" && /^[a-f0-9]{64}$/.test(String(value.sha256));
+}
+
+function fixtureIdentityMatchesWorkspace(value: unknown): boolean {
+  if (!validFixtureIdentity(value)) return false;
+  const identity = value as Record<string, unknown>;
+  const path = safeWorkspacePath(identity.path);
+  return path !== null && basename(path) === identity.fixtureId && sha256File(path) === identity.sha256;
+}
+
+function oracleIdentityMatchesWorkspace(value: unknown): boolean {
+  if (!validOracleIdentity(value)) return false;
+  const identity = value as Record<string, unknown>;
+  const path = safeWorkspacePath(identity.path);
+  if (!path || sha256File(path) !== identity.sha256) return false;
+  try {
+    return JSON.parse(readFileSync(path, "utf8")).oracleId === identity.oracleId;
+  } catch {
+    return false;
+  }
+}
+
+function safeWorkspacePath(value: unknown): string | null {
+  if (typeof value !== "string" || value.includes("\0")) return null;
+  const normalized = value.replaceAll("\\", "/");
+  if (normalized.startsWith("/") || normalized.split("/").includes("..")) return null;
+  const resolved = resolve(root, normalized);
+  const rootPrefix = root.endsWith(sep) ? root : `${root}${sep}`;
+  return resolved === root || resolved.startsWith(rootPrefix) ? resolved : null;
 }
 
 function sensitivityPassed(caseId: string, evidence: CaseEvidence | undefined, protectedStateObservations: readonly any[]): boolean {
@@ -387,6 +429,14 @@ function collectArtifactIdentities(evidence: ReadonlyMap<string, CaseEvidence>):
 
 function collectRecordIdentities(evidence: ReadonlyMap<string, CaseEvidence>): any[] {
   return [...evidence.values()].flatMap((row) => isRecord(row.recordIdentities) ? [{ caseId: row.caseId, identities: row.recordIdentities }] : []);
+}
+
+function collectFixtureIdentities(evidence: ReadonlyMap<string, CaseEvidence>): any[] {
+  return [...evidence.values()].flatMap((row) => fixtureIdentityMatchesWorkspace(row.fixtureIdentity) ? [{ caseId: row.caseId, identity: row.fixtureIdentity }] : []);
+}
+
+function collectOracleIdentities(evidence: ReadonlyMap<string, CaseEvidence>): any[] {
+  return [...evidence.values()].flatMap((row) => oracleIdentityMatchesWorkspace(row.oracleIdentity) ? [{ caseId: row.caseId, identity: row.oracleIdentity }] : []);
 }
 
 function collectWorkspaceIdentity(directory: string): WorkspaceIdentity {
