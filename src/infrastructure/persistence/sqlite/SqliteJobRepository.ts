@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import type { ClosableJobRepository, JobUpdate } from "../../../domain/jobs/jobRepository.js";
-import type { JobRecord, JobReviewState, JobStatus, JobSummary, JobTopologyReview } from "../../../domain/jobs/jobTypes.js";
+import type { JobRecord, JobReviewState, JobStatus, JobSummary, JobTopologyReview, TopologyPilotRun, TopologyPilotEvent } from "../../../domain/jobs/jobTypes.js";
 import { canonicalTopologyJson } from "../../../domain/topology/canonicalTopologyJson.js";
 import { isValidTopologyRecipeHash, requireCompleteTopologyResult } from "../../../domain/topology/topologyResultValidation.js";
 
@@ -61,6 +61,17 @@ export class SqliteJobRepository implements ClosableJobRepository {
         foreign key(job_id) references jobs(job_id)
       );
       create index if not exists job_topology_reviews_by_job on job_topology_reviews(job_id, created_at);
+      create table if not exists topology_pilot_runs (
+        pilot_run_id text primary key, job_id text not null, idempotency_key text not null,
+        payload_json text not null, created_at text not null, foreign key(job_id) references jobs(job_id),
+        unique(job_id, idempotency_key)
+      );
+      create index if not exists topology_pilot_runs_by_job on topology_pilot_runs(job_id, created_at);
+      create table if not exists topology_pilot_events (
+        event_id text primary key, job_id text not null, payload_hash text not null,
+        payload_json text not null, created_at text not null, foreign key(job_id) references jobs(job_id)
+      );
+      create index if not exists topology_pilot_events_by_job on topology_pilot_events(job_id, created_at);
     `);
     this.ensureTopologyReviewColumns();
   }
@@ -187,6 +198,33 @@ export class SqliteJobRepository implements ClosableJobRepository {
     const row = this.db.prepare("select job_id, source_revision_id, source_assembly_group_id, opportunity_id, construction_signature, idempotency_key, recipe_hash, request_id, bundle_json, payload_json from job_topology_reviews where job_id = ? and idempotency_key = ?").get(jobId, idempotencyKey) as PersistedTopologyReviewRow | undefined;
     return row ? parseTopologyReview(row.payload_json, row) : null;
   }
+
+  saveTopologyPilotRun(run: TopologyPilotRun): void {
+    this.db.prepare("insert into topology_pilot_runs (pilot_run_id, job_id, idempotency_key, payload_json, created_at) values (?, ?, ?, ?, ?)").run(run.pilotRunId, run.jobId, run.idempotencyKey, JSON.stringify(run), run.createdAt);
+  }
+
+  listTopologyPilotRuns(jobId: string): TopologyPilotRun[] {
+    return (this.db.prepare("select payload_json from topology_pilot_runs where job_id = ? order by created_at asc").all(jobId) as Array<{ payload_json: string }>).map((row) => parsePilotRun(row.payload_json));
+  }
+
+  getTopologyPilotRunByIdempotencyKey(jobId: string, idempotencyKey: string): TopologyPilotRun | null {
+    const row = this.db.prepare("select payload_json from topology_pilot_runs where job_id = ? and idempotency_key = ?").get(jobId, idempotencyKey) as { payload_json: string } | undefined;
+    return row ? parsePilotRun(row.payload_json) : null;
+  }
+
+  saveTopologyPilotEvent(event: TopologyPilotEvent): void {
+    const payload = JSON.stringify(event);
+    const existing = this.db.prepare("select payload_json from topology_pilot_events where event_id = ?").get(event.eventId) as { payload_json: string } | undefined;
+    if (existing) {
+      if (existing.payload_json !== payload) throw new Error("Topology pilot event identity conflict.");
+      return;
+    }
+    this.db.prepare("insert into topology_pilot_events (event_id, job_id, payload_hash, payload_json, created_at) values (?, ?, ?, ?, ?)").run(event.eventId, event.jobId, event.payloadHash, payload, event.createdAt);
+  }
+
+  listTopologyPilotEvents(jobId: string): TopologyPilotEvent[] {
+    return (this.db.prepare("select payload_json from topology_pilot_events where job_id = ? order by created_at asc").all(jobId) as Array<{ payload_json: string }>).map((row) => parsePilotEvent(row.payload_json));
+  }
 }
 
 type PersistedTopologyReviewRow = { job_id: string; source_revision_id: string; source_assembly_group_id: string; opportunity_id: string; construction_signature: string; idempotency_key: string; recipe_hash: string | null; request_id: string | null; bundle_json: string | null; payload_json: string };
@@ -213,6 +251,20 @@ function parseTopologyReview(payload: string, row: PersistedTopologyReviewRow): 
 
 function isAnswers(value: unknown): value is JobTopologyReview["answers"] {
   return typeof value === "object" && value !== null && !Array.isArray(value) && Object.values(value).every((answer) => typeof answer === "string" || typeof answer === "number" || typeof answer === "boolean" || answer === null);
+}
+
+function parsePilotRun(payload: string): TopologyPilotRun {
+  let value: Partial<TopologyPilotRun>;
+  try { value = JSON.parse(payload) as Partial<TopologyPilotRun>; } catch { throw new Error("Persisted topology pilot run is corrupt."); }
+  if (!value || typeof value.pilotRunId !== "string" || typeof value.idempotencyKey !== "string" || typeof value.jobId !== "string" || typeof value.sourceRevisionId !== "string" || typeof value.sourceAssemblyGroupId !== "string" || typeof value.opportunityId !== "string" || !["disabled", "cohort-excluded", "killed", "failed", "cancelled", "completed"].includes(value.disposition ?? "") || !value.policy || typeof value.policy.decisionId !== "string" || typeof value.policy.policyHash !== "string" || value.errorCode !== null && typeof value.errorCode !== "string" || typeof value.createdAt !== "string") throw new Error("Persisted topology pilot run is corrupt.");
+  return value as TopologyPilotRun;
+}
+
+function parsePilotEvent(payload: string): TopologyPilotEvent {
+  let value: Partial<TopologyPilotEvent>;
+  try { value = JSON.parse(payload) as Partial<TopologyPilotEvent>; } catch { throw new Error("Persisted topology pilot event is corrupt."); }
+  if (!value || typeof value.eventId !== "string" || typeof value.eventType !== "string" || typeof value.runId !== "string" || typeof value.jobId !== "string" || typeof value.sourceRevisionId !== "string" || typeof value.sourceAssemblyGroupId !== "string" || typeof value.correlationId !== "string" || typeof value.code !== "string" || !/^[a-f0-9]{64}$/.test(value.payloadHash ?? "") || typeof value.createdAt !== "string") throw new Error("Persisted topology pilot event is corrupt.");
+  return value as TopologyPilotEvent;
 }
 
 function mapJobRow(row: JobRow): JobRecord {

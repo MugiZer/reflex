@@ -1,17 +1,18 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import type { JobRepository } from "../../domain/jobs/jobRepository.js";
-import type { JobTopologyReview } from "../../domain/jobs/jobTypes.js";
+import type { JobTopologyReview, TopologyPilotEvent, TopologyPilotRun } from "../../domain/jobs/jobTypes.js";
 import { assemblyGroupIdForEvidence } from "../../domain/review/reviewGrouping.js";
 import { canonicalTopologyJson } from "../../domain/topology/canonicalTopologyJson.js";
 import { detectIfcTopologyOpportunities, topologyMaterialId, type TopologyReviewAnswer } from "../../domain/topology/ifcTopologyOpportunity.js";
 import type { JsonValue, TopologyBundleIdentity } from "../../domain/topology/topologyTypes.js";
+import { decideTopologyPilotPolicy, defaultTopologyPilotPolicy, type TopologyPilotDecision, type TopologyPilotPolicy } from "../../domain/topology/topologyPilotPolicy.js";
 import { submitIfcTopologyConfirmation, type TopologyAnalysisRequestService } from "./submitIfcTopologyConfirmation.js";
 import type { TopologyReviewEvidenceLoader } from "./topologyReviewEvidence.js";
 import { requireCompleteTopologyResult } from "../../domain/topology/topologyResultValidation.js";
 import { interpretComponentPattern, type ComponentPattern } from "../../domain/topology/componentPatternInterpreter.js";
 import { REPEATING_C_PROFILE_PATTERN } from "../../domain/topology/patterns/repeatingCProfilePattern.js";
-import { resultArtifactIdentity, type ComponentEvaluationGraph } from "../../domain/topology/componentEvaluationRecords.js";
+import { componentEvaluationIdentities, type ComponentEvaluationGraph, type ComponentEvaluationRepository } from "../../domain/topology/componentEvaluationRecords.js";
 import { deriveComponentEvaluationAggregate } from "../../domain/topology/componentEvaluationAggregate.js";
 
 /** Loads immutable Job evidence, validates ownership, and persists optional topology enrichment. */
@@ -19,6 +20,7 @@ export async function submitJobTopologyReview(command: {
   jobId: string;
   body: unknown;
   jobs: JobRepository;
+  componentEvaluations: ComponentEvaluationRepository;
   evidence: TopologyReviewEvidenceLoader;
   requests: TopologyAnalysisRequestService;
   bundle: TopologyBundleIdentity;
@@ -26,7 +28,9 @@ export async function submitJobTopologyReview(command: {
   cancellationSignal?: AbortSignal;
   componentPatterns?: readonly ComponentPattern[];
   screeningThresholdWPerM2K?: number | null;
-}): Promise<JobTopologyReview | ComponentEvaluationGraph> {
+  topologyPilotEnabled?: boolean;
+  topologyPilotPolicy?: TopologyPilotPolicy;
+}): Promise<JobTopologyReview | TopologyPilotRun | ComponentEvaluationGraph> {
   const job = command.jobs.getJob(command.jobId);
   if (!job) throw new Error("Job not found.");
   const parsed = parseSubmission(command.body);
@@ -50,8 +54,17 @@ export async function submitJobTopologyReview(command: {
   const snapshot = revision.calculationSnapshots.find((item) => item.assemblyGroupId === submission.sourceAssemblyGroupId);
   if (!snapshot) return saveRejected(command, submission, "missing_layer_only_snapshot");
   const layerOnlySnapshot = JSON.parse(JSON.stringify(snapshot)) as JsonValue;
+  const policy = command.topologyPilotPolicy ?? { ...defaultTopologyPilotPolicy(command.bundle), enabled: command.topologyPilotEnabled ?? true };
+  const decision = decideTopologyPilotPolicy({ policy, jobId: command.jobId, sourceRevisionId: job.activeRevisionId, sourceAssemblyGroupId: submission.sourceAssemblyGroupId, opportunityId: opportunity.opportunityId });
+  if (decision.disposition !== "eligible") return savePilotRun(command, submission, opportunity, decision as PolicyExclusionDecision, decision.disposition as PolicyExclusionDecision["disposition"], decision.decisionCode);
   const component = recordComponentInterpretation({ command, job, submission, evidence, opportunity, revisionCreatedAt: revision.createdAt });
-  if (component?.interpretation.outcome === "matched") return await executeComponentScenarios({ command, graph: component.graph, plan: bindIfcLayers(component.interpretation.plan, opportunity, layerOnlySnapshot), layerOnlySnapshot });
+  if (component?.interpretation.outcome === "matched") {
+    const evaluation = await executeComponentScenarios({ command, graph: component.graph, plan: bindIfcLayers(component.interpretation.plan, opportunity, layerOnlySnapshot), layerOnlySnapshot, retryPolicy: policy.retry });
+    const failed = evaluation.results.find((result) => result.outcome !== "preliminary-unsafe");
+    if (failed) savePilotRun(command, submission, opportunity, decision, failed.outcome === "cancelled" ? "cancelled" : "failed", resultErrorCode(failed.resultPayload));
+    else savePilotRun(command, submission, opportunity, decision, "completed", null);
+    return evaluation;
+  }
   const idempotencyKey = sha256(canonicalTopologyJson({ jobId: command.jobId, sourceRevisionId: job.activeRevisionId, sourceAssemblyGroupId: submission.sourceAssemblyGroupId, opportunityId: opportunity.opportunityId, signature: opportunity.thermalConstructionSignature, answers: submission.answers }));
   const existing = command.jobs.getTopologyReviewByIdempotencyKey(command.jobId, idempotencyKey);
   if (existing) return existing;
@@ -71,14 +84,30 @@ export async function submitJobTopologyReview(command: {
   }
 }
 
+function savePilotRun(command: { jobId: string; jobs: JobRepository }, submission: TopologyReviewSubmission, opportunity: ReturnType<typeof detectIfcTopologyOpportunities>[number], policy: TopologyPilotDecision, disposition: TopologyPilotRun["disposition"], errorCode: string | null): TopologyPilotRun {
+  const idempotencyKey = sha256(canonicalTopologyJson({ jobId: command.jobId, sourceRevisionId: submission.sourceRevisionId, sourceAssemblyGroupId: submission.sourceAssemblyGroupId, opportunityId: opportunity.opportunityId, signature: opportunity.thermalConstructionSignature, answers: submission.answers, decisionId: policy.decisionId }));
+  const existing = command.jobs.getTopologyPilotRunByIdempotencyKey(command.jobId, idempotencyKey);
+  if (existing) return existing;
+  const run: TopologyPilotRun = { pilotRunId: `toprun_${randomUUID()}`, idempotencyKey, jobId: command.jobId, sourceRevisionId: submission.sourceRevisionId, sourceAssemblyGroupId: submission.sourceAssemblyGroupId, opportunityId: opportunity.opportunityId, disposition, policy, errorCode, createdAt: new Date().toISOString() };
+  try {
+    command.jobs.saveTopologyPilotRun(run);
+    if (command.jobs.saveTopologyPilotEvent) {
+      const eventPayload = { disposition, errorCode, policyHash: policy.policyHash };
+      const event: TopologyPilotEvent = { eventId: sha256(canonicalTopologyJson({ runId: run.pilotRunId, eventType: "pilot.run.persisted", eventPayload })), eventType: "pilot.run.persisted", runId: run.pilotRunId, jobId: run.jobId, sourceRevisionId: run.sourceRevisionId, sourceAssemblyGroupId: run.sourceAssemblyGroupId, correlationId: policy.decisionId, code: errorCode ?? policy.decisionCode, payloadHash: sha256(canonicalTopologyJson(eventPayload)), createdAt: run.createdAt };
+      command.jobs.saveTopologyPilotEvent(event);
+    }
+    return run;
+  } catch { return command.jobs.getTopologyPilotRunByIdempotencyKey(command.jobId, idempotencyKey) ?? (() => { throw new Error("Unable to persist topology pilot disposition."); })(); }
+}
+
 function recordComponentInterpretation(input: { command: Parameters<typeof submitJobTopologyReview>[0]; job: NonNullable<ReturnType<JobRepository["getJob"]>>; submission: TopologyReviewSubmission; evidence: readonly unknown[]; opportunity: ReturnType<typeof detectIfcTopologyOpportunities>[number]; revisionCreatedAt: string }): { graph: ComponentEvaluationGraph; interpretation: ReturnType<typeof interpretComponentPattern> } | null {
-  if (!input.command.jobs.appendComponentEvaluation) return null;
   const at = input.revisionCreatedAt;
   const evidencePayload = { fileHash: input.job.fileHash, calculationInputEvidence: input.evidence } as unknown as JsonValue;
-  const evidenceSha256 = sha256(canonicalTopologyJson(evidencePayload));
-  const occurrenceId = sha256(canonicalTopologyJson({ evidenceSha256, opportunityId: input.opportunity.opportunityId, elementStepIds: input.opportunity.affectedElementStepIds }));
+  const ifcImportId = componentEvaluationIdentities.ifcImport({ jobId: input.job.jobId, sourceRevisionId: input.job.activeRevisionId!, contentSha256: input.job.fileHash!, parserVersion: "web-ifc-0.0.77" });
+  const evidenceSha256 = componentEvaluationIdentities.evidenceSnapshot({ sourceRevisionId: input.job.activeRevisionId!, ifcContentSha256: input.job.fileHash!, parserVersion: "web-ifc-0.0.77", canonicalEvidence: evidencePayload });
+  const occurrenceId = componentEvaluationIdentities.occurrence({ evidenceSnapshotId: evidenceSha256, opportunityId: input.opportunity.opportunityId, elementStepIds: input.opportunity.affectedElementStepIds });
   const annotationPayload = { answers: input.submission.answers } as unknown as JsonValue;
-  const annotationId = sha256(canonicalTopologyJson({ occurrenceId, annotationPayload, authority: "user-confirmed" }));
+  const annotationId = componentEvaluationIdentities.annotation({ evidenceSnapshotId: evidenceSha256, occurrenceId, payload: annotationPayload, authority: "user-confirmed" });
   const memberKind = typeof input.submission.answers.memberKind === "string" ? input.submission.answers.memberKind : "";
   const memberMaterial = typeof input.submission.answers.memberMaterial === "string" ? input.submission.answers.memberMaterial : "";
   const patterns = input.command.componentPatterns ?? [REPEATING_C_PROFILE_PATTERN];
@@ -87,20 +116,20 @@ function recordComponentInterpretation(input: { command: Parameters<typeof submi
   const interpretation = interpretComponentPattern({ evidence: { evidenceSignature: sha256(input.opportunity.thermalConstructionSignature), profileKind: memberKind, materialLabel: memberMaterial, values: { memberWidthM: input.submission.answers.memberWidthM as JsonValue | "i-dont-know" }, authoritativeKeys, conflictingKeys }, patterns });
   const selected = interpretation.outcome === "matched" ? patterns.find((item) => item.patternId === interpretation.patternId && item.version === interpretation.patternVersion) ?? null : null;
   const matchOutcome = interpretation.outcome;
-  const matchId = sha256(canonicalTopologyJson({ occurrenceId, annotationId, outcome: matchOutcome, patternId: selected?.patternId ?? null, patternVersion: selected?.version ?? null }));
-  const evaluationId = sha256(canonicalTopologyJson({ occurrenceId, matchId, jobId: input.job.jobId, revisionId: input.job.activeRevisionId }));
+  const matchId = componentEvaluationIdentities.patternMatch({ occurrenceId, annotationId, outcome: matchOutcome, patternId: selected?.patternId ?? null, patternVersion: selected?.version ?? null });
+  const evaluationId = componentEvaluationIdentities.evaluationRun({ occurrenceId, matchId, sourceRevisionId: input.job.activeRevisionId!, recipeIds: [matchId] });
   const graph: ComponentEvaluationGraph = {
     schemaVersion: "component-evaluation-sqlite/v1", jobId: input.job.jobId, sourceRevisionId: input.job.activeRevisionId!, sourceAssemblyGroupId: input.submission.sourceAssemblyGroupId,
-    ifcImport: { ifcImportId: `ifc_${input.job.fileHash}`, jobId: input.job.jobId, revisionId: input.job.activeRevisionId!, contentSha256: input.job.fileHash!, parserVersion: "web-ifc-0.0.77", createdAt: at },
-    evidence: { evidenceSnapshotId: evidenceSha256, ifcImportId: `ifc_${input.job.fileHash}`, canonicalEvidence: evidencePayload, evidenceSha256, createdAt: at },
+    ifcImport: { ifcImportId, jobId: input.job.jobId, revisionId: input.job.activeRevisionId!, contentSha256: input.job.fileHash!, parserVersion: "web-ifc-0.0.77", createdAt: at },
+    evidence: { evidenceSnapshotId: evidenceSha256, ifcImportId, canonicalEvidence: evidencePayload, evidenceSha256, createdAt: at },
     occurrence: { occurrenceId, evidenceSnapshotId: evidenceSha256, elementStepId: input.opportunity.affectedElementStepIds[0]!, opportunityId: input.opportunity.opportunityId, evidenceSignature: sha256(input.opportunity.thermalConstructionSignature), createdAt: at },
     annotations: [{ annotationId, occurrenceId, payload: annotationPayload, authority: "user-confirmed", createdAt: at }],
-    pattern: selected ? { patternId: selected.patternId, version: selected.version, lifecycle: selected.lifecycle, canonicalPattern: selected as unknown as JsonValue, patternSha256: sha256(canonicalTopologyJson(selected as unknown as JsonValue)), createdAt: at } : null,
+    pattern: selected ? { patternId: selected.patternId, version: selected.version, lifecycle: selected.lifecycle, canonicalPattern: selected as unknown as JsonValue, patternSha256: componentEvaluationIdentities.patternVersion({ patternId: selected.patternId, version: selected.version, canonicalPattern: selected as unknown as JsonValue }), createdAt: at } : null,
     match: { matchId, occurrenceId, annotationId, patternId: selected?.patternId ?? null, patternVersion: selected?.version ?? null, outcome: matchOutcome, reasons: interpretation.outcome === "matched" ? interpretation.reasons : [interpretation.outcome], createdAt: at },
     recipes: [], requests: [], results: [], evaluation: { evaluationId, occurrenceId, matchId, scenarioRequestIds: [], createdAt: at }, aggregate: null,
-    unresolvedGroups: interpretation.outcome === "unmatched" ? [{ unresolvedGroupId: sha256(`unresolved:${input.opportunity.thermalConstructionSignature}`), evidenceSignature: sha256(input.opportunity.thermalConstructionSignature), occurrenceIds: [occurrenceId], createdAt: at }] : [], state: "recoverable",
+    unresolvedGroups: interpretation.outcome === "unmatched" ? [{ unresolvedGroupId: componentEvaluationIdentities.unresolvedGroup({ evidenceSignature: sha256(input.opportunity.thermalConstructionSignature), occurrenceIds: [occurrenceId] }), evidenceSignature: sha256(input.opportunity.thermalConstructionSignature), occurrenceIds: [occurrenceId], createdAt: at }] : [], state: "recoverable",
   };
-  if (interpretation.outcome !== "matched") input.command.jobs.appendComponentEvaluation(graph);
+  if (interpretation.outcome !== "matched") input.command.componentEvaluations.append(graph);
   return { graph, interpretation };
 }
 
@@ -122,31 +151,32 @@ function bindIfcLayers(plan: import("../../domain/topology/componentKnowledgeBas
   }) };
 }
 
-async function executeComponentScenarios(input: { command: Parameters<typeof submitJobTopologyReview>[0]; graph: ComponentEvaluationGraph; plan: import("../../domain/topology/componentKnowledgeBase.js").TopologyScenarioPlan; layerOnlySnapshot: JsonValue }): Promise<ComponentEvaluationGraph> {
-  if (!input.command.jobs.appendComponentEvaluation) throw new Error("Component evaluation repository is not composed.");
+async function executeComponentScenarios(input: { command: Parameters<typeof submitJobTopologyReview>[0]; graph: ComponentEvaluationGraph; plan: import("../../domain/topology/componentKnowledgeBase.js").TopologyScenarioPlan; layerOnlySnapshot: JsonValue; retryPolicy: TopologyPilotPolicy["retry"] }): Promise<ComponentEvaluationGraph> {
   const at = input.graph.evaluation.createdAt;
-  const recipes = input.plan.scenarios.map((scenario) => ({ recipeId: sha256(canonicalTopologyJson(scenario.recipe)), matchId: input.graph.match.matchId, canonicalRecipe: scenario.recipe, recipeSha256: sha256(canonicalTopologyJson(scenario.recipe)), createdAt: at }));
-  const requests = recipes.map((recipe) => ({ scenarioRequestId: sha256(canonicalTopologyJson({ evaluationId: input.graph.evaluation.evaluationId, recipeId: recipe.recipeId })), evaluationId: input.graph.evaluation.evaluationId, recipeId: recipe.recipeId, idempotencyKey: sha256(canonicalTopologyJson({ evaluationId: input.graph.evaluation.evaluationId, recipeId: recipe.recipeId, purpose: "component-scenario" })), createdAt: at }));
-  const planned: ComponentEvaluationGraph = { ...input.graph, recipes, requests, evaluation: { ...input.graph.evaluation, scenarioRequestIds: requests.map((item) => item.scenarioRequestId) } };
-  input.command.jobs.appendComponentEvaluation(planned);
+  const workerBundleIdentity = sha256(canonicalTopologyJson(input.command.bundle as unknown as JsonValue));
+  const recipes = input.plan.scenarios.map((scenario) => ({ recipeId: componentEvaluationIdentities.exactRecipe({ recipe: scenario.recipe, patternId: input.graph.pattern!.patternId, patternVersion: input.graph.pattern!.version, compilerVersion: input.command.bundle.moduleVersion, primitiveRegistryHash: input.command.bundle.registryHash, materialPackHash: input.command.bundle.packHash, runtimeHash: input.command.bundle.runtimeHash, boundaryVersion: "component-evaluation/v1" }), matchId: input.graph.match.matchId, canonicalRecipe: scenario.recipe, recipeSha256: sha256(canonicalTopologyJson(scenario.recipe)), createdAt: at }));
+  const evaluationId = componentEvaluationIdentities.evaluationRun({ occurrenceId: input.graph.occurrence.occurrenceId, matchId: input.graph.match.matchId, sourceRevisionId: input.graph.sourceRevisionId, recipeIds: recipes.map((recipe) => recipe.recipeId) });
+  const graph = { ...input.graph, evaluation: { ...input.graph.evaluation, evaluationId } };
+  const requests = recipes.map((recipe) => { const scenarioRequestId = componentEvaluationIdentities.scenarioRequest({ recipeId: recipe.recipeId, sourceRevisionId: graph.sourceRevisionId, sourceAssemblyGroupId: graph.sourceAssemblyGroupId, workerBundleIdentity, purpose: "component-scenario" }); return { scenarioRequestId, evaluationId, recipeId: recipe.recipeId, idempotencyKey: scenarioRequestId, createdAt: at }; });
+  const planned: ComponentEvaluationGraph = { ...graph, recipes, requests, evaluation: { ...graph.evaluation, scenarioRequestIds: requests.map((item) => item.scenarioRequestId) } };
+  input.command.componentEvaluations.append(planned);
   const results = [];
   for (let index = 0; index < recipes.length; index++) {
     const recipe = recipes[index]!, request = requests[index]!;
-    const outcome = await input.command.requests.submit({ sourceRevisionId: input.graph.sourceRevisionId, sourceAssemblyGroupId: input.graph.sourceAssemblyGroupId, correlationId: randomUUID(), idempotencyKey: request.idempotencyKey, recipe: recipe.canonicalRecipe, recipeHash: recipe.recipeSha256, bundle: input.command.bundle, layerOnlySnapshot: input.layerOnlySnapshot, deadlineAt: input.command.deadlineAt, cancellationSignal: input.command.cancellationSignal });
+    const outcome = await input.command.requests.submit({ sourceRevisionId: input.graph.sourceRevisionId, sourceAssemblyGroupId: input.graph.sourceAssemblyGroupId, correlationId: randomUUID(), idempotencyKey: request.idempotencyKey, recipe: recipe.canonicalRecipe, recipeHash: recipe.recipeSha256, bundle: input.command.bundle, layerOnlySnapshot: input.layerOnlySnapshot, deadlineAt: input.command.deadlineAt, cancellationSignal: input.command.cancellationSignal, retryPolicy: input.retryPolicy });
     const payload = outcome as unknown as JsonValue;
     const durablePayload: JsonValue = { recipeHash: outcome.recipeHash ?? null, effectiveUValueWPerM2K: outcome.effectiveUValueWPerM2K ?? null, evidence: (outcome.evidence ?? null) as JsonValue, errorCode: outcome.errorCode ?? null };
     const artifactContentSha256 = outcome.evidence ? sha256(canonicalTopologyJson(outcome.evidence.artifactIndex as unknown as JsonValue)) : sha256(canonicalTopologyJson(durablePayload));
-    const artifactIdentity = resultArtifactIdentity({ requestId: outcome.requestId, outcome: outcome.outcome, payload: durablePayload, artifactSha256: artifactContentSha256 });
-    results.push({ scenarioResultId: sha256(canonicalTopologyJson({ scenarioRequestId: request.scenarioRequestId, requestId: outcome.requestId, outcome: outcome.outcome })), scenarioRequestId: request.scenarioRequestId, outcome: outcome.outcome, resultPayload: payload, artifactIdentity, createdAt: at });
-    input.command.jobs.appendComponentEvaluation({ ...planned, results: [...results] });
+    const artifactIdentity = componentEvaluationIdentities.scenarioResultArtifact({ scenarioRequestId: request.scenarioRequestId, workerRequestId: outcome.requestId, outcome: outcome.outcome, payload: durablePayload, artifactSha256: artifactContentSha256 });
+    results.push({ scenarioResultId: artifactIdentity, scenarioRequestId: request.scenarioRequestId, outcome: outcome.outcome, resultPayload: payload, artifactIdentity, createdAt: at });
+    input.command.componentEvaluations.append({ ...planned, results: [...results] });
   }
   const completed: ComponentEvaluationGraph = { ...planned, results };
-  if (!input.command.jobs.getComponentEvaluation) throw new Error("Component evaluation read repository is not composed.");
-  const persisted = input.command.jobs.getComponentEvaluation(completed.evaluation.evaluationId);
+  const persisted = input.command.componentEvaluations.getByEvaluationId(completed.evaluation.evaluationId);
   if (!persisted) throw new Error("Persisted component evaluation is unavailable for aggregation.");
   const aggregate = deriveComponentEvaluationAggregate(persisted, { screeningThresholdWPerM2K: input.command.screeningThresholdWPerM2K ?? null, immaterialityGateWPerM2K: input.plan.pack.immaterialityGateWPerM2K });
   const published: ComponentEvaluationGraph = { ...persisted, aggregate, state: "published" };
-  input.command.jobs.appendComponentEvaluation(published);
+  input.command.componentEvaluations.append(published);
   return published;
 }
 
@@ -170,6 +200,12 @@ function completeTopologyResult(value: unknown) {
 }
 
 type TopologyReviewSubmission = { opportunityId: string; thermalConstructionSignature: string; sourceRevisionId: string; sourceAssemblyGroupId: string; answers: Record<string, TopologyReviewAnswer> };
+type PolicyExclusionDecision = TopologyPilotDecision & { disposition: "disabled" | "cohort-excluded" | "killed" };
+function resultErrorCode(value: JsonValue): string | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return "worker_failure";
+  const errorCode = (value as { readonly errorCode?: JsonValue }).errorCode;
+  return typeof errorCode === "string" && errorCode ? errorCode : "worker_failure";
+}
 function parseSubmission(body: unknown): { ok: true; submission: TopologyReviewSubmission } | { ok: false; submission: TopologyReviewSubmission | null; message: string } {
   if (!isRecord(body)) return { ok: false, submission: null, message: "Expected a topology review confirmation object." };
   for (const key of ["opportunityId", "thermalConstructionSignature", "sourceRevisionId", "sourceAssemblyGroupId"] as const) if (typeof body[key] !== "string" || !body[key].trim()) return { ok: false, submission: null, message: `${key} is required.` };

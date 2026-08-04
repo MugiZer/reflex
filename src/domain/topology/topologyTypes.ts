@@ -72,6 +72,7 @@ export type SubmitTopologyAnalysisRequest = {
   layerOnlySnapshot: JsonValue;
   deadlineAt?: string;
   cancellationSignal?: AbortSignal;
+  retryPolicy?: { maxAttempts: number; retryableCodes: readonly string[]; backoffMs: number };
 };
 
 export type TopologyResult = {

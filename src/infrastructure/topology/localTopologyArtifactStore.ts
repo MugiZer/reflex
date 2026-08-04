@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { access, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { access, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 
 import type { TopologyArtifactFile, TopologyArtifactStore, TopologyArtifactWorkspace } from "../../application/topology/topologyArtifactStore.js";
 
 const SAFE_SEGMENT = /^[A-Za-z0-9._-]+$/;
 const CLAIM_STALE_AFTER_MS = 10 * 60 * 1000;
+const CLAIM_WAIT_MS = 120 * 1000;
 
 /** Local immutable publication adapter for topology request/result artifacts. */
 export class LocalTopologyArtifactStore implements TopologyArtifactStore {
@@ -47,7 +48,7 @@ export class LocalTopologyArtifactStore implements TopologyArtifactStore {
   }
 
   async claim(workspace: TopologyArtifactWorkspace): Promise<{ acquired: boolean; manifest: unknown | null }> {
-    const claimDeadline = Date.now() + 30_000;
+    const claimDeadline = Date.now() + CLAIM_WAIT_MS;
     await mkdir(dirname(workspace.finalDirectory), { recursive: true });
     while (Date.now() < claimDeadline) {
       const published = await existingPublication(this, workspace.finalDirectory);
@@ -115,6 +116,14 @@ export class LocalTopologyArtifactStore implements TopologyArtifactStore {
     await mkdir(dirname(workspace.finalDirectory), { recursive: true });
     await rename(workspace.temporaryDirectory, workspace.finalDirectory);
   }
+}
+
+/** Removes only abandoned in-flight topology material; published directories are never touched. */
+export async function cleanupLocalTopologyArtifacts(artifactRoot: string): Promise<void> {
+  const topologyRoot = join(artifactRoot, "topology");
+  let entries;
+  try { entries = await readdir(topologyRoot, { withFileTypes: true }); } catch (error) { if (isNodeNotFound(error)) return; throw error; }
+  await Promise.all(entries.filter((entry) => entry.isDirectory() && (entry.name.includes(".tmp-") || entry.name.endsWith(".lock"))).map((entry) => rm(join(topologyRoot, entry.name), { recursive: true, force: true })));
 }
 
 function assertSafeSegment(value: string, label: string): void {

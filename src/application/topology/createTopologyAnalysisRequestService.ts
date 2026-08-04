@@ -103,13 +103,29 @@ export function createTopologyAnalysisRequestService(options: Options) {
               throw failure("failed", "topology_runtime_preflight_failed", error instanceof Error ? error.message : "Topology runtime preflight failed.");
             }
           }
-          const rawOutput = await options.worker.runJsonl(JSON.stringify(request) + "\n", {
-            deadlineAt: command.deadlineAt ?? new Date(Date.now() + DEFAULT_WORKER_DEADLINE_MS).toISOString(),
-            signal: command.cancellationSignal,
-          });
-          if (Buffer.byteLength(rawOutput, "utf8") > MAX_WORKER_OUTPUT_BYTES) throw failure("failed", "worker_output_limit", "Topology worker output exceeded its limit.");
-          const workerResult = validateWorkerResult(rawOutput, request);
-          await options.worker.verifyArtifacts(workerResult.evidence, request.artifactDestination);
+          let workerResult: ReturnType<typeof validateWorkerResult>;
+          let attempt = 1;
+          while (true) {
+            try {
+              const rawOutput = await options.worker.runJsonl(JSON.stringify(request) + "\n", {
+                deadlineAt: command.deadlineAt ?? new Date(Date.now() + DEFAULT_WORKER_DEADLINE_MS).toISOString(),
+                signal: command.cancellationSignal,
+              });
+              if (Buffer.byteLength(rawOutput, "utf8") > MAX_WORKER_OUTPUT_BYTES) throw failure("failed", "worker_output_limit", "Topology worker output exceeded its limit.");
+              workerResult = validateWorkerResult(rawOutput, request);
+              await options.worker.verifyArtifacts(workerResult.evidence, request.artifactDestination);
+              break;
+            } catch (error) {
+              const classified = classifyFailure(error);
+              const retry = command.retryPolicy;
+              if (retry && attempt < retry.maxAttempts && classified.retryable && retry.retryableCodes.includes(classified.code)) {
+                attempt += 1;
+                if (retry.backoffMs > 0) await new Promise((resolveWait) => setTimeout(resolveWait, retry.backoffMs));
+                continue;
+              }
+              throw error;
+            }
+          }
           result = await publishOutcome({ ...base, semanticPayload, outcome: workerResult.outcome, effectiveUValueWPerM2K: workerResult.effectiveUValueWPerM2K, evidence: workerResult.evidence, errorCode: null, layerOnlySnapshot: command.layerOnlySnapshot, workspace, request, workerResult, artifactStore: options.artifactStore, worker: options.worker });
         }
       } catch (error) {

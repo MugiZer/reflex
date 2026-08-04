@@ -1,4 +1,4 @@
-import type { JobRecord, JobReviewState, JobStatus, JobSummary, JobTopologyReview } from "./jobTypes.js";
+import type { JobRecord, JobReviewState, JobStatus, JobSummary, JobTopologyReview, TopologyPilotRun, TopologyPilotEvent } from "./jobTypes.js";
 import type { ComponentEvaluationGraph } from "../topology/componentEvaluationRecords.js";
 
 export type JobUpdate = {
@@ -22,6 +22,11 @@ export interface JobRepository {
   appendComponentEvaluation?(graph: ComponentEvaluationGraph): void;
   getComponentEvaluation?(evaluationId: string): ComponentEvaluationGraph | null;
   listComponentEvaluations?(jobId: string): readonly ComponentEvaluationGraph[];
+  saveTopologyPilotRun(run: TopologyPilotRun): void;
+  listTopologyPilotRuns(jobId: string): TopologyPilotRun[];
+  getTopologyPilotRunByIdempotencyKey(jobId: string, idempotencyKey: string): TopologyPilotRun | null;
+  saveTopologyPilotEvent?(event: TopologyPilotEvent): void;
+  listTopologyPilotEvents?(jobId: string): TopologyPilotEvent[];
 }
 
 export interface ClosableJobRepository extends JobRepository {

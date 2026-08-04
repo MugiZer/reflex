@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { readFile } from "node:fs/promises";
+import { access, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { createJob } from "../../application/jobs/createJob.js";
@@ -12,10 +12,11 @@ import { createTopologyAnalysisRequestService } from "../../application/topology
 import { refreshJobTopologyReport } from "../../application/topology/refreshJobTopologyReport.js";
 import { generateHtmlReport } from "../../application/reports/generateHtmlReport.js";
 import type { TopologyWorkerRuntime } from "../../domain/topology/topologyTypes.js";
+import type { TopologyPilotPolicy } from "../../domain/topology/topologyPilotPolicy.js";
 import type { ComponentPattern } from "../../domain/topology/componentPatternInterpreter.js";
 import { ReplayComponentEvaluationError, replayJobComponentEvaluation } from "../../application/topology/replayJobComponentEvaluation.js";
 import { PROVEN_TOPOLOGY_BUNDLE, createProvenPythonTopologyWorker } from "../../infrastructure/topology/createProvenPythonTopologyWorker.js";
-import { LocalTopologyArtifactStore } from "../../infrastructure/topology/localTopologyArtifactStore.js";
+import { cleanupLocalTopologyArtifacts, LocalTopologyArtifactStore } from "../../infrastructure/topology/localTopologyArtifactStore.js";
 import { createLocalTopologyReviewEvidenceLoader } from "../../infrastructure/topology/localTopologyReviewEvidenceLoader.js";
 import { createLocalJobWorkspaceEvidenceLoader } from "../../infrastructure/jobs/localJobWorkspaceEvidenceLoader.js";
 import { submitThermalTreatmentConfirmation } from "../../application/thermal-treatment/submitThermalTreatmentConfirmation.js";
@@ -50,6 +51,8 @@ export function createLocalhostApp(command: {
   topologyRequests?: ReturnType<typeof createTopologyAnalysisRequestService>;
   componentPatterns?: readonly ComponentPattern[];
   componentScreeningThresholdWPerM2K?: number | null;
+  topologyPilotEnabled?: boolean;
+  topologyPilotPolicy?: TopologyPilotPolicy;
 }): LocalhostApp {
   const jobs = new SqliteJobRepository(command.databasePath);
   const componentEvaluations = new SqliteComponentEvaluationRepository(command.databasePath);
@@ -64,13 +67,19 @@ export function createLocalhostApp(command: {
     ...command.workerOverrides,
   };
   const thermalTreatmentWorker = new OpenSource2dCalculationWorker({ artifactRoot: join(command.outputRoot, "thermal-treatment-worker") });
+  const topologyWorker = command.topologyWorker ?? configuredTopologyWorker();
+  const startupCleanup = cleanupLocalTopologyArtifacts(command.outputRoot);
   const topologyRequests = command.topologyRequests ?? createTopologyAnalysisRequestService({
     artifactStore: new LocalTopologyArtifactStore(command.outputRoot),
-    worker: command.topologyWorker ?? configuredTopologyWorker(),
+    worker: topologyWorker,
   });
   const server = createServer(async (req, res) => {
     try {
+      await startupCleanup;
       const url = new URL(req.url ?? "/", "http://localhost");
+      if (req.method === "GET" && url.pathname === "/api/health") {
+        return await sendHealth(res, jobs, command.outputRoot, topologyWorker);
+      }
       if (req.method === "POST" && url.pathname === "/api/jobs") {
         const upload = await parseMultipartUpload(req);
         const result = await createJob({
@@ -117,17 +126,17 @@ export function createLocalhostApp(command: {
         try{return json(res,202,replayJobComponentEvaluation({jobId:replayJobId,evaluationId:body.evaluationId,patternId:body.patternId,patternVersion:body.patternVersion,jobs,componentEvaluations,patterns:command.componentPatterns??[]}));}catch(error){const status=error instanceof ReplayComponentEvaluationError&&error.code==="component_evaluation_not_found"?404:422;return json(res,status,{error:error instanceof Error?error.message:String(error)});}
       }
       if (req.method === "POST" && topologyReviewJobId) {
-        const cancellation = requestCancellationSignal(req);
+          const cancellation = requestCancellationSignal(req, res);
         try {
           const topologyEvidence = createLocalTopologyReviewEvidenceLoader(artifactStore);
-          const result = await submitJobTopologyReview({ jobId: topologyReviewJobId, body: await readJson(req), jobs, componentEvaluations, evidence: topologyEvidence, requests: topologyRequests, bundle: PROVEN_TOPOLOGY_BUNDLE, deadlineAt: parseTopologyDeadline(req), cancellationSignal: cancellation.signal, componentPatterns: command.componentPatterns, screeningThresholdWPerM2K: command.componentScreeningThresholdWPerM2K });
+          const result = await submitJobTopologyReview({ jobId: topologyReviewJobId, body: await readJson(req), jobs, componentEvaluations, evidence: topologyEvidence, requests: topologyRequests, bundle: PROVEN_TOPOLOGY_BUNDLE, deadlineAt: parseTopologyDeadline(req), cancellationSignal: cancellation.signal, componentPatterns: command.componentPatterns, screeningThresholdWPerM2K: command.componentScreeningThresholdWPerM2K, topologyPilotEnabled: command.topologyPilotEnabled, topologyPilotPolicy: command.topologyPilotPolicy });
           await refreshJobTopologyReport({
             jobId: topologyReviewJobId,
             jobs,
             evidence: topologyEvidence,
             writer: { write: (report) => generateHtmlReport({ artifactStore, outputRoot: command.outputRoot, jobId: report.jobId, fileHash: report.fileHash, revision: report.revision, calculationSnapshots: report.revision.calculationSnapshots, reportInventory: report.reportInventory, topologyResults: report.topologyResults }) },
           });
-          return json(res, 202, result);
+          return json(res, 202, "pilotRunId" in result ? { ...result, pilotRun: result } : result);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           return json(res, topologyReviewErrorStatus(message), { error: message });
@@ -226,6 +235,8 @@ async function sendJob(
     thermalTreatmentCards: workspace.thermalTreatmentCards,
     topologyOpportunities: workspace.topologyOpportunities,
     topologyReviews: workspace.topologyReviews,
+    pilotRuns: workspace.pilotRuns,
+    pilotEvents: workspace.pilotEvents,
     componentEvaluations: componentProjection.evaluations,
     componentEvaluationDiagnostic: componentProjection.diagnostic,
     links: linksFor(workspace.job),
@@ -369,12 +380,14 @@ function parseTopologyDeadline(req: IncomingMessage): string | undefined {
   return Number.isFinite(milliseconds) ? new Date(milliseconds).toISOString() : undefined;
 }
 
-function requestCancellationSignal(req: IncomingMessage): { signal: AbortSignal; dispose: () => void } {
+function requestCancellationSignal(req: IncomingMessage, res: ServerResponse): { signal: AbortSignal; dispose: () => void } {
   const controller = new AbortController();
   const onAborted = () => controller.abort();
+  const onResponseClosed = () => { if (!res.writableEnded) controller.abort(); };
   if (req.aborted) controller.abort();
   req.once("aborted", onAborted);
-  return { signal: controller.signal, dispose: () => req.off("aborted", onAborted) };
+  res.once("close", onResponseClosed);
+  return { signal: controller.signal, dispose: () => { req.off("aborted", onAborted); res.off("close", onResponseClosed); } };
 }
 
 function matchPath(pathname: string, pattern: RegExp): string | null {
@@ -405,6 +418,26 @@ function text(res: ServerResponse, status: number, value: string): void {
   res.end(value);
 }
 
+async function sendHealth(res: ServerResponse, jobs: JobRepository, outputRoot: string, worker: TopologyWorkerRuntime): Promise<void> {
+  const checks: Record<string, { status: "ready" | "unavailable"; diagnostic: string | null }> = {
+    sqlite: { status: "ready", diagnostic: null },
+    artifactStorage: { status: "ready", diagnostic: null },
+    pinnedRuntime: { status: "ready", diagnostic: null },
+    workerPreflight: { status: "ready", diagnostic: null },
+    selectedBundle: { status: "ready", diagnostic: null },
+  };
+  try { jobs.listRecentJobs(1); } catch (error) { checks.sqlite = { status: "unavailable", diagnostic: error instanceof Error ? error.message : "SQLite is unavailable." }; }
+  try { await mkdir(outputRoot, { recursive: true }); await access(outputRoot); } catch (error) { checks.artifactStorage = { status: "unavailable", diagnostic: error instanceof Error ? error.message : "Artifact storage is unavailable." }; }
+  if (!worker.runtimeIdentity.executable || worker.runtimeIdentity.runtimeHash !== PROVEN_TOPOLOGY_BUNDLE.runtimeHash) checks.pinnedRuntime = { status: "unavailable", diagnostic: "Configured topology runtime is not pinned to the selected release hash." };
+  if (checks.pinnedRuntime.status === "ready" && worker.preflight) {
+    try { await worker.preflight(); } catch (error) { checks.workerPreflight = { status: "unavailable", diagnostic: error instanceof Error ? error.message : "Topology worker preflight failed." }; }
+  }
+  const topologyAvailable = Object.values(checks).every((check) => check.status === "ready");
+  const layerOnlyAvailable = checks.sqlite.status === "ready";
+  const overallStatus = !layerOnlyAvailable ? "unavailable" : topologyAvailable ? "ready" : "degraded";
+  return json(res, !layerOnlyAvailable ? 503 : 200, { schema: "topology-pilot-health/v1", overallStatus, layerOnly: { available: layerOnlyAvailable }, topology: { available: topologyAvailable }, checks });
+}
+
 /** Expected topology-review input failures are client-visible, not server faults. */
 function topologyReviewErrorStatus(message: string): number {
   if (message === "Job not found.") return 404;
@@ -417,6 +450,9 @@ function configuredTopologyWorker(): TopologyWorkerRuntime {
   if (pythonExecutable) return createProvenPythonTopologyWorker({ pythonExecutable });
   return {
     runtimeIdentity: { executable: "unavailable-release-topology-runtime", runtimeHash: PROVEN_TOPOLOGY_BUNDLE.runtimeHash },
+    async preflight() {
+      throw Object.assign(new Error("Topology runtime is not configured. Set TOPOLOGY_WORKER_PYTHON to the release-owned Python executable."), { outcome: "failed" as const, code: "topology_runtime_unavailable" });
+    },
     async verifyArtifacts() {},
     async runJsonl() {
       throw Object.assign(new Error("Topology runtime is not configured. Set TOPOLOGY_WORKER_PYTHON to the release-owned Python executable."), { outcome: "failed" as const, code: "topology_runtime_unavailable" });
