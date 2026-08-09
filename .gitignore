@@ -17,3 +17,4 @@ graphify-out/
 learning/
 .tmp-review-diff.txt
 .scratch/**/__pycache__/
+.scratch/production-readiness-checkup/evidence/
