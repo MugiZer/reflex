@@ -178,7 +178,7 @@ export async function runE2eVerifier(
     });
   } finally {
     app.server.close();
-    app.jobs.close();
+    app.close();
     if (command.keepTemp !== true) {
       await rm(tempRoot, { recursive: true, force: true });
     }

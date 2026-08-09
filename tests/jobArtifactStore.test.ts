@@ -96,7 +96,7 @@ describe("Job artifact seam", () => {
       )).resolves.toContain(completed.activeRevisionId);
     } finally {
       app.server.close();
-      app.jobs.close();
+      app.close();
       await rm(root, { recursive: true, force: true });
     }
   });

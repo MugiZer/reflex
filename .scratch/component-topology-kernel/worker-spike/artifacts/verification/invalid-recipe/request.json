@@ -1,0 +1,1 @@
+{"schema_version":"topology-worker-spike/v1","calculation_id":"spike-invalid-001","recipe":{"kind":"not-supported"},"controls":{"mesh_sizes_m":[0.01]}}

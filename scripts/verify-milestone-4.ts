@@ -62,7 +62,7 @@ try {
   console.log(`Report: /api/jobs/${jobId}/report`);
 } finally {
   app.server.close();
-  app.jobs.close();
+  app.close();
   await rm(root, { recursive: true, force: true });
 }
 

@@ -27,7 +27,7 @@ import type { JobRecord } from "../../domain/jobs/jobTypes.js";
 import { WebIfcViewerGeometryExtractor } from "../../infrastructure/ifc/web-ifc/WebIfcViewerGeometryExtractor.js";
 import { SqliteJobRepository } from "../../infrastructure/persistence/sqlite/SqliteJobRepository.js";
 import { SqliteComponentEvaluationRepository } from "../../infrastructure/persistence/sqlite/SqliteComponentEvaluationRepository.js";
-import type { ComponentEvaluationRepository } from "../../domain/topology/componentEvaluationRecords.js";
+import { assertCompletedPilotPublicationLineage, type ComponentEvaluationRepository } from "../../domain/topology/componentEvaluationRecords.js";
 import { LocalJobArtifactStore } from "../../infrastructure/storage/local-files/jobArtifactStore.js";
 import { LocalJobFileStorage } from "../../infrastructure/storage/local-files/jobFileStorage.js";
 import { LocalViewerGeometryCache } from "../../infrastructure/storage/local-files/viewerGeometryCache.js";
@@ -134,6 +134,7 @@ export function createLocalhostApp(command: {
             jobId: topologyReviewJobId,
             jobs,
             evidence: topologyEvidence,
+            integrity: topologyRequests,
             writer: { write: (report) => generateHtmlReport({ artifactStore, outputRoot: command.outputRoot, jobId: report.jobId, fileHash: report.fileHash, revision: report.revision, calculationSnapshots: report.revision.calculationSnapshots, reportInventory: report.reportInventory, topologyResults: report.topologyResults }) },
           });
           return json(res, 202, "pilotRunId" in result ? { ...result, pilotRun: result } : result);
@@ -226,7 +227,7 @@ async function sendJob(
   if (!workspace) {
     return json(res, 404, { error: "Job not found" });
   }
-  const componentProjection = await safeComponentEvaluations(componentEvaluations, topologyIntegrity, jobId);
+  const componentProjection = await safeComponentEvaluations(jobs, componentEvaluations, topologyIntegrity, jobId);
   return json(res, 200, {
     ...workspace.job,
     review: workspace.review,
@@ -265,18 +266,27 @@ async function sendReport(
   if (!job.reportPath) {
     return json(res, 404, { error: "Report has not been generated." });
   }
+  const topologyResults = jobs.listTopologyReviews(jobId)
+    .filter((review) => review.sourceRevisionId === job.activeRevisionId && review.topologyResult !== null)
+    .map((review) => review.topologyResult!);
+  await Promise.all(topologyResults.map((result) => topologyIntegrity.verifyPersistedResult(result)));
   const stored = await readFile(job.reportPath, "utf8");
-  const projection = await safeComponentEvaluations(componentEvaluations, topologyIntegrity, jobId);
+  const projection = await safeComponentEvaluations(jobs, componentEvaluations, topologyIntegrity, jobId);
   const componentSection = projection.diagnostic
     ? `<section class="material-values topology-result"><h3>Component topology result unavailable</h3><p>${escapeHtml(projection.diagnostic)}</p></section>`
     : projection.evaluations.map(renderComponentEvaluation).join("");
   return html(res, 200, stored.replace("</main>", componentSection + "</main>"));
 }
 
-async function safeComponentEvaluations(componentEvaluations: ComponentEvaluationRepository, integrity: ReturnType<typeof createTopologyAnalysisRequestService>, jobId: string): Promise<{ evaluations: readonly import("../../domain/topology/componentEvaluationRecords.js").ComponentEvaluationGraph[]; diagnostic: string | null }> {
+async function safeComponentEvaluations(jobs: JobRepository, componentEvaluations: ComponentEvaluationRepository, integrity: ReturnType<typeof createTopologyAnalysisRequestService>, jobId: string): Promise<{ evaluations: readonly import("../../domain/topology/componentEvaluationRecords.js").ComponentEvaluationGraph[]; diagnostic: string | null }> {
   try {
     const evaluations = componentEvaluations.listByJobId(jobId);
-    for (const graph of evaluations) for (const result of graph.results) if (result.outcome === "preliminary-unsafe") await integrity.verifyPersistedResult(result.resultPayload as unknown as import("../../domain/topology/topologyTypes.js").TopologyResult);
+    const pilotRuns = jobs.listTopologyPilotRuns(jobId);
+    const pilotEvents = jobs.listTopologyPilotEvents?.(jobId) ?? [];
+    for (const graph of evaluations) {
+      assertCompletedPilotPublicationLineage(graph, pilotRuns, pilotEvents);
+      for (const result of graph.results) if (result.outcome === "preliminary-unsafe") await integrity.verifyPersistedResult(result.resultPayload as unknown as import("../../domain/topology/topologyTypes.js").TopologyResult);
+    }
     return { evaluations, diagnostic: null };
   } catch { return { evaluations: [], diagnostic: "component_evaluation_corrupted: persisted component evaluation evidence failed integrity validation; no topology value is available." }; }
 }

@@ -42,6 +42,7 @@ describe("component evaluation identity contract", () => {
     expect(() => componentEvaluationIdentities.exactRecipe({ recipe: completeRecipe, patternId: "", patternVersion: "1.0.0", compilerVersion: "compiler-1", primitiveRegistryHash: "registry-1", materialPackHash: "materials-1", runtimeHash: "runtime-1", boundaryVersion: "boundary-1" })).toThrow("Component evaluation identity input is incomplete");
     expect(() => componentEvaluationIdentities.occurrence({ evidenceSnapshotId: "evidence", opportunityId: "opportunity", elementStepIds: "not-an-array" as never })).toThrow("Component evaluation identity input is incomplete");
     expect(() => componentEvaluationIdentities.evaluationRun({ occurrenceId: "occurrence", matchId: "match", sourceRevisionId: "revision", recipeIds: ["", "recipe"] })).toThrow("Component evaluation identity input is incomplete");
+    expect(() => componentEvaluationIdentities.annotation({ evidenceSnapshotId: "evidence", authority: "user-confirmed", payload: { answer: true } } as never)).toThrow("Component evaluation identity input is incomplete");
     expect(() => componentEvaluationIdentities.annotation({ evidenceSnapshotId: "evidence", occurrenceId: "", authority: "user-confirmed", payload: { answer: true } })).toThrow("Component evaluation identity input is incomplete");
     expect(componentEvaluationIdentities.patternMatch({ occurrenceId: "occurrence", annotationId: null, outcome: "unmatched", patternId: null, patternVersion: null })).toMatch(/^[a-f0-9]{64}$/);
   });

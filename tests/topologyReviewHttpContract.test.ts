@@ -27,7 +27,7 @@ describe("topology review HTTP contract", () => {
       await expect(response.json()).resolves.toEqual(expect.objectContaining({ error: "Job not found." }));
     } finally {
       app.server.close();
-      app.jobs.close();
+      app.close();
       await rm(root, { recursive: true, force: true });
     }
   });

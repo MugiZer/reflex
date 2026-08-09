@@ -27,7 +27,7 @@ export type TopologyPilotDecision = {
 };
 
 export function defaultTopologyPilotPolicy(bundle: TopologyBundleIdentity): TopologyPilotPolicy {
-  return { schema: "topology-pilot-policy/v1", policyVersion: "localhost-topology-pilot/v1", enabled: true, cohort: { kind: "all" }, killSwitch: { active: false, reasonCode: null, version: "localhost-kill-switch/v1" }, bundle, retry: { maxAttempts: 2, retryableCodes: ["topology_runtime_unavailable"], backoffMs: 250 }, limits: { maxScenarioCount: 8, deadlineMs: 30_000 }, retention: { temporary: "terminal-cleanup", failedDays: 7, unreferencedPublishedDays: 30 } };
+  return { schema: "topology-pilot-policy/v1", policyVersion: "localhost-topology-pilot/v1", enabled: true, cohort: { kind: "all" }, killSwitch: { active: false, reasonCode: null, version: "localhost-kill-switch/v1" }, bundle, retry: { maxAttempts: 2, retryableCodes: ["topology_runtime_unavailable"], backoffMs: 250 }, limits: { maxScenarioCount: 8, deadlineMs: 120_000 }, retention: { temporary: "terminal-cleanup", failedDays: 7, unreferencedPublishedDays: 30 } };
 }
 
 export function decideTopologyPilotPolicy(input: { policy: TopologyPilotPolicy; jobId: string; sourceRevisionId: string; sourceAssemblyGroupId: string; opportunityId: string }): TopologyPilotDecision {

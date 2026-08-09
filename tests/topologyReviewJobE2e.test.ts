@@ -108,7 +108,7 @@ describe("Ticket 03 real Job topology review", () => {
       expect(await corrupted.text()).not.toContain("effectiveUValueWPerM2K");
     } finally {
       if (app.server.listening) await close(app);
-      else app.jobs.close();
+      else app.close();
       await rm(root, { recursive: true, force: true });
     }
 
@@ -140,7 +140,7 @@ async function listen(app: ReturnType<typeof createLocalhostApp>): Promise<strin
 
 async function close(app: ReturnType<typeof createLocalhostApp>): Promise<void> {
   await new Promise<void>((resolveClose, reject) => app.server.close((error) => error ? reject(error) : resolveClose()));
-  app.jobs.close();
+  app.close();
 }
 
 async function json<T>(response: Response): Promise<T> {

@@ -1,0 +1,13 @@
+{
+  "schema_version": "topology-worker-spike/v1",
+  "calculation_id": "spike-c-wall-20260724-001",
+  "recipe": {
+    "kind": "repeating-parallel-profile-wall-2d",
+    "width_m": 0.2,
+    "repeat_m": 0.6,
+    "profile": {"kind": "c", "gauge_m": 0.002, "web_m": 0.4, "flange_m": 0.035, "x_m": 0.095, "y_m": 0.1},
+    "conductivity_w_mk": {"insulation": 0.035, "steel": 50.0},
+    "boundary_temperature_c": {"exterior": 0.0, "interior": 20.0}
+  },
+  "controls": {"mesh_sizes_m": [0.02, 0.01, 0.005], "relative_tolerance": 0.005, "max_runtime_s": 45}
+}

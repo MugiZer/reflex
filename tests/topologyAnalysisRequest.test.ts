@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createTopologyAnalysisRequestService } from "../src/application/topology/createTopologyAnalysisRequestService.js";
-import { LocalTopologyArtifactStore } from "../src/infrastructure/topology/localTopologyArtifactStore.js";
+import { cleanupLocalTopologyArtifacts, LocalTopologyArtifactStore } from "../src/infrastructure/topology/localTopologyArtifactStore.js";
 import { canonicalTopologyJson } from "../src/domain/topology/canonicalTopologyJson.js";
 import type { TopologyWorkerRuntime } from "../src/domain/topology/topologyTypes.js";
 
@@ -13,6 +13,24 @@ const recipeHash = createHash("sha256").update(canonicalTopologyJson(recipe)).di
 const bundle = { moduleId: "repeating-parallel-profile-wall-2d", moduleVersion: "1.0.0", registryHash: "a".repeat(64), packHash: "b".repeat(64), runtimeHash: "c".repeat(64) };
 
 describe("Topology Analysis Request seam", () => {
+  it("startup cleanup preserves a live claim and its temporary workspace", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "topology-request-live-claim-"));
+    const key = idempotencyKey("live-claim");
+    const topologyRoot = join(artifactRoot, "topology");
+    const lockDirectory = join(topologyRoot, `${key}.lock`);
+    const temporaryDirectory = join(topologyRoot, `${key}.tmp-request-live`);
+    try {
+      await mkdir(lockDirectory, { recursive: true });
+      await mkdir(temporaryDirectory, { recursive: true });
+      await writeFile(join(lockDirectory, "owner.json"), JSON.stringify({ claimedAt: new Date().toISOString(), processId: process.pid }), "utf8");
+      await cleanupLocalTopologyArtifacts(artifactRoot);
+      await expect(access(lockDirectory)).resolves.toBeUndefined();
+      await expect(access(temporaryDirectory)).resolves.toBeUndefined();
+    } finally {
+      await rm(artifactRoot, { recursive: true, force: true });
+    }
+  });
+
   it("returns defensive immutable snapshots after caller mutation", async () => {
     const artifactRoot = await mkdtemp(join(tmpdir(), "topology-request-immutable-"));
     try {

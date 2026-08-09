@@ -1,0 +1,2 @@
+{"calculation_id": "spike-c-wall-20260724-001", "event": "started", "pid": 15796, "timestamp": "2026-07-25T20:22:45.789083Z"}
+{"calculation_id": "spike-c-wall-20260724-001", "category": "missing_dependency", "event": "failed", "message": "simulated required native dependency is unavailable", "timestamp": "2026-07-25T20:22:45.789083Z"}

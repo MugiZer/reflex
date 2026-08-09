@@ -120,7 +120,7 @@ describe("Milestone 4 Job API", () => {
       }));
     } finally {
       app.server.close();
-      app.jobs.close();
+      app.close();
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -174,7 +174,7 @@ describe("Milestone 4 Job API", () => {
       ]);
     } finally {
       app.server.close();
-      app.jobs.close();
+      app.close();
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -267,7 +267,7 @@ describe("Milestone 4 Job API", () => {
       await expect(report.text()).resolves.toContain("Thermal Calculation Report");
     } finally {
       app.server.close();
-      app.jobs.close();
+      app.close();
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -325,7 +325,7 @@ describe("Milestone 4 Job API", () => {
       await expect(report.text()).resolves.toContain("Recovered insulation");
     } finally {
       app.server.close();
-      app.jobs.close();
+      app.close();
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -445,7 +445,7 @@ describe("Milestone 4 Job API", () => {
       expect(revised.userInputs).toHaveLength(2);
     } finally {
       app.server.close();
-      app.jobs.close();
+      app.close();
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -472,7 +472,7 @@ describe("Milestone 4 Job API", () => {
       }));
     } finally {
       app.server.close();
-      app.jobs.close();
+      app.close();
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -520,7 +520,7 @@ describe("Milestone 4 Job API", () => {
       }));
     } finally {
       app.server.close();
-      app.jobs.close();
+      app.close();
       await rm(root, { recursive: true, force: true });
     }
   });

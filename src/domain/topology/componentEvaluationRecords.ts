@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { canonicalTopologyJson } from "./canonicalTopologyJson.js";
 import type { JsonValue, TopologyAnalysisOutcome } from "./topologyTypes.js";
+import type { TopologyPilotEvent, TopologyPilotRun } from "../jobs/jobTypes.js";
 
 export type PatternLifecycle = "draft" | "candidate" | "promoted" | "rejected";
 
@@ -45,6 +46,18 @@ export interface ComponentEvaluationRepository {
   close(): void;
 }
 
+/** Publication requires the exact durable pilot disposition and event for this result graph. */
+export function assertCompletedPilotPublicationLineage(graph: ComponentEvaluationGraph, pilotRuns: readonly TopologyPilotRun[], pilotEvents: readonly TopologyPilotEvent[]): void {
+  const publishable = graph.state === "published" && (graph.aggregate?.outcome === "exact" || graph.aggregate?.outcome === "range");
+  if (!publishable) return;
+  const expectedResultIdsHash = componentEvaluationResultIdsHash(graph);
+  const run = pilotRuns.find((item) => item.disposition === "completed" && item.evaluationId === graph.evaluation.evaluationId && item.aggregateId === graph.aggregate?.aggregateId && item.resultIdsHash === expectedResultIdsHash && item.sourceRevisionId === graph.sourceRevisionId && item.sourceAssemblyGroupId === graph.sourceAssemblyGroupId && item.opportunityId === graph.occurrence.opportunityId);
+  if (!run) throw new Error("Published topology evaluation has no completed pilot disposition bound to its exact result graph.");
+  const expectedPayload = { disposition: run.disposition, errorCode: run.errorCode, policyHash: run.policy.policyHash, evaluationId: run.evaluationId, aggregateId: run.aggregateId, resultIdsHash: run.resultIdsHash };
+  const eventHash = hashCanonical(expectedPayload);
+  if (!pilotEvents.some((event) => event.eventType === "pilot.run.persisted" && event.runId === run.pilotRunId && event.sourceRevisionId === graph.sourceRevisionId && event.sourceAssemblyGroupId === graph.sourceAssemblyGroupId && event.payloadHash === eventHash)) throw new Error("Published topology evaluation has no matching persisted pilot event.");
+}
+
 /** The sole deterministic identity authority for immutable component-evaluation records. */
 export const componentEvaluationIdentities = Object.freeze({
   ifcImport: (input: Readonly<{ jobId: string; sourceRevisionId: string; contentSha256: string; parserVersion: string }>) => identityContract("ifc-import", input),
@@ -85,6 +98,9 @@ function identity(value: JsonValue): string {
   return createHash("sha256").update(canonicalTopologyJson(value)).digest("hex");
 }
 
+function componentEvaluationResultIdsHash(graph: ComponentEvaluationGraph): string { return hashCanonical(graph.results.map((result) => ({ scenarioResultId: result.scenarioResultId, scenarioRequestId: result.scenarioRequestId, outcome: result.outcome, artifactIdentity: result.artifactIdentity }))); }
+function hashCanonical(value: unknown): string { return createHash("sha256").update(canonicalTopologyJson(value as JsonValue)).digest("hex"); }
+
 function identityContract(kind: string, input: unknown): string {
   const required = requiredIdentityFields[kind];
   const nullable = nullableIdentityFields[kind] ?? [];
@@ -115,7 +131,7 @@ const requiredIdentityFields: Readonly<Record<string, readonly string[]>> = {
   "ifc-import": ["jobId", "sourceRevisionId", "contentSha256", "parserVersion"],
   "evidence-snapshot": ["sourceRevisionId", "ifcContentSha256", "parserVersion", "canonicalEvidence"],
   "component-occurrence": ["evidenceSnapshotId", "opportunityId", "elementStepIds"],
-  "component-annotation": ["evidenceSnapshotId", "authority", "payload"],
+  "component-annotation": ["evidenceSnapshotId", "occurrenceId", "authority", "payload"],
   "pattern-version": ["patternId", "version", "canonicalPattern"],
   "pattern-match": ["occurrenceId", "annotationId", "outcome", "patternId", "patternVersion"],
   "exact-recipe": ["recipe", "patternId", "patternVersion", "compilerVersion", "primitiveRegistryHash", "materialPackHash", "runtimeHash", "boundaryVersion"],

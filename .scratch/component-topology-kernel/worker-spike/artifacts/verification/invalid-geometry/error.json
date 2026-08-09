@@ -1,0 +1,21 @@
+{
+  "calculation_id": "spike-invalid-geometry-001",
+  "category": "invalid_geometry",
+  "events": [
+    {
+      "calculation_id": "spike-invalid-geometry-001",
+      "event": "started",
+      "pid": 14244,
+      "timestamp": "2026-07-25T20:22:44.250415Z"
+    },
+    {
+      "calculation_id": "spike-invalid-geometry-001",
+      "category": "invalid_geometry",
+      "event": "failed",
+      "message": "profile gauge, web, and flange must be positive",
+      "timestamp": "2026-07-25T20:22:44.250415Z"
+    }
+  ],
+  "message": "profile gauge, web, and flange must be positive",
+  "schema_version": "topology-worker-error/v1"
+}

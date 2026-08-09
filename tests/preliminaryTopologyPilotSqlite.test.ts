@@ -72,6 +72,34 @@ describe("preliminary topology pilot SQLite persistence", () => {
       await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   });
+
+  it("does not return a pilot disposition until its event is durable, and repairs an orphaned run on replay", async () => {
+    const root = await mkdtemp(join(tmpdir(), "preliminary-pilot-event-repair-"));
+    const app = createLocalhostApp({ databasePath: join(root, "data", "app.db"), storageRoot: join(root, "storage"), outputRoot: join(root, "outputs"), topologyPilotEnabled: false });
+    const saveEvent = app.jobs.saveTopologyPilotEvent!.bind(app.jobs);
+    app.jobs.saveTopologyPilotEvent = () => { throw new Error("event_store_temporarily_unavailable"); };
+    try {
+      const baseUrl = await listen(app);
+      const job = await createReadyJob(baseUrl);
+      const opportunity = job.topologyOpportunities[0]!;
+      const body = { opportunityId: opportunity.opportunityId, thermalConstructionSignature: opportunity.thermalConstructionSignature, sourceRevisionId: job.activeRevisionId, sourceAssemblyGroupId: opportunity.sourceAssemblyGroupIds?.[0] ?? job.architectActions.assemblies[0].assemblyGroupId, answers: { memberKind: "c", memberMaterial: "galvanized steel", memberWidthM: 0.075 } };
+
+      const failed = await fetch(`${baseUrl}/api/jobs/${job.jobId}/topology-reviews`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      expect(failed.status).toBe(500);
+      expect((await getJob(baseUrl, job.jobId)).pilotEvents).toEqual([]);
+
+      app.jobs.saveTopologyPilotEvent = saveEvent;
+      const replay = await fetch(`${baseUrl}/api/jobs/${job.jobId}/topology-reviews`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      expect(replay.status, await replay.clone().text()).toBe(202);
+      const reloaded = await getJob(baseUrl, job.jobId);
+      expect(reloaded.pilotRuns).toHaveLength(1);
+      expect(reloaded.pilotEvents).toHaveLength(1);
+      expect((await replay.json()).pilotRun.pilotRunId).toBe(reloaded.pilotRuns[0].pilotRunId);
+    } finally {
+      await close(app);
+      await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+    }
+  }, 30_000);
 });
 
 async function createReadyJob(baseUrl: string): Promise<any> { const bytes = await readFile(resolve("tests/fixtures/ifc/repeating-c-profile.ifc")); const form = new FormData(); form.set("ifc", new Blob([bytes]), "repeating-c-profile.ifc"); const created = await json<any>(await fetch(`${baseUrl}/api/jobs`, { method: "POST", body: form })); let job = await waitForJob(baseUrl, created.jobId); if (!job.activeRevisionId) { const inputs = job.review.requestedInputs.map((input: any) => ({ requestedInputId: input.requestedInputId, value: input.datapoint === "layer_thickness" ? 0.15 : input.inputType === "number" ? 0.12 : "confirmed", unit: input.unit, overrideScope: "assembly_group" })); await fetch(`${baseUrl}/api/jobs/${job.jobId}/review-inputs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ inputs }) }); job = await waitForActiveRevision(baseUrl, job.jobId); } return job; }

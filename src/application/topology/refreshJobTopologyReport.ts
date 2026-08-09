@@ -17,11 +17,16 @@ export type TopologyReportWriter = {
   }): Promise<{ reportFilePath: string }>;
 };
 
+export type TopologyResultIntegrityVerifier = {
+  verifyPersistedResult(result: TopologyResult): Promise<TopologyResult>;
+};
+
 /** Rebuilds the active report exclusively from persisted Job evidence and topology outcomes. */
 export async function refreshJobTopologyReport(command: {
   jobId: string;
   jobs: JobRepository;
   evidence: TopologyReviewEvidenceLoader;
+  integrity: TopologyResultIntegrityVerifier;
   writer: TopologyReportWriter;
 }): Promise<void> {
   const job = command.jobs.getJob(command.jobId);
@@ -31,6 +36,7 @@ export async function refreshJobTopologyReport(command: {
   const topologyResults = command.jobs.listTopologyReviews(command.jobId)
     .filter((review) => review.sourceRevisionId === job.activeRevisionId && review.topologyResult !== null)
     .map((review) => review.topologyResult!);
+  await Promise.all(topologyResults.map((result) => command.integrity.verifyPersistedResult(result)));
   const report = await command.writer.write({
     jobId: command.jobId,
     fileHash: job.fileHash ?? job.jobId,

@@ -190,6 +190,9 @@ export function validateEvidenceForPreflight(value: unknown, expected: Foundatio
   for (const field of ["runtimeIdentities", "artifactIdentities", "recordIdentities", "fixtureIdentities", "oracleIdentities", "protectedStateObservations"] as const) {
     if (!Array.isArray(value[field])) reasons.push(`evidence ${field} are missing`);
   }
+  if (expected.gate === "FND-G3" && value.decision === "GO") {
+    for (const field of ["fixtureIdentities", "oracleIdentities"] as const) if (!Array.isArray(value[field]) || value[field].length === 0) reasons.push(`GO is forbidden without ${field}`);
+  }
   const mutationResults = isRecord(value.mutationResults) ? value.mutationResults : null;
   const requiredMutations = mutationResults && isRecord(mutationResults.required) ? mutationResults.required : null;
   if (!mutationResults || mutationResults.knownBadMutationRejected !== true || !requiredMutations || Object.values(requiredMutations).some((result) => result !== true)) reasons.push("evidence mutation results are missing or not all rejected");

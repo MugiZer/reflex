@@ -123,7 +123,17 @@ export async function cleanupLocalTopologyArtifacts(artifactRoot: string): Promi
   const topologyRoot = join(artifactRoot, "topology");
   let entries;
   try { entries = await readdir(topologyRoot, { withFileTypes: true }); } catch (error) { if (isNodeNotFound(error)) return; throw error; }
-  await Promise.all(entries.filter((entry) => entry.isDirectory() && (entry.name.includes(".tmp-") || entry.name.endsWith(".lock"))).map((entry) => rm(join(topologyRoot, entry.name), { recursive: true, force: true })));
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.endsWith(".lock")) continue;
+    const lockPath = join(topologyRoot, entry.name);
+    if (!await staleClaim(lockPath)) continue;
+    const finalName = entry.name.slice(0, -".lock".length);
+    const temporaryEntries = await readdir(topologyRoot, { withFileTypes: true });
+    await Promise.all(temporaryEntries
+      .filter((temporary) => temporary.isDirectory() && temporary.name.startsWith(`${finalName}.tmp-`))
+      .map((temporary) => rm(join(topologyRoot, temporary.name), { recursive: true, force: true })));
+    await rm(lockPath, { recursive: true, force: true });
+  }
 }
 
 function assertSafeSegment(value: string, label: string): void {

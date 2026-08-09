@@ -1,0 +1,38 @@
+{
+  "calculation_id": "spike-c-wall-20260724-001",
+  "events": [
+    {
+      "calculation_id": "spike-c-wall-20260724-001",
+      "event": "started",
+      "pid": 2836,
+      "timestamp": "2026-07-24T17:21:39.181975Z"
+    },
+    {
+      "calculation_id": "spike-c-wall-20260724-001",
+      "element_count": 1096,
+      "event": "refinement_completed",
+      "mesh_size_m": 0.02,
+      "timestamp": "2026-07-24T17:21:41.496564Z"
+    },
+    {
+      "calculation_id": "spike-c-wall-20260724-001",
+      "element_count": 3178,
+      "event": "refinement_completed",
+      "mesh_size_m": 0.01,
+      "timestamp": "2026-07-24T17:21:42.082743Z"
+    },
+    {
+      "calculation_id": "spike-c-wall-20260724-001",
+      "element_count": 11290,
+      "event": "refinement_completed",
+      "mesh_size_m": 0.005,
+      "timestamp": "2026-07-24T17:21:43.707247Z"
+    },
+    {
+      "calculation_id": "spike-c-wall-20260724-001",
+      "event": "completed",
+      "status": "completed_unconverged",
+      "timestamp": "2026-07-24T17:21:43.919726Z"
+    }
+  ]
+}

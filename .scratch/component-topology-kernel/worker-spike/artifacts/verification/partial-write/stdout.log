@@ -1,0 +1,2 @@
+{"calculation_id": "spike-c-wall-20260724-001", "event": "started", "pid": 32856, "timestamp": "2026-07-25T20:22:46.278193Z"}
+{"calculation_id": "spike-c-wall-20260724-001", "category": "partial_write", "event": "failed", "message": "simulated interrupted publication", "timestamp": "2026-07-25T20:22:46.280206Z"}

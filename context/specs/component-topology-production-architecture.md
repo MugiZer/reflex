@@ -1,13 +1,13 @@
 # Component topology production architecture and rollout
 
-**Status:** proposed architecture; awaiting owner approval
+**Status:** approved for Component Topology Preliminary V1 implementation
 **Date:** 2026-07-25
-**Readiness:** **not ready for implementation tickets**
+**Readiness:** ready for preliminary-V1 implementation tickets; not ready for Verified-envelope release work.
 
 This specifies production boundaries for optional topology enrichment from
 Tickets 01–04. It does not authorize a production `verified` result or replace
-the layer-only calculation. Owner approval is required before `/to-spec` and
-`/to-tickets` create implementation work.
+the layer-only calculation. Owner approval has been granted for preliminary V1;
+only a future Verified-envelope release remains blocked.
 
 ## Product invariant
 
@@ -192,9 +192,9 @@ After approval, create four large demoable vertical slices:
 3. Operational rollout — feature flag, idempotency, cancellation, health, retry/recovery, retention, metrics and rollback drill.
 4. Verified-envelope release — reviewed packs/reference/comparator, narrow envelope, then audited Z-adapter migration.
 
-## Readiness: unresolved owner decisions
+## Readiness: later Verified-envelope decisions
 
-**Not ready for implementation tickets.** Approval/closure is required for:
+The following are not blockers for preliminary V1 implementation. They are required before any `verified` result is enabled:
 
 1. Three-state trust policy, initial parameter bounds and quantitative gates.
 2. Mandatory specialist review for first/material-change Verified packs and any maintenance exception.
@@ -204,5 +204,6 @@ After approval, create four large demoable vertical slices:
 6. Explicit demotion of legacy Z-girt `verified` approval pending revalidation.
 7. Deployment owner values: deadline/grace period, Revision retention, artifact access, SLO/alerts and pilot cohort.
 
-Once the owner approves this architecture and closes or deliberately scopes the
-blockers, `/to-spec` and then `/to-tickets` may proceed.
+The owner approved preliminary V1 on 2026-07-25. `/to-tickets` may now create
+implementation tickets for the first three vertical slices only. The fourth,
+Verified-envelope release, remains blocked by the decisions above.

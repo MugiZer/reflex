@@ -56,7 +56,7 @@ describe("review-plan reconciliation", () => {
       await expect(readFile(join(fixture.root, "outputs", fixture.jobId, "evidence", "calculation-input-evidence.json"), "utf8")).resolves.toContain("Mineral wool");
       expect(fixture.app.jobs.getReviewState(fixture.jobId)).toEqual(expect.objectContaining({ planVersion: "review-plan.v4", materialLibraryVersion: "materials.library.v1", requestedInputs: [expect.objectContaining({ required: false })] }));
     } finally {
-      fixture.app.server.close(); fixture.app.jobs.close(); await rm(fixture.root, { recursive: true, force: true });
+      fixture.app.server.close(); fixture.app.close(); await rm(fixture.root, { recursive: true, force: true });
     }
   });
 
@@ -68,7 +68,7 @@ describe("review-plan reconciliation", () => {
       await expect(response.json()).resolves.toEqual({ jobId: fixture.jobId, jobStatus: "needs_review", reconciled: false });
       expect(fixture.app.jobs.getReviewState(fixture.jobId)).toEqual(state);
     } finally {
-      fixture.app.server.close(); fixture.app.jobs.close(); await rm(fixture.root, { recursive: true, force: true });
+      fixture.app.server.close(); fixture.app.close(); await rm(fixture.root, { recursive: true, force: true });
     }
   });
 });

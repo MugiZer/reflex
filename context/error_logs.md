@@ -74,6 +74,21 @@ Regression: for every durable feature, require proof of (1) invariant definition
 
 --------------------
 
+2026-08-08 — Ticket 05 topology pilot reporting audit findings (commit 411b956)
+
+Status: NO-GO. The reported 18/18 GO evidence is not independent P6 proof.
+
+- Critical — The sensitivity rerun is a false green. `verify-preliminary-topology-pilot.ts` runs the identical Vitest command twice; the six sensitivity flags only search the unchanged passing output for test names. `--sensitivity-rerun` is recorded but never interpreted, so no skipped worker/restart, fabricated value, corrupted state, or protected-state mutation is exercised.
+- High — Protected-state evidence is self-authored. The verifier writes fixed strings (`fixture-preserved`, `layer-snapshot-preserved`) instead of hashing and rereading the IFC/layer artifacts, and the validator only checks equality of those strings. A changed source can therefore still produce a valid GO manifest.
+- High — Server-owned resource limits are declared but unenforced. `maxScenarioCount` is not applied to scenario execution and `deadlineMs` is not used to bound the request; the request-derived deadline header is forwarded instead.
+- High — Report publication is not atomically linked to pilot disposition. The component evaluation is persisted before the pilot run/event; a failure between those writes can leave a report rendering a topology result without a durable completed pilot run.
+
+Root cause: proof substitution and incomplete durable-boundary ownership at the release verifier/report seam. Unit, full-suite, typecheck, graphify, and manifest-format validation are supporting evidence only; they do not establish the required public P6 claim.
+
+Regression rule: every sensitivity claim must run an independent mutation or failure-injection command and fail when the production boundary is bypassed; protected-state observations must be measured hashes/readbacks; policy limits must be enforced server-side; and numerical report publication must commit atomically with its validated pilot disposition or fail closed.
+
+--------------------
+
 2026-08-03 — Ticket 02 explicit persistence-seam audit findings
 
 Status: NO-GO. The implementation seam is structurally improved, but the required Gate 2 proof was not executable and the repository-wide completion gate was not green.

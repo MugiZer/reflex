@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -6,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { createLocalhostApp } from "../src/app/http/httpServer.js";
 import { createProvenPythonTopologyWorker, PROVEN_TOPOLOGY_BUNDLE } from "../src/infrastructure/topology/createProvenPythonTopologyWorker.js";
+import { canonicalTopologyJson } from "../src/domain/topology/canonicalTopologyJson.js";
 
 describe("preliminary topology pilot localhost seam", () => {
   it("localhost policy exclusions do not invoke topology work", async () => {
@@ -93,6 +95,11 @@ describe("preliminary topology pilot localhost seam", () => {
       expect(restarted.componentEvaluations[0]).toEqual(result);
       expect(restarted.pilotRuns).toEqual(firstJob.pilotRuns);
       expect(await (await fetch(`${baseUrl}/api/jobs/${job.jobId}/report`)).text()).toContain("Component topology evaluation");
+      if (process.env.PILOT_PROTECTED_STATE_PATH) {
+        const protectedState = protectedStateObservation(firstJob, restarted);
+        console.log(`PILOT_PROTECTED_STATE ${JSON.stringify(protectedState)}`);
+        await writeFile(process.env.PILOT_PROTECTED_STATE_PATH, JSON.stringify(protectedState), "utf8");
+      }
     } finally {
       await close(app);
       await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
@@ -122,6 +129,19 @@ describe("preliminary topology pilot localhost seam", () => {
       expect(reportAfter).toContain("Layer-only Calculation Snapshot");
       expect(reportAfter).toContain("Preliminary");
       expect(reportAfter).not.toContain(">Verified<");
+      const secondResponse = await fetch(`${baseUrl}/api/jobs/${job.jobId}/topology-reviews`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, answers: { ...body.answers, memberWidthM: 0.041 } }) });
+      expect(secondResponse.status, await secondResponse.clone().text()).toBe(202);
+      const withTwoRuns = await getJob(baseUrl, job.jobId);
+      const secondGraph = withTwoRuns.componentEvaluations.find((graph: any) => graph.evaluation.evaluationId !== result.evaluation.evaluationId);
+      const secondRun = withTwoRuns.pilotRuns.find((run: any) => run.evaluationId === secondGraph?.evaluation.evaluationId);
+      expect(secondGraph).toBeTruthy();
+      expect(secondRun).toBeTruthy();
+      const db = new DatabaseSync(join(root, "data", "app.db"));
+      db.prepare("delete from topology_pilot_runs where pilot_run_id = ?").run(secondRun.pilotRunId);
+      db.close();
+      const orphanedReport = await (await fetch(`${baseUrl}/api/jobs/${job.jobId}/report`)).text();
+      expect(orphanedReport).toContain("Component topology result unavailable");
+      expect(orphanedReport).not.toContain(secondGraph.evaluation.evaluationId);
     } finally {
       await close(app);
       await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
@@ -176,3 +196,20 @@ async function getJob(baseUrl: string, jobId: string) { return await json<any>(a
 async function listen(app: ReturnType<typeof createLocalhostApp>) { app.server.listen(0, "127.0.0.1"); await new Promise<void>((resolveListen) => app.server.once("listening", resolveListen)); const address = app.server.address(); if (!address || typeof address === "string") throw new Error("not bound"); return `http://127.0.0.1:${address.port}`; }
 async function close(app: ReturnType<typeof createLocalhostApp>) { if (app.server.listening) await new Promise<void>((resolveClose, reject) => app.server.close((error) => error ? reject(error) : resolveClose())); app.close(); }
 async function json<T>(response: Response) { return await response.json() as T; }
+function sha256(value: string): string { return createHash("sha256").update(value).digest("hex"); }
+function protectedStateObservation(before: any, after: any) {
+  const section = (beforeValue: unknown, afterValue: unknown) => {
+    const beforeContent = canonicalTopologyJson(beforeValue as any);
+    const afterContent = canonicalTopologyJson(afterValue as any);
+    return { before: sha256(beforeContent), after: sha256(afterContent), beforeContent, afterContent };
+  };
+  return {
+    ifcBytes: { before: before.fileHash, after: after.fileHash },
+    evidenceLedger: section(before.review?.context ?? null, after.review?.context ?? null),
+    revisionHistory: section({ activeRevisionId: before.activeRevisionId, review: before.review?.context ?? null }, { activeRevisionId: after.activeRevisionId, review: after.review?.context ?? null }),
+    layerOnlySnapshot: section(before.architectActions?.assemblies ?? null, after.architectActions?.assemblies ?? null),
+    evaluationGraph: section(before.componentEvaluations ?? [], after.componentEvaluations ?? []),
+    publishedArtifacts: section((before.componentEvaluations ?? []).flatMap((graph: any) => graph.results.map((result: any) => ({ scenarioResultId: result.scenarioResultId, artifactIdentity: result.artifactIdentity, artifactIndex: result.resultPayload?.evidence?.artifactIndex ?? null }))), (after.componentEvaluations ?? []).flatMap((graph: any) => graph.results.map((result: any) => ({ scenarioResultId: result.scenarioResultId, artifactIdentity: result.artifactIdentity, artifactIndex: result.resultPayload?.evidence?.artifactIndex ?? null })))),
+    pilotRecords: section({ runs: before.pilotRuns ?? [], events: before.pilotEvents ?? [] }, { runs: after.pilotRuns ?? [], events: after.pilotEvents ?? [] }),
+  };
+}

@@ -57,18 +57,23 @@ export async function submitJobTopologyReview(command: {
   const policy = command.topologyPilotPolicy ?? { ...defaultTopologyPilotPolicy(command.bundle), enabled: command.topologyPilotEnabled ?? true };
   const decision = decideTopologyPilotPolicy({ policy, jobId: command.jobId, sourceRevisionId: job.activeRevisionId, sourceAssemblyGroupId: submission.sourceAssemblyGroupId, opportunityId: opportunity.opportunityId });
   if (decision.disposition !== "eligible") return savePilotRun(command, submission, opportunity, decision as PolicyExclusionDecision, decision.disposition as PolicyExclusionDecision["disposition"], decision.decisionCode);
-  const component = recordComponentInterpretation({ command, job, submission, evidence, opportunity, revisionCreatedAt: revision.createdAt });
+  const executionCommand = { ...command, bundle: policy.bundle, deadlineAt: boundedDeadlineAt(command.deadlineAt, policy.limits.deadlineMs) };
+  const component = recordComponentInterpretation({ command: executionCommand, job, submission, evidence, opportunity, revisionCreatedAt: revision.createdAt });
   if (component?.interpretation.outcome === "matched") {
-    const evaluation = await executeComponentScenarios({ command, graph: component.graph, plan: bindIfcLayers(component.interpretation.plan, opportunity, layerOnlySnapshot), layerOnlySnapshot, retryPolicy: policy.retry });
+    const plan = bindIfcLayers(component.interpretation.plan, opportunity, layerOnlySnapshot);
+    if (!Number.isInteger(policy.limits.maxScenarioCount) || policy.limits.maxScenarioCount < 1 || plan.scenarios.length > policy.limits.maxScenarioCount) {
+      return savePilotRun(command, submission, opportunity, decision, "failed", "scenario_count_exceeds_policy_limit");
+    }
+    const evaluation = await executeComponentScenarios({ command: executionCommand, graph: component.graph, plan, layerOnlySnapshot, retryPolicy: policy.retry });
     const failed = evaluation.results.find((result) => result.outcome !== "preliminary-unsafe");
-    if (failed) savePilotRun(command, submission, opportunity, decision, failed.outcome === "cancelled" ? "cancelled" : "failed", resultErrorCode(failed.resultPayload));
-    else savePilotRun(command, submission, opportunity, decision, "completed", null);
+    if (failed) savePilotRun(command, submission, opportunity, decision, failed.outcome === "cancelled" ? "cancelled" : "failed", resultErrorCode(failed.resultPayload), evaluation);
+    else savePilotRun(command, submission, opportunity, decision, "completed", null, evaluation);
     return evaluation;
   }
   const idempotencyKey = sha256(canonicalTopologyJson({ jobId: command.jobId, sourceRevisionId: job.activeRevisionId, sourceAssemblyGroupId: submission.sourceAssemblyGroupId, opportunityId: opportunity.opportunityId, signature: opportunity.thermalConstructionSignature, answers: submission.answers }));
   const existing = command.jobs.getTopologyReviewByIdempotencyKey(command.jobId, idempotencyKey);
   if (existing) return existing;
-  const response = await submitIfcTopologyConfirmation({ opportunity, answers: submission.answers, sourceRevisionId: job.activeRevisionId, sourceAssemblyGroupId: submission.sourceAssemblyGroupId, correlationId: randomUUID(), idempotencyKey, layerOnlySnapshot, bundle: command.bundle, requests: command.requests, deadlineAt: command.deadlineAt, cancellationSignal: command.cancellationSignal });
+  const response = await submitIfcTopologyConfirmation({ opportunity, answers: submission.answers, sourceRevisionId: job.activeRevisionId, sourceAssemblyGroupId: submission.sourceAssemblyGroupId, correlationId: randomUUID(), idempotencyKey, layerOnlySnapshot, bundle: executionCommand.bundle, requests: executionCommand.requests, deadlineAt: executionCommand.deadlineAt, cancellationSignal: executionCommand.cancellationSignal });
   const review: JobTopologyReview = response.outcome === "blocked"
     ? { topologyReviewId: `toprev_${randomUUID()}`, idempotencyKey, jobId: command.jobId, sourceRevisionId: job.activeRevisionId, sourceAssemblyGroupId: submission.sourceAssemblyGroupId, opportunity, opportunityId: opportunity.opportunityId, thermalConstructionSignature: opportunity.thermalConstructionSignature, answers: submission.answers, recipeHash: null, outcome: "blocked", missingKeys: (response as { missingKeys?: string[] }).missingKeys ?? [], decisiveNextInput: (response as { missingKeys?: string[] }).missingKeys?.[0] ?? null, errorCode: null, topologyResult: null, createdAt: new Date().toISOString() }
     : response.outcome === "rejected"
@@ -84,20 +89,33 @@ export async function submitJobTopologyReview(command: {
   }
 }
 
-function savePilotRun(command: { jobId: string; jobs: JobRepository }, submission: TopologyReviewSubmission, opportunity: ReturnType<typeof detectIfcTopologyOpportunities>[number], policy: TopologyPilotDecision, disposition: TopologyPilotRun["disposition"], errorCode: string | null): TopologyPilotRun {
+function savePilotRun(command: { jobId: string; jobs: JobRepository }, submission: TopologyReviewSubmission, opportunity: ReturnType<typeof detectIfcTopologyOpportunities>[number], policy: TopologyPilotDecision, disposition: TopologyPilotRun["disposition"], errorCode: string | null, evaluation: ComponentEvaluationGraph | null = null): TopologyPilotRun {
   const idempotencyKey = sha256(canonicalTopologyJson({ jobId: command.jobId, sourceRevisionId: submission.sourceRevisionId, sourceAssemblyGroupId: submission.sourceAssemblyGroupId, opportunityId: opportunity.opportunityId, signature: opportunity.thermalConstructionSignature, answers: submission.answers, decisionId: policy.decisionId }));
   const existing = command.jobs.getTopologyPilotRunByIdempotencyKey(command.jobId, idempotencyKey);
-  if (existing) return existing;
-  const run: TopologyPilotRun = { pilotRunId: `toprun_${randomUUID()}`, idempotencyKey, jobId: command.jobId, sourceRevisionId: submission.sourceRevisionId, sourceAssemblyGroupId: submission.sourceAssemblyGroupId, opportunityId: opportunity.opportunityId, disposition, policy, errorCode, createdAt: new Date().toISOString() };
+  if (existing) {
+    ensurePilotEvent(command.jobs, existing);
+    return existing;
+  }
+  const run: TopologyPilotRun = { pilotRunId: `toprun_${randomUUID()}`, idempotencyKey, jobId: command.jobId, sourceRevisionId: submission.sourceRevisionId, sourceAssemblyGroupId: submission.sourceAssemblyGroupId, opportunityId: opportunity.opportunityId, disposition, policy, evaluationId: evaluation?.evaluation.evaluationId ?? null, aggregateId: evaluation?.aggregate?.aggregateId ?? null, resultIdsHash: evaluation ? componentEvaluationResultIdsHash(evaluation) : null, errorCode, createdAt: new Date().toISOString() };
   try {
     command.jobs.saveTopologyPilotRun(run);
-    if (command.jobs.saveTopologyPilotEvent) {
-      const eventPayload = { disposition, errorCode, policyHash: policy.policyHash };
-      const event: TopologyPilotEvent = { eventId: sha256(canonicalTopologyJson({ runId: run.pilotRunId, eventType: "pilot.run.persisted", eventPayload })), eventType: "pilot.run.persisted", runId: run.pilotRunId, jobId: run.jobId, sourceRevisionId: run.sourceRevisionId, sourceAssemblyGroupId: run.sourceAssemblyGroupId, correlationId: policy.decisionId, code: errorCode ?? policy.decisionCode, payloadHash: sha256(canonicalTopologyJson(eventPayload)), createdAt: run.createdAt };
-      command.jobs.saveTopologyPilotEvent(event);
-    }
+    ensurePilotEvent(command.jobs, run);
     return run;
-  } catch { return command.jobs.getTopologyPilotRunByIdempotencyKey(command.jobId, idempotencyKey) ?? (() => { throw new Error("Unable to persist topology pilot disposition."); })(); }
+  } catch {
+    const replay = command.jobs.getTopologyPilotRunByIdempotencyKey(command.jobId, idempotencyKey);
+    if (replay) {
+      ensurePilotEvent(command.jobs, replay);
+      return replay;
+    }
+    throw new Error("Unable to persist topology pilot disposition.");
+  }
+}
+
+function ensurePilotEvent(jobs: JobRepository, run: TopologyPilotRun): void {
+  if (!jobs.saveTopologyPilotEvent) throw new Error("Topology pilot event persistence is unavailable.");
+  const eventPayload = { disposition: run.disposition, errorCode: run.errorCode, policyHash: run.policy.policyHash, evaluationId: run.evaluationId, aggregateId: run.aggregateId, resultIdsHash: run.resultIdsHash };
+  const event: TopologyPilotEvent = { eventId: sha256(canonicalTopologyJson({ runId: run.pilotRunId, eventType: "pilot.run.persisted", eventPayload })), eventType: "pilot.run.persisted", runId: run.pilotRunId, jobId: run.jobId, sourceRevisionId: run.sourceRevisionId, sourceAssemblyGroupId: run.sourceAssemblyGroupId, correlationId: run.policy.decisionId, code: run.errorCode ?? run.policy.decisionCode, payloadHash: sha256(canonicalTopologyJson(eventPayload)), createdAt: run.createdAt };
+  jobs.saveTopologyPilotEvent(event);
 }
 
 function recordComponentInterpretation(input: { command: Parameters<typeof submitJobTopologyReview>[0]; job: NonNullable<ReturnType<JobRepository["getJob"]>>; submission: TopologyReviewSubmission; evidence: readonly unknown[]; opportunity: ReturnType<typeof detectIfcTopologyOpportunities>[number]; revisionCreatedAt: string }): { graph: ComponentEvaluationGraph; interpretation: ReturnType<typeof interpretComponentPattern> } | null {
@@ -205,6 +223,13 @@ function resultErrorCode(value: JsonValue): string | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return "worker_failure";
   const errorCode = (value as { readonly errorCode?: JsonValue }).errorCode;
   return typeof errorCode === "string" && errorCode ? errorCode : "worker_failure";
+}
+function componentEvaluationResultIdsHash(graph: ComponentEvaluationGraph): string { return sha256(canonicalTopologyJson(graph.results.map((result) => ({ scenarioResultId: result.scenarioResultId, scenarioRequestId: result.scenarioRequestId, outcome: result.outcome, artifactIdentity: result.artifactIdentity })))); }
+function boundedDeadlineAt(requestedDeadlineAt: string | undefined, limitMs: number): string {
+  const now = Date.now();
+  const policyDeadline = Number.isFinite(limitMs) && limitMs > 0 ? now + limitMs : now;
+  const requested = requestedDeadlineAt ? Date.parse(requestedDeadlineAt) : Number.POSITIVE_INFINITY;
+  return new Date(Math.min(policyDeadline, Number.isFinite(requested) ? requested : policyDeadline)).toISOString();
 }
 function parseSubmission(body: unknown): { ok: true; submission: TopologyReviewSubmission } | { ok: false; submission: TopologyReviewSubmission | null; message: string } {
   if (!isRecord(body)) return { ok: false, submission: null, message: "Expected a topology review confirmation object." };

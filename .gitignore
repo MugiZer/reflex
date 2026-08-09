@@ -10,3 +10,10 @@ fixtures/ifc/private/
 *.ifcZIP
 *.ifcxml
 *.ifcXML
+.codex/
+.entroly/
+.graph-engineering/
+graphify-out/
+learning/
+.tmp-review-diff.txt
+.scratch/**/__pycache__/
