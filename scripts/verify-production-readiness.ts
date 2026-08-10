@@ -6,17 +6,25 @@ import { join, relative, resolve } from "node:path";
 import {
   runProductionReadinessVerifier,
   type ProductionReadinessPhase,
-  type VerificationRunnerResult,
+type VerificationRunnerResult,
 } from "../src/verifier/productionReadinessVerifier.js";
+
+type TestFixture = "success" | "type_failure" | "test_failure" | "timeout" | "leaked_process" | "missing_fixture";
 
 const root = process.cwd();
 const evidenceDirectory = resolve(argumentValue("--evidence") ?? ".scratch/production-readiness-checkup/evidence");
 const activeChildren = new Map<number, ReturnType<typeof spawn>>();
+const testFixture = process.env.PRODUCTION_READINESS_TEST_FIXTURE as TestFixture | undefined;
+
+if (testFixture && process.env.NODE_ENV !== "test") {
+  throw new Error("PRODUCTION_READINESS_TEST_FIXTURE is only available in NODE_ENV=test.");
+}
 
 const result = await runProductionReadinessVerifier({
-  runner: runPhase,
-  fixtureAvailable: async () => existsSync(resolve(root, "tests/milestone5Verifier.test.ts")),
+  runner: testFixture ? runTestFixture : runPhase,
+  fixtureAvailable: async () => testFixture ? testFixture !== "missing_fixture" : existsSync(resolve(root, "tests/milestone5Verifier.test.ts")),
   cleanup: async () => {
+    if (testFixture === "leaked_process") return { leakedProcesses: ["test-fixture-child"] };
     const leakedProcesses = [...activeChildren.keys()].map((pid) => `pid ${pid}`);
     await Promise.all([...activeChildren.keys()].map(killProcessTree));
     activeChildren.clear();
@@ -30,6 +38,17 @@ for (const phase of result.phases) {
 }
 console.log(`EVIDENCE ${relative(root, evidencePath)}`);
 if (result.outcome !== "passed") process.exitCode = 1;
+
+async function runTestFixture(phase: ProductionReadinessPhase): Promise<VerificationRunnerResult> {
+  if (testFixture === "type_failure" && phase.id === "typecheck") return failedFixture("typecheck failed at C:\\private\\model.ifc:1:2");
+  if (testFixture === "test_failure" && phase.id === "focused-public-seam") return failedFixture("Assertion failed at C:\\private\\model.ifc:1:2");
+  if (testFixture === "timeout" && phase.id === "typecheck") return { outcome: "timeout", exitCode: null, output: "phase exceeded timeout" };
+  return { outcome: "passed", exitCode: 0, output: "test fixture passed" };
+}
+
+function failedFixture(output: string): VerificationRunnerResult {
+  return { outcome: "failed", exitCode: 1, output };
+}
 
 async function runPhase(phase: ProductionReadinessPhase): Promise<VerificationRunnerResult> {
   const command = commandFor(phase.id);

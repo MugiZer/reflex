@@ -74,6 +74,33 @@ Regression: for every durable feature, require proof of (1) invariant definition
 
 --------------------
 
+2026-08-09 — Ticket A verification foundation proof-gap audit (commit 37c76f2)
+
+Status: NO-GO. The production-readiness verifier has bounded phase orchestration and unit-level outcome classification, but the required public P4/P5 tracer was not completed.
+
+- High — Public-seam substitution. `tests/productionReadinessVerifier.test.ts` calls the exported orchestration function with injected runners and cleanup results; it never invokes `npm run verify:production-readiness`. Real command selection, child-process timeout handling, CLI exit status, evidence persistence, and CI composition are therefore unproved.
+- High — Cleanup lifecycle unproven. No controlled leaked-child probe demonstrates that process-tree cleanup is detected and classified as `leaked_process`; no fresh-process recovery observation exists.
+- Medium — Evidence lifecycle only partially proved. Per-run evidence files and CI upload are implemented, and SQL/credential/path redaction has unit coverage, but no public CLI test rereads the persisted artifact and verifies the complete forbidden-content contract.
+- Harness observation — `npm run verify:production-readiness` and `npm test` exceeded the local 64-second command window during regression execution. This is `HARNESS-BLOCKED` for an attributable completed tracer, not product evidence of success or failure.
+
+Root cause: proof substitution and acceptance drift at the verifier boundary. P1 unit evidence is being used for a ticket whose claims cross CLI, process, CI, and durable artifact boundaries.
+
+Regression rule: every production-readiness change must include a controlled public CLI tracer that proves success, type/test/timeout/leaked-process/missing-fixture classifications, non-zero exit behavior, persisted evidence reread, and forbidden-content redaction. A passing injected-runner test cannot authorize the gate.
+
+Queued probe: add a test-only deterministic command fixture and invoke the package entrypoint in a subprocess; inspect its exit code and evidence directory from a fresh reader, including a deliberate leaked-child and timeout case.
+
+Remediation recorded 2026-08-10:
+
+- Added a subprocess test that invokes `scripts/verify-production-readiness.ts` through the public CLI seam for success, type failure, test failure, timeout, leaked process, and missing fixture fixtures.
+- The test rereads the persisted per-run evidence and rejects SQL, credentials, private paths, and stack-trace markers.
+- Added long-running verification guidance to the TDD skill covering measured budgets, progress heartbeats, process-tree cleanup, and host-timeout versus product-timeout attribution.
+
+The real non-fixture command remains a long-running integration gate; its completion must be observed in CI or a host window long enough to cover the configured phase budget.
+
+Root-cause clarification: the immediate false-green mechanism was fake-runner substitution. `tests/productionReadinessVerifier.test.ts` injects `successfulRunner` and synthetic cleanup results into `runProductionReadinessVerifier`; it never executes `scripts/verify-production-readiness.ts`. Consequently, the tests bypassed real child-process spawning, phase timeouts, process-tree cleanup, CLI exit codes, and evidence persistence. The observed long-running command was a symptom that exposed this missing public-seam proof, not the primary defect.
+
+--------------------
+
 2026-08-08 — Ticket 05 topology pilot reporting audit findings (commit 411b956)
 
 Status: NO-GO. The reported 18/18 GO evidence is not independent P6 proof.
