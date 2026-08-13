@@ -13,6 +13,7 @@ export type ReleaseProfileResult = {
   selectedFiles: string[];
   runtimeIdentities: { executable: string; executableSha256: string | null; runtimeHash: string; workerMode: "real-python" }[];
   fixtureIdentities: { path: string; sha256: string }[];
+  cleanup: { attempted: boolean; completed: boolean; diagnostic: string | null };
 };
 
 export type ReleaseAssessment = Readonly<{
@@ -48,10 +49,12 @@ export function assessReleaseVerification(
     if (count === 0) reasons.push(`${entry.file} was not selected`);
     if (count > 1) reasons.push(`${entry.file} was selected more than once`);
   }
+  for (const file of selectedFiles.keys()) if (!inventory.some((entry) => entry.file === file)) reasons.push(`${file} is not in the registered inventory`);
   const numerical = profiles.filter((profile) => profile.profile === "numerical");
-  if (numerical.length === 1 && !numerical[0]!.runtimeIdentities.some((identity) => identity.workerMode === "real-python" && identity.runtimeHash)) {
+  if (numerical.length === 1 && !numerical[0]!.runtimeIdentities.some((identity) => identity.workerMode === "real-python" && identity.runtimeHash && identity.executableSha256)) {
     reasons.push("numerical proof did not record a real pinned worker identity");
   }
+  if (numerical.length === 1 && numerical[0]!.fixtureIdentities.length === 0) reasons.push("numerical proof did not record a fixture identity");
   const counts = profiles.reduce((total, profile) => ({
     selected: total.selected + profile.counts.selected,
     passed: total.passed + profile.counts.passed,
@@ -59,9 +62,10 @@ export function assessReleaseVerification(
     unexecuted: total.unexecuted + profile.counts.unexecuted,
   }), { selected: 0, passed: 0, failed: 0, unexecuted: 0 });
   const hasHarnessBlock = profiles.some((profile) => profile.outcome === "harness-blocked") || REQUIRED_PROFILES.some((profile) => !profileCounts.has(profile));
-  const hasFailure = profiles.some((profile) => profile.outcome === "failed") || counts.failed > 0 || reasons.some((reason) => /more than once|exceeded|do not reconcile/.test(reason));
-  const notProven = profiles.some((profile) => profile.outcome === "unexecuted") || counts.unexecuted > 0 || reasons.some((reason) => /not selected|real pinned worker/.test(reason));
-  const decision: ReleaseDecision = hasHarnessBlock ? "HARNESS-BLOCKED" : hasFailure ? "NO-GO" : notProven ? "NOT-PROVEN" : "GO";
+  const hasFailure = profiles.some((profile) => profile.outcome === "failed") || counts.failed > 0 || reasons.some((reason) => /more than once|exceeded|do not reconcile|not in the registered inventory/.test(reason));
+  if (profiles.some((profile) => !profile.cleanup.completed)) reasons.push("a profile did not confirm child-process cleanup");
+  const notProven = profiles.some((profile) => profile.outcome === "unexecuted") || counts.unexecuted > 0 || reasons.some((reason) => /not selected|real pinned worker|fixture identity/.test(reason));
+  const decision: ReleaseDecision = hasHarnessBlock || profiles.some((profile) => !profile.cleanup.completed) ? "HARNESS-BLOCKED" : hasFailure ? "NO-GO" : notProven ? "NOT-PROVEN" : "GO";
   return { decision, counts, reasons };
 }
 
@@ -90,5 +94,5 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isProfileResult(value: unknown): value is ReleaseProfileResult {
   if (!isRecord(value) || !REQUIRED_PROFILES.includes(value.profile as ReleaseProfileId) || typeof value.command !== "string" || typeof value.durationMs !== "number" || !["passed", "failed", "unexecuted", "harness-blocked"].includes(String(value.outcome))) return false;
   const counts = isRecord(value.counts) ? value.counts : null;
-  return Boolean(counts && ["selected", "passed", "failed", "unexecuted"].every((field) => typeof counts[field] === "number" && Number.isInteger(counts[field]) && counts[field] >= 0) && Array.isArray(value.selectedFiles) && Array.isArray(value.runtimeIdentities) && Array.isArray(value.fixtureIdentities));
+  return Boolean(counts && ["selected", "passed", "failed", "unexecuted"].every((field) => typeof counts[field] === "number" && Number.isInteger(counts[field]) && counts[field] >= 0) && Array.isArray(value.selectedFiles) && Array.isArray(value.runtimeIdentities) && Array.isArray(value.fixtureIdentities) && isRecord(value.cleanup) && typeof value.cleanup.attempted === "boolean" && typeof value.cleanup.completed === "boolean");
 }

@@ -24,6 +24,7 @@ function passing(profile: typeof expectedProfiles[number]): ReleaseProfileResult
     selectedFiles: selected.map((entry) => entry.file),
     runtimeIdentities: profile === "numerical" ? [{ executable: "python", executableSha256: "pinned-executable", runtimeHash: "pinned-runtime", workerMode: "real-python" }] : [],
     fixtureIdentities: profile === "numerical" ? [{ path: "tests/fixtures/frozen.json", sha256: "fixture" }] : [],
+    cleanup: { attempted: false, completed: true, diagnostic: null },
   };
 }
 
@@ -71,6 +72,8 @@ describe("release verification gate", () => {
     expect(validateReleaseEvidence({ ...evidence, tested: { ...evidence.tested, revision: "stale" } }, { revision: "revision", committedTree: "tree", workingTreeSha256: "worktree" }).valid).toBe(false);
     expect(validateReleaseEvidence({ ...evidence, profiles: evidence.profiles.slice(0, 2) }, { revision: "revision", committedTree: "tree", workingTreeSha256: "worktree" }).valid).toBe(false);
     expect(validateReleaseEvidence({ ...evidence, profiles: [passing("fast"), passing("fast"), passing("numerical")] }, { revision: "revision", committedTree: "tree", workingTreeSha256: "worktree" }).valid).toBe(false);
+    expect(validateReleaseEvidence({ ...evidence, profiles: evidence.profiles.map((profile) => ({ ...profile, cleanup: { attempted: true, completed: false, diagnostic: "still running" } })) }, { revision: "revision", committedTree: "tree", workingTreeSha256: "worktree" }).valid).toBe(false);
+    expect(validateReleaseEvidence({ ...evidence, profiles: evidence.profiles.map((profile) => profile.profile === "numerical" ? { ...profile, fixtureIdentities: [] } : profile) }, { revision: "revision", committedTree: "tree", workingTreeSha256: "worktree" }).valid).toBe(false);
   });
 
   it("publishes a non-GO artifact for a controlled skipped-worker mutation", async () => {
@@ -90,6 +93,21 @@ describe("release verification gate", () => {
       });
       expect(evidence.profileInventory).toHaveLength(TEST_INVENTORY.length);
       expect(evidence.profiles.map((profile: { profile: string }) => profile.profile)).toEqual(["fast", "integration", "numerical"]);
+      expect(validateReleaseEvidence({ ...evidence, tested: { ...evidence.tested, workingTreeSha256: "corrupted" } }, evidence.tested).valid).toBe(false);
+    } finally {
+      await rm(evidenceDirectory, { recursive: true, force: true });
+    }
+  }, 20_000);
+
+  it("kills a controlled timed-out child and persists cleanup evidence", async () => {
+    const evidenceDirectory = await mkdtemp(join(tmpdir(), "release-timeout-"));
+    try {
+      const cli = spawnSync(process.execPath, [resolve("node_modules/tsx/dist/cli.mjs"), "scripts/verify-release.ts", "--known-bad=timeout", `--evidence=${evidenceDirectory}`], { cwd: resolve("."), encoding: "utf8", shell: false, timeout: 15_000 });
+      expect(cli.status).toBe(1);
+      expect(`${cli.stdout}\n${cli.stderr}`).toContain("HARNESS-BLOCKED");
+      const artifact = (await readdir(evidenceDirectory)).find((file) => file.endsWith(".json"));
+      const evidence = JSON.parse(await readFile(join(evidenceDirectory, artifact!), "utf8"));
+      expect(evidence.profiles[0]).toMatchObject({ profile: "fast", outcome: "unexecuted", cleanup: { attempted: true, completed: true } });
     } finally {
       await rm(evidenceDirectory, { recursive: true, force: true });
     }

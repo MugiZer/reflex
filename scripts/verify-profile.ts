@@ -28,21 +28,23 @@ for (const entry of entries) console.log(`SELECTED ${entry.file} deps=${entry.de
 
 const startedAt = Date.now();
 let timedOut = false;
+let cleanupPromise: Promise<void> | null = null;
 const child = spawn(process.execPath, [resolve("node_modules/vitest/vitest.mjs"), "run", `--maxWorkers=${profile.maxWorkers}`, ...entries.map((entry) => entry.file)], {
   cwd: process.cwd(), shell: false, stdio: "inherit",
 });
 const timeout = setTimeout(() => {
   timedOut = true;
   console.error(`RESULT ${profile.id} unexecuted: profile budget exceeded.`);
-  void killProcessTree(child.pid);
+  cleanupPromise = killProcessTree(child.pid);
 }, profile.budgetMs);
 child.once("error", (error) => {
   clearTimeout(timeout);
   console.error(`RESULT ${profile.id} unexecuted: ${error.message}`);
   process.exitCode = 1;
 });
-child.once("close", (code) => {
+child.once("close", async (code) => {
   clearTimeout(timeout);
+  if (timedOut) await (cleanupPromise ?? killProcessTree(child.pid));
   const elapsed = Date.now() - startedAt;
   const outcome = timedOut ? "unexecuted" : code === 0 && elapsed <= profile.budgetMs ? "passed" : "failed";
   console.log(`RESULT ${profile.id} ${outcome} ${elapsed}ms`);

@@ -8,6 +8,7 @@ import { PROVEN_TOPOLOGY_BUNDLE } from "../src/infrastructure/topology/createPro
 import {
   assessReleaseVerification,
   RELEASE_VERIFICATION_SCHEMA,
+  validateReleaseEvidence,
   type ReleaseProfileId,
   type ReleaseProfileResult,
 } from "../src/verifier/releaseVerificationGate.js";
@@ -20,7 +21,8 @@ const profiles: readonly ReleaseProfileId[] = ["fast", "integration", "numerical
 
 let profileResults: ReleaseProfileResult[];
 try {
-  if (knownBad) profileResults = knownBadResults(knownBad);
+  if (knownBad === "timeout") profileResults = await timeoutProbeResults();
+  else if (knownBad) profileResults = knownBadResults(knownBad);
   else {
     const discoveredFiles = execFileSync("rg", ["--files", "tests", "-g", "*.test.ts"], { cwd: root, encoding: "utf8" })
       .split(/\r?\n/).filter((file) => file.endsWith(".test.ts")).map((file) => file.replaceAll("\\", "/"));
@@ -45,9 +47,15 @@ const evidence = {
   completedAt: new Date().toISOString(),
 };
 const evidencePath = await writeEvidence(evidenceDirectory, evidence);
+const reread = JSON.parse(await readFile(evidencePath, "utf8")) as unknown;
+const evidenceValidation = validateReleaseEvidence(reread, tested);
+if (!evidenceValidation.valid) {
+  console.error(`EVIDENCE INVALID ${evidenceValidation.reasons.join("; ")}`);
+  process.exitCode = 1;
+}
 console.log(`RELEASE decision=${assessment.decision} selected=${assessment.counts.selected} passed=${assessment.counts.passed} failed=${assessment.counts.failed} unexecuted=${assessment.counts.unexecuted}`);
 console.log(`EVIDENCE ${evidencePath}`);
-if (assessment.decision !== "GO") process.exitCode = 1;
+if (assessment.decision !== "GO" || !evidenceValidation.valid) process.exitCode = 1;
 
 async function runProfile(profile: ReleaseProfileId): Promise<ReleaseProfileResult> {
   const entries = selectVerificationProfile(profile);
@@ -69,11 +77,12 @@ async function runProfile(profile: ReleaseProfileId): Promise<ReleaseProfileResu
     selectedFiles,
     runtimeIdentities: profile === "numerical" ? [await realWorkerIdentity()] : [],
     fixtureIdentities: profile === "numerical" ? await numericalFixtureIdentities() : [],
+    cleanup: execution.cleanup,
   };
 }
 
 function knownBadResults(mode: string): ReleaseProfileResult[] {
-  if (mode !== "overlap" && mode !== "skip-worker") throw new Error("--known-bad must be overlap or skip-worker");
+  if (mode !== "overlap" && mode !== "skip-worker") throw new Error("--known-bad must be overlap, skip-worker, or timeout");
   const results = profiles.map((profile) => syntheticPassedResult(profile));
   if (mode === "overlap") results.push(syntheticPassedResult("fast"));
   if (mode === "skip-worker") {
@@ -87,28 +96,45 @@ function knownBadResults(mode: string): ReleaseProfileResult[] {
 
 function syntheticPassedResult(profile: ReleaseProfileId): ReleaseProfileResult {
   const selectedFiles = selectVerificationProfile(profile).map((entry) => entry.file);
-  return { profile, command: `synthetic known-bad ${profile}`, durationMs: 1, outcome: "passed", counts: { selected: selectedFiles.length, passed: selectedFiles.length, failed: 0, unexecuted: 0 }, selectedFiles, runtimeIdentities: profile === "numerical" ? [{ executable: "synthetic-known-bad", executableSha256: null, runtimeHash: PROVEN_TOPOLOGY_BUNDLE.runtimeHash, workerMode: "real-python" }] : [], fixtureIdentities: [] };
+  return { profile, command: `synthetic known-bad ${profile}`, durationMs: 1, outcome: "passed", counts: { selected: selectedFiles.length, passed: selectedFiles.length, failed: 0, unexecuted: 0 }, selectedFiles, runtimeIdentities: profile === "numerical" ? [{ executable: "synthetic-known-bad", executableSha256: null, runtimeHash: PROVEN_TOPOLOGY_BUNDLE.runtimeHash, workerMode: "real-python" }] : [], fixtureIdentities: [], cleanup: { attempted: false, completed: true, diagnostic: null } };
 }
 
 function blockedResult(profile: ReleaseProfileId, diagnostic: string): ReleaseProfileResult {
   const selectedFiles = selectVerificationProfile(profile).map((entry) => entry.file);
-  return { profile, command: `npm run verify:${profile}`, durationMs: 0, outcome: "harness-blocked", counts: { selected: selectedFiles.length, passed: 0, failed: 0, unexecuted: selectedFiles.length }, selectedFiles, runtimeIdentities: [], fixtureIdentities: [{ path: "harness", sha256: sha(diagnostic) }] };
+  return { profile, command: `npm run verify:${profile}`, durationMs: 0, outcome: "harness-blocked", counts: { selected: selectedFiles.length, passed: 0, failed: 0, unexecuted: selectedFiles.length }, selectedFiles, runtimeIdentities: [], fixtureIdentities: [{ path: "harness", sha256: sha(diagnostic) }], cleanup: { attempted: false, completed: true, diagnostic: null } };
 }
 
-async function runChild(command: string[], budgetMs: number): Promise<{ outcome: ReleaseProfileResult["outcome"]; output: string; durationMs: number }> {
+async function timeoutProbeResults(): Promise<ReleaseProfileResult[]> {
+  const execution = await runChild(["-e", "setInterval(() => {}, 1000)"], 100);
+  const selectedFiles = selectVerificationProfile("fast").map((entry) => entry.file);
+  return [
+    { profile: "fast", command: "controlled timeout probe", durationMs: execution.durationMs, outcome: execution.outcome, counts: { selected: selectedFiles.length, passed: 0, failed: 0, unexecuted: selectedFiles.length }, selectedFiles, runtimeIdentities: [], fixtureIdentities: [], cleanup: execution.cleanup },
+    ...(["integration", "numerical"] as const).map((profile) => blockedResult(profile, "Skipped after controlled timeout probe.")),
+  ];
+}
+
+async function runChild(command: string[], budgetMs: number): Promise<{ outcome: ReleaseProfileResult["outcome"]; output: string; durationMs: number; cleanup: ReleaseProfileResult["cleanup"] }> {
   const startedAt = Date.now();
   console.log(`START PROFILE ${command.at(-1)}`);
   return await new Promise((done) => {
     const child = spawn(process.execPath, command, { cwd: root, shell: false, stdio: ["ignore", "pipe", "pipe"] });
     let output = "";
     let timedOut = false;
-    const timeout = setTimeout(() => { timedOut = true; void killProcessTree(child.pid); }, budgetMs);
+    let cleanup: ReleaseProfileResult["cleanup"] = { attempted: false, completed: true, diagnostic: null };
+    let cleanupPromise: Promise<ReleaseProfileResult["cleanup"]> | null = null;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      cleanupPromise = killProcessTree(child.pid);
+    }, budgetMs);
     child.stdout.on("data", (chunk: Buffer) => { output += chunk.toString("utf8"); });
     child.stderr.on("data", (chunk: Buffer) => { output += chunk.toString("utf8"); });
     child.once("error", (error) => { output += error.message; });
     child.once("close", (status) => {
       clearTimeout(timeout);
-      done({ outcome: timedOut ? "unexecuted" : status === 0 ? "passed" : status === null ? "harness-blocked" : "failed", output, durationMs: Date.now() - startedAt });
+      void (async () => {
+        if (timedOut) cleanup = await (cleanupPromise ?? killProcessTree(child.pid));
+        done({ outcome: timedOut ? "unexecuted" : status === 0 ? "passed" : status === null ? "harness-blocked" : "failed", output, durationMs: Date.now() - startedAt, cleanup });
+      })();
     });
   });
 }
@@ -151,4 +177,15 @@ async function worktreeSha(): Promise<string> {
   return hash.digest("hex");
 }
 function ignoredWorktreePath(path: string): boolean { const normalized = path.replaceAll("\\", "/"); return normalized.startsWith(".scratch/production-readiness-checkup/evidence/") || ["graphify-out/", "node_modules/", "dist/", "outputs/", "storage/"].some((prefix) => normalized.startsWith(prefix)); }
-async function killProcessTree(pid: number | undefined): Promise<void> { if (!pid) return; if (process.platform !== "win32") { try { process.kill(pid, "SIGTERM"); } catch { /* already closed */ } return; } await new Promise<void>((done) => { const child = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { shell: false, stdio: "ignore" }); child.once("close", () => done()); child.once("error", () => done()); }); }
+async function killProcessTree(pid: number | undefined): Promise<ReleaseProfileResult["cleanup"]> {
+  if (!pid) return { attempted: true, completed: false, diagnostic: "Child process has no PID." };
+  if (process.platform !== "win32") {
+    try { process.kill(pid, "SIGTERM"); return { attempted: true, completed: true, diagnostic: null }; }
+    catch (error) { return { attempted: true, completed: false, diagnostic: error instanceof Error ? error.message : String(error) }; }
+  }
+  return await new Promise((done) => {
+    const child = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { shell: false, stdio: "ignore" });
+    child.once("close", (code) => done({ attempted: true, completed: code === 0, diagnostic: code === 0 ? null : `taskkill exited ${code}` }));
+    child.once("error", (error) => done({ attempted: true, completed: false, diagnostic: error.message }));
+  });
+}
