@@ -44,6 +44,8 @@ Implementation tickets: [D1 — Verification Profiles and Fast Feedback](issues/
 
 `npm test` remains the complete working-contract suite. For ordinary feedback, run `npm run verify:fast`: it runs only the declared deterministic tests and refuses an inventory that selects the real Python worker. Run `npm run verify:integration` when changing persistence, local files, WebIFC, or localhost composition; it is deliberately single-worker because its tests use isolated local resources. The test inventory in `src/verifier/verificationProfiles.ts` is authoritative: every test file visible under `tests/` must appear exactly once with its resource facts and budget. A newly added test is therefore forced through classification before either profile can claim a pass.
 
+Before a release decision, run `npm run verify:release`. It executes the fast, integration, and real pinned-worker numerical profiles exactly once, then writes a timestamped decision artifact under `.scratch/production-readiness-checkup/evidence/`. Only `GO` is releasable; `NO-GO`, `NOT-PROVEN`, and `HARNESS-BLOCKED` are explicit non-release outcomes. `npm test` remains required by the working contract and is not replaced by this gate.
+
 ### Before
 
 - The default test command runs the entire repository test portfolio, including slow integration and real Python/topology tests.

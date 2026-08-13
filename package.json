@@ -26,7 +26,9 @@
     "verify:preliminary-topology-pilot-evidence": "tsx scripts/verify-preliminary-topology-pilot-evidence.ts",
     "verify:production-readiness": "tsx scripts/verify-production-readiness.ts",
     "verify:fast": "tsx scripts/verify-profile.ts fast",
-    "verify:integration": "tsx scripts/verify-profile.ts integration"
+    "verify:integration": "tsx scripts/verify-profile.ts integration",
+    "verify:numerical": "tsx scripts/verify-profile.ts numerical",
+    "verify:release": "tsx scripts/verify-release.ts"
   },
   "repository": {
     "type": "git",
