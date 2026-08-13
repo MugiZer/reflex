@@ -26,11 +26,11 @@ export const VERIFICATION_PROFILES: Readonly<Record<VerificationProfileId, Verif
 };
 
 const fast = [
-  "actionReadyReviewProjection", "architectActionViewModel", "assemblyCandidates", "automaticBilingualMaterialResolution", "calculationInputEvidence", "componentCompletionManifest", "componentEvaluationAggregate", "componentEvaluationIdentity", "componentEvaluationPublicSeam", "componentPatternInterpreter", "componentPatternPromotion", "continuousZGirtFamily", "diagnosticsMarkdown", "effectiveElementEvidence", "foundationGateVerifier", "htmlReportUi", "ifcTopologyOpportunity", "localReviewProgress", "milestone1Verifier", "milestone3Core", "milestone5RegressionHarness", "milestone5Verifier", "milestone6ProductHardening", "missingDatapointsAndReadiness", "openSource2dCalculationWorker", "preliminaryTopologyPilotEvidence", "preliminaryTopologyPilotPolicy", "preliminaryTopologyPilotVerifier", "productionReadinessVerifier", "referenceThermalTreatmentFamilies", "reportInventory", "reviewContextViewModel", "thermalTreatmentOpportunityDetection", "thermalTreatmentReleaseWorkflow", "thermalTreatmentSpine", "thermalTreatmentTrust", "topologyAnalysisRequest", "topologyHardening", "topologyOperationalPilot", "topologyReport", "topologyScenarioEstimates", "verificationProfiles",
+  "actionReadyReviewProjection", "architectActionViewModel", "assemblyCandidates", "automaticBilingualMaterialResolution", "calculationInputEvidence", "componentCompletionManifest", "componentEvaluationAggregate", "componentEvaluationIdentity", "componentEvaluationPublicSeam", "componentPatternInterpreter", "componentPatternPromotion", "continuousZGirtFamily", "diagnosticsMarkdown", "effectiveElementEvidence", "foundationGateVerifier", "htmlReportUi", "ifcTopologyOpportunity", "localReviewProgress", "milestone1Verifier", "milestone3Core", "milestone5RegressionHarness", "milestone5Verifier", "milestone6ProductHardening", "missingDatapointsAndReadiness", "openSource2dCalculationWorker", "preliminaryTopologyPilotEvidence", "preliminaryTopologyPilotPolicy", "preliminaryTopologyPilotVerifier", "productionReadinessVerifier", "referenceThermalTreatmentFamilies", "releaseVerificationGate", "reportInventory", "reviewContextViewModel", "thermalTreatmentOpportunityDetection", "thermalTreatmentReleaseWorkflow", "thermalTreatmentSpine", "thermalTreatmentTrust", "topologyAnalysisRequest", "topologyHardening", "topologyOperationalPilot", "topologyReport", "topologyScenarioEstimates", "verificationProfiles",
 ] as const;
 
 const integration = [
-  "componentEvaluationSqlite", "componentOccurrenceHttp", "ifcEvidenceArtifacts", "ifcEvidenceExtractor", "ifcReaderDomain", "ifcSmokeInspection", "ifcViewerContract", "jobArtifactStore", "localhostAppLifecycle", "milestone4JobApi", "paidPilotSafety", "preliminaryTopologyPilotSqlite", "reconcileJobReviewPlan", "reviewWorkflowRegression", "sqliteJobRepository", "submitJobTopologyReview", "topologyReviewHttpContract", "viewerGeometryCache", "webIfcModelReader",
+  "componentEvaluationSqlite", "componentOccurrenceHttp", "generatedThermalTreatmentQualification", "ifcEvidenceArtifacts", "ifcEvidenceExtractor", "ifcReaderDomain", "ifcSmokeInspection", "ifcViewerContract", "jobArtifactStore", "localhostAppLifecycle", "milestone4JobApi", "paidPilotSafety", "preliminaryTopologyPilotSqlite", "reconcileJobReviewPlan", "reviewWorkflowRegression", "sqliteJobRepository", "submitJobTopologyReview", "topologyReviewHttpContract", "viewerGeometryCache", "webIfcModelReader",
 ] as const;
 
 const numerical = [
@@ -46,6 +46,7 @@ export const TEST_INVENTORY: readonly TestInventoryEntry[] = [
 ];
 
 function dependenciesForIntegration(name: string): TestInventoryEntry["dependencies"] {
+  if (name === "generatedThermalTreatmentQualification") return ["filesystem"];
   if (["ifcReaderDomain", "ifcSmokeInspection", "ifcViewerContract", "webIfcModelReader"].includes(name)) return ["filesystem", "web-ifc"];
   if (["localhostAppLifecycle", "milestone4JobApi", "paidPilotSafety", "reconcileJobReviewPlan", "reviewWorkflowRegression", "submitJobTopologyReview", "topologyReviewHttpContract"].includes(name)) return ["sqlite", "filesystem", "localhost"];
   return ["sqlite", "filesystem"];
@@ -53,7 +54,7 @@ function dependenciesForIntegration(name: string): TestInventoryEntry["dependenc
 
 function dependenciesForFast(name: string): TestInventoryEntry["dependencies"] {
   if (name === "componentEvaluationPublicSeam") return ["sqlite", "filesystem", "localhost"];
-  if (name === "topologyAnalysisRequest") return ["filesystem"];
+  if (["topologyAnalysisRequest", "releaseVerificationGate"].includes(name)) return ["filesystem"];
   return [];
 }
 

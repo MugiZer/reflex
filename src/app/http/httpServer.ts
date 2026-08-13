@@ -27,6 +27,7 @@ import { createLocalTopologyReviewEvidenceLoader } from "../../infrastructure/to
 import { createLocalJobWorkspaceEvidenceLoader } from "../../infrastructure/jobs/localJobWorkspaceEvidenceLoader.js";
 import { submitThermalTreatmentConfirmation } from "../../application/thermal-treatment/submitThermalTreatmentConfirmation.js";
 import { continuousZGirtFamilyRegistry } from "../../domain/thermal-treatment/families/continuousZGirtFamily.js";
+import type { ThermalTreatmentFamilyRegistry } from "../../domain/thermal-treatment/thermalTreatmentTypes.js";
 import { OpenSource2dCalculationWorker } from "../../infrastructure/thermal-treatment/OpenSource2dCalculationWorker.js";
 import type { ClosableJobRepository, JobRepository } from "../../domain/jobs/jobRepository.js";
 import type { JobRecord } from "../../domain/jobs/jobTypes.js";
@@ -38,6 +39,7 @@ import { LocalJobArtifactStore } from "../../infrastructure/storage/local-files/
 import { LocalJobFileStorage } from "../../infrastructure/storage/local-files/jobFileStorage.js";
 import { LocalViewerGeometryCache } from "../../infrastructure/storage/local-files/viewerGeometryCache.js";
 import { LocalCompletedJobPublicationValidator } from "../../infrastructure/jobs/validateCompletedJobArtifacts.js";
+import { defaultMaterialLibraryV1 } from "../../domain/materials/library.v1.js";
 import { renderAppShellClientScript } from "./frontend/appShellClient.js";
 import { renderIfcReviewViewerClientScript } from "./ifcReviewViewerClient.js";
 import { parseMultipartUpload, readBuffer } from "./multipartUpload.js";
@@ -61,6 +63,7 @@ export function createLocalhostApp(command: {
   topologyPilotEnabled?: boolean;
   topologyPilotPolicy?: TopologyPilotPolicy;
   maxUploadBytes?: number;
+  thermalTreatmentRegistry?: ThermalTreatmentFamilyRegistry;
 }): LocalhostApp {
   const jobs = new SqliteJobRepository(command.databasePath);
   const componentEvaluations = new SqliteComponentEvaluationRepository(command.databasePath);
@@ -74,9 +77,11 @@ export function createLocalhostApp(command: {
     outputRoot: command.outputRoot,
     artifactStore,
     completedJobPublication,
+    materialLibrary: defaultMaterialLibraryV1,
     ...command.workerOverrides,
   };
   const thermalTreatmentWorker = new OpenSource2dCalculationWorker({ artifactRoot: join(command.outputRoot, "thermal-treatment-worker") });
+  const thermalTreatmentRegistry = command.thermalTreatmentRegistry ?? continuousZGirtFamilyRegistry;
   const topologyWorker = command.topologyWorker ?? configuredTopologyWorker();
   const startupCleanup = Promise.all([
     cleanupLocalTopologyArtifacts(command.outputRoot),
@@ -118,6 +123,7 @@ export function createLocalhostApp(command: {
           topologyRequests,
           jobId,
           parseArchitectTarget(url.searchParams.get("targetU")),
+          thermalTreatmentRegistry,
         );
       }
 
@@ -166,7 +172,7 @@ export function createLocalhostApp(command: {
 
       const thermalTreatmentJobId = matchPath(url.pathname, /^\/api\/jobs\/([^/]+)\/thermal-treatment$/);
       if (req.method === "POST" && thermalTreatmentJobId) {
-        const result = await submitThermalTreatmentConfirmation({ jobId: thermalTreatmentJobId, body: await readJson(req), jobs, deps: workerDeps, registry: continuousZGirtFamilyRegistry, worker: thermalTreatmentWorker });
+        const result = await submitThermalTreatmentConfirmation({ jobId: thermalTreatmentJobId, body: await readJson(req), jobs, deps: workerDeps, registry: thermalTreatmentRegistry, worker: thermalTreatmentWorker });
         return json(res, 202, result);
       }
 
@@ -248,6 +254,7 @@ async function sendJob(
   topologyIntegrity: ReturnType<typeof createTopologyAnalysisRequestService>,
   jobId: string,
   targetUValueWPerM2K: number | null,
+  thermalTreatmentRegistry: ThermalTreatmentFamilyRegistry,
 ): Promise<void> {
   const workspace = await getJobWorkspace({
     jobs,
@@ -255,6 +262,7 @@ async function sendJob(
     topologyIntegrity,
     jobId,
     targetUValueWPerM2K,
+    thermalTreatmentRegistry,
   });
   if (!workspace) {
     return json(res, 404, { error: "Job not found" });

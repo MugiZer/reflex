@@ -41,13 +41,19 @@ export const referenceConfirmedInputs: Record<string, ThermalTreatmentInputValue
 };
 
 /** Supported architect-facing continuous steel Z-girt/rail family; all family specifics stay in this adapter. */
-export const continuousZGirtFamily: ThermalTreatmentFamily = {
-  identity, packs,
+export function createContinuousZGirtFamily(command: { identity?: ThermalTreatmentFamily["identity"]; packs?: ThermalTreatmentPackSet } = {}): ThermalTreatmentFamily {
+  const familyIdentity = command.identity ?? identity;
+  const familyPacks = command.packs ?? packs;
+  return {
+  identity: familyIdentity, packs: familyPacks,
   matchOpportunity: ({ evidence }) => matchOpportunity(evidence.materialNames, evidence.calculationInputEvidence),
   requiredInputs: () => inputs.map((input) => ({ ...input })),
   validateConfirmedInputs: ({ confirmedInputs }) => validateInputs(confirmedInputs),
-  buildAnalysisModel: ({ assemblyGroupId, confirmedInputs }) => buildAnalysisModel(assemblyGroupId, confirmedInputs),
-};
+  buildAnalysisModel: ({ assemblyGroupId, confirmedInputs }) => buildAnalysisModel(assemblyGroupId, confirmedInputs, familyIdentity),
+  };
+}
+
+export const continuousZGirtFamily = createContinuousZGirtFamily();
 
 export const continuousZGirtFamilyRegistry = createThermalTreatmentFamilyRegistry([continuousZGirtFamily]);
 
@@ -86,13 +92,13 @@ function validateInputs(values: Record<string, ThermalTreatmentInputValue>): The
   return issues;
 }
 
-function buildAnalysisModel(assemblyGroupId: string, values: Record<string, ThermalTreatmentInputValue>) {
+function buildAnalysisModel(assemblyGroupId: string, values: Record<string, ThermalTreatmentInputValue>, familyIdentity: ThermalTreatmentFamily["identity"]) {
   const layers = parseLayers(values.wallLayerStackJson)!;
   const widthM = layers.reduce((sum, layer) => sum + layer.thicknessMm, 0) / 1000, heightM = Number(values.repeatSpacingMm) / 1000, thicknessM = Number(values.steelThicknessMm) / 1000;
   const zProfile = zProfileRectangles(Number(values.zDepthMm) / 1000, Number(values.zInsideFlangeWidthMm) / 1000, Number(values.zOutsideFlangeWidthMm) / 1000, thicknessM, heightM);
   const thermalBreak = values.thermalBreakPresent === true ? { xMinM: (Number(values.zDepthMm) / 1000 - Number(values.thermalBreakLengthMm) / 1000) / 2, xMaxM: (Number(values.zDepthMm) / 1000 + Number(values.thermalBreakLengthMm) / 1000) / 2, yMinM: heightM / 2 - thicknessM / 2, yMaxM: heightM / 2 + thicknessM / 2, conductivityWPerMK: Number(values.thermalBreakConductivityWPerMK) } : null;
   const regions = meshedRegions(layers, widthM, heightM, zProfile, Number(values.steelConductivityWPerMK), thermalBreak);
-  return { assemblyGroupId, treatmentFamily: identity, confirmedInputs: values, model: { zGirt: { profile: "parameterized-stepped-z", depthMm: values.zDepthMm, insideFlangeWidthMm: values.zInsideFlangeWidthMm, outsideFlangeWidthMm: values.zOutsideFlangeWidthMm, steelThicknessMm: values.steelThicknessMm, repeatSpacingMm: values.repeatSpacingMm, placementOrientation: values.placementOrientation, thermalBreak }, wallLayers: layers, twoDimensionalThermalModel: { domain: { widthM, heightM }, regions, boundaries: [{ boundaryId: "inside", edge: "left" as const, kind: "surface_resistance" as const, airTemperatureK: Number(values.insideAirTemperatureC) + 273.15, resistanceM2KPerW: Number(values.insideSurfaceResistanceM2KPerW) }, { boundaryId: "outside", edge: "right" as const, kind: "surface_resistance" as const, airTemperatureK: Number(values.outsideAirTemperatureC) + 273.15, resistanceM2KPerW: Number(values.outsideSurfaceResistanceM2KPerW) }], periodicEdges: ["top", "bottom"] as const, solverControls: { maxCellSizeM: 0.02, refinementLevels: 2, convergenceToleranceRelative: 0.2, maxIterations: 100_000, timeoutMilliseconds: 5_000 } } }, assumptions: ["Continuous Z-girt is modeled as a parameterized repeating 2-D Z profile across the confirmed wall layers.", thermalBreak ? "Confirmed thermal break replaces the central Z-web bridge." : "No thermal break is modeled because its absence was explicitly confirmed."], provenance: ["Continuous Z-girt family adapter v1.0.0."] };
+  return { assemblyGroupId, treatmentFamily: familyIdentity, confirmedInputs: values, model: { zGirt: { profile: "parameterized-stepped-z", depthMm: values.zDepthMm, insideFlangeWidthMm: values.zInsideFlangeWidthMm, outsideFlangeWidthMm: values.zOutsideFlangeWidthMm, steelThicknessMm: values.steelThicknessMm, repeatSpacingMm: values.repeatSpacingMm, placementOrientation: values.placementOrientation, thermalBreak }, wallLayers: layers, twoDimensionalThermalModel: { domain: { widthM, heightM }, regions, boundaries: [{ boundaryId: "inside", edge: "left" as const, kind: "surface_resistance" as const, airTemperatureK: Number(values.insideAirTemperatureC) + 273.15, resistanceM2KPerW: Number(values.insideSurfaceResistanceM2KPerW) }, { boundaryId: "outside", edge: "right" as const, kind: "surface_resistance" as const, airTemperatureK: Number(values.outsideAirTemperatureC) + 273.15, resistanceM2KPerW: Number(values.outsideSurfaceResistanceM2KPerW) }], periodicEdges: ["top", "bottom"] as const, solverControls: { maxCellSizeM: 0.02, refinementLevels: 2, convergenceToleranceRelative: 0.2, maxIterations: 100_000, timeoutMilliseconds: 5_000 } } }, assumptions: ["Continuous Z-girt is modeled as a parameterized repeating 2-D Z profile across the confirmed wall layers.", thermalBreak ? "Confirmed thermal break replaces the central Z-web bridge." : "No thermal break is modeled because its absence was explicitly confirmed."], provenance: ["Continuous Z-girt family adapter v1.0.0."] };
 }
 
 function zProfileRectangles(depthM: number, insideFlangeM: number, outsideFlangeM: number, thicknessM: number, heightM: number) { const mid = heightM / 2; return [{ xMinM: 0, xMaxM: insideFlangeM, yMinM: 0, yMaxM: thicknessM }, { xMinM: insideFlangeM - thicknessM, xMaxM: insideFlangeM, yMinM: thicknessM, yMaxM: mid - thicknessM / 2 }, { xMinM: insideFlangeM, xMaxM: depthM - outsideFlangeM, yMinM: mid - thicknessM / 2, yMaxM: mid + thicknessM / 2 }, { xMinM: depthM - outsideFlangeM, xMaxM: depthM - outsideFlangeM + thicknessM, yMinM: mid + thicknessM / 2, yMaxM: heightM - thicknessM }, { xMinM: depthM - outsideFlangeM, xMaxM: depthM, yMinM: heightM - thicknessM, yMaxM: heightM }]; }

@@ -1,5 +1,5 @@
 import { assertValidThermalTreatmentPacks, evaluateThermalTreatmentTrust } from "./evaluateThermalTreatmentTrust.js";
-import type { ThermalTreatmentCalculationWorker, ThermalTreatmentFamilyRegistry, ThermalTreatmentRecord, ThermalTreatmentSelection, ThermalTreatmentWorkerResult } from "./thermalTreatmentTypes.js";
+import type { GeneratedThermalTreatmentFamily, ThermalTreatmentCalculationWorker, ThermalTreatmentFamily, ThermalTreatmentFamilyRegistry, ThermalTreatmentRecord, ThermalTreatmentSelection, ThermalTreatmentWorkerResult } from "./thermalTreatmentTypes.js";
 
 export type RunThermalTreatmentResult = { result: ThermalTreatmentWorkerResult; record: ThermalTreatmentRecord };
 
@@ -37,6 +37,7 @@ export async function runThermalTreatment(command: {
         knowledgePackVersion: family.packs.knowledgePack.version,
         validationPackVersion: family.packs.validationPack.version,
       },
+      ...(isGeneratedFamily(family) ? { generation: family.generation, qualification: family.qualification } : {}),
       baselineUValueWPerM2K: 0,
       effectiveUValueWPerM2K: result.effectiveUValueWPerM2K,
       selection: command.selection,
@@ -49,4 +50,8 @@ export async function runThermalTreatment(command: {
       artifactReferences: result.artifactReferences,
     },
   };
+}
+
+function isGeneratedFamily(family: ThermalTreatmentFamily): family is GeneratedThermalTreatmentFamily {
+  return "generation" in family && "qualification" in family;
 }

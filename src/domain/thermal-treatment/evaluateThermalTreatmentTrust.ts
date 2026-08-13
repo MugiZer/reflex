@@ -1,4 +1,4 @@
-import type { ThermalTreatmentCalculationWorker, ThermalTreatmentFamily, ThermalTreatmentInputValue, ThermalTreatmentTrustReason, ThermalTreatmentWorkerResult } from "./thermalTreatmentTypes.js";
+import type { GeneratedThermalTreatmentFamily, ThermalTreatmentCalculationWorker, ThermalTreatmentFamily, ThermalTreatmentInputValue, ThermalTreatmentTrustReason, ThermalTreatmentWorkerResult } from "./thermalTreatmentTypes.js";
 
 export function assertValidThermalTreatmentPacks(family: ThermalTreatmentFamily): void {
   const { identity, packs } = family;
@@ -35,6 +35,7 @@ export function evaluateThermalTreatmentTrust(command: {
   workerResult: ThermalTreatmentWorkerResult;
 }): { trustReasons: ThermalTreatmentTrustReason[]; actionsRequiredForVerification: string[] } {
   const reasons: ThermalTreatmentTrustReason[] = [];
+  if (isGeneratedFamily(command.family) && command.family.qualification.decision !== "go") reasons.push({ code: "qualification_not_go", inputKey: null, message: "This generated family is disabled until its qualification decision is GO." });
   if (!command.family.packs.validationPack.approvedForVerification) reasons.push({ code: "validation_pack_not_approved", inputKey: null, message: "The validation pack is not approved for Verified results." });
   const actions: string[] = [];
   for (const parameter of command.family.packs.knowledgePack.parameters.filter((item) => item.critical && isApplicable(item, command.confirmedInputs))) {
@@ -61,6 +62,10 @@ export function evaluateThermalTreatmentTrust(command: {
     actions.push("Resolve the worker validity diagnostics and recalculate.");
   }
   return { trustReasons: reasons, actionsRequiredForVerification: [...new Set(actions)] };
+}
+
+function isGeneratedFamily(family: ThermalTreatmentFamily): family is GeneratedThermalTreatmentFamily {
+  return "generation" in family && "qualification" in family;
 }
 
 function validateBounds(key: string, bounds: { minimum?: number; maximum?: number; allowedValues?: readonly ThermalTreatmentInputValue[] } | undefined, problems: string[]): void {

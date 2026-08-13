@@ -9,6 +9,30 @@ export type ThermalTreatmentTwoDimensionalBoundary =
 export type ThermalTreatmentTwoDimensionalModel = { domain: { widthM: number; heightM: number }; regions: readonly ThermalTreatmentTwoDimensionalRegion[]; boundaries: readonly ThermalTreatmentTwoDimensionalBoundary[]; periodicEdges: readonly ("left" | "right" | "top" | "bottom")[]; solverControls: { maxCellSizeM: number; refinementLevels: number; convergenceToleranceRelative: number; maxIterations: number; timeoutMilliseconds: number } };
 
 export type ThermalTreatmentFamilyIdentity = { familyId: string; familyVersion: string };
+export type ThermalTreatmentDatasetIdentity = { datasetId: string; datasetVersion: string; contentHash: string; sourceCitation: string; acquiredAt: string; licensingUsageStatus: string };
+export type ThermalTreatmentQualificationOracleIdentity = { oracleId: string; oracleVersion: string; contentHash: string; sourceCitation: string; acquiredAt: string; licensingUsageStatus: string };
+export type ThermalTreatmentGenerationRecord = {
+  dataset: ThermalTreatmentDatasetIdentity;
+  generator: { generatorId: string; generatorVersion: string };
+  generatedFamily: ThermalTreatmentFamilyIdentity;
+  knowledgePackVersion: string;
+  validationPackVersion: string;
+  codeAdapterVersion: string;
+  generationFingerprint: string;
+};
+export type ThermalTreatmentQualification = {
+  decision: "candidate" | "go" | "no-go";
+  performedAt: string | null;
+  dataset: ThermalTreatmentDatasetIdentity;
+  generatedFamily: ThermalTreatmentFamilyIdentity;
+  codeAdapterVersion: string;
+  validationPackVersion: string;
+  worker: ThermalTreatmentWorkerIdentity | null;
+  supportedParameterEnvelope: Readonly<Record<string, ThermalTreatmentParameterBounds>>;
+  oracle: ThermalTreatmentQualificationOracleIdentity;
+  referenceCases: readonly { caseId: string; expectedEffectiveUValueWPerM2K: number; actualEffectiveUValueWPerM2K: number | null; toleranceWPerM2K: number; passed: boolean }[];
+  reasons: readonly string[];
+};
 export type ThermalTreatmentInputEvidenceStatus = "confirmed" | "estimated" | "missing" | "conflicting";
 export type ThermalTreatmentSelection = ThermalTreatmentFamilyIdentity & {
   confirmedInputs: Record<string, ThermalTreatmentInputValue>;
@@ -46,7 +70,7 @@ export type ThermalTreatmentPackSet = {
 };
 export type ThermalTreatmentValidationIssue = { inputKey: string | null; message: string };
 export type ThermalTreatmentTrustReason = {
-  code: "critical_input_estimated" | "critical_input_missing" | "critical_input_conflicting" | "outside_validation_envelope" | "worker_incompatible" | "worker_invalid" | "validation_pack_not_approved";
+  code: "critical_input_estimated" | "critical_input_missing" | "critical_input_conflicting" | "outside_validation_envelope" | "worker_incompatible" | "worker_invalid" | "validation_pack_not_approved" | "qualification_not_go";
   inputKey: string | null;
   message: string;
 };
@@ -77,6 +101,8 @@ export type ThermalTreatmentRecord = {
   trustReasons: ThermalTreatmentTrustReason[];
   actionsRequiredForVerification: string[];
   packVersions: { codeAdapterVersion: string; knowledgePackVersion: string; validationPackVersion: string };
+  generation?: ThermalTreatmentGenerationRecord;
+  qualification?: ThermalTreatmentQualification;
   baselineUValueWPerM2K: number;
   effectiveUValueWPerM2K: number;
   selection: ThermalTreatmentSelection;
@@ -110,6 +136,10 @@ export interface ThermalTreatmentFamily {
   validateConfirmedInputs(command: { confirmedInputs: Record<string, ThermalTreatmentInputValue> }): ThermalTreatmentValidationIssue[];
   buildAnalysisModel(command: { assemblyGroupId: string; confirmedInputs: Record<string, ThermalTreatmentInputValue> }): ThermalTreatmentAnalysisModel;
 }
+export type GeneratedThermalTreatmentFamily = ThermalTreatmentFamily & {
+  generation: ThermalTreatmentGenerationRecord;
+  qualification: ThermalTreatmentQualification;
+};
 export interface ThermalTreatmentFamilyRegistry {
   availableFamilies(): readonly ThermalTreatmentFamily[];
   findByIdentity(identity: ThermalTreatmentFamilyIdentity): ThermalTreatmentFamily | null;
