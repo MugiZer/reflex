@@ -7,19 +7,20 @@ import { specialPhysicsIssuesForEvidence } from "../../domain/materials/material
 import { planRequestedInputs } from "../../domain/review/planRequestedInputs.js";
 import { LocalJobArtifactStore } from "../../infrastructure/storage/local-files/jobArtifactStore.js";
 import { completeJobWithReviewInputs, reviewPlanVersion, type ProcessIfcJobDeps } from "./processIfcJob.js";
+import { ApplicationFailure } from "../applicationFailure.js";
 
 export async function reconcileJobReviewPlan(command: {
   jobId: string;
   deps: ProcessIfcJobDeps;
 }): Promise<{ jobId: string; jobStatus: "needs_review" | "completed"; reconciled: boolean; revisionId?: string }> {
   const job = command.deps.jobs.getJob(command.jobId);
-  if (!job) throw new Error("Job not found");
+  if (!job) throw new ApplicationFailure("not_found", "job_not_found", "Job not found.");
   if (job.jobStatus !== "needs_review") {
-    throw new Error(`Job is ${job.jobStatus}; only needs_review Jobs can be reconciled.`);
+    throw new ApplicationFailure("conflict", "invalid_job_state", `Job is ${job.jobStatus}; only needs_review Jobs can be reconciled.`);
   }
 
   const priorState = command.deps.jobs.getReviewState(command.jobId);
-  if (!priorState) throw new Error("No Review state exists for Job.");
+  if (!priorState) throw new ApplicationFailure("conflict", "missing_review_state", "No Review state exists for Job.");
   const materialLibrary = command.deps.materialLibrary ?? defaultMaterialLibraryV1;
   const artifactStore = command.deps.artifactStore ?? new LocalJobArtifactStore(command.deps.outputRoot);
   const calculationInputEvidence = await readEvidenceJson<CalculationInputEvidence[]>(artifactStore, command.jobId);

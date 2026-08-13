@@ -26,6 +26,9 @@ export async function createJob(command: {
     errorMessage: null,
     reportPath: null,
     activeRevisionId: null,
+    failureCode: null,
+    retryable: false,
+    lastFailureMessage: null,
   });
 
   setTimeout(() => {

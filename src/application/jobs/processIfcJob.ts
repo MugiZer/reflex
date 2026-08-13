@@ -1,4 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { safeOperationalDiagnostic } from "../safeOperationalDiagnostic.js";
 import { dirname } from "node:path";
 
 import type { CalculationInputEvidence } from "../../domain/evidence/calculationInputEvidenceTypes.js";
@@ -13,6 +15,7 @@ import type { JobRecord } from "../../domain/jobs/jobTypes.js";
 import type { MaterialLibrary } from "../../domain/materials/materialTypes.js";
 import { WebIfcEvidenceExtractor } from "../../infrastructure/ifc/web-ifc/WebIfcEvidenceExtractor.js";
 import { LocalJobArtifactStore } from "../../infrastructure/storage/local-files/jobArtifactStore.js";
+import type { CompletedJobPublicationValidator } from "./completedJobPublication.js";
 import { createMilestone1ArtifactPackage } from "../ifc/createMilestone1ArtifactPackage.js";
 
 export type ProcessIfcJobDeps = {
@@ -23,6 +26,7 @@ export type ProcessIfcJobDeps = {
     job: JobRecord,
   ) => Promise<CalculationInputEvidence[]>;
   materialLibrary?: MaterialLibrary;
+  completedJobPublication: CompletedJobPublicationValidator;
 };
 
 export const reviewPlanVersion = "review-plan.v4";
@@ -41,6 +45,8 @@ export async function processIfcJob(command: {
     command.deps.jobs.updateJob(command.jobId, {
       jobStatus: "processing",
       errorMessage: null,
+      failureCode: null,
+      retryable: false,
     });
     const calculationInputEvidence = await extractCalculationInputEvidence({
       job,
@@ -82,9 +88,15 @@ export async function processIfcJob(command: {
       allowProcessingClaim: true,
     });
   } catch (error) {
+    const correlationId = randomUUID();
+    const safeMessage = `Job processing failed. Reference: ${correlationId}`;
+    console.error(`[${correlationId}] Job ${command.jobId} processing failed.`, safeOperationalDiagnostic(error));
     command.deps.jobs.updateJob(command.jobId, {
       jobStatus: "failed",
-      errorMessage: error instanceof Error ? error.message : String(error),
+      errorMessage: safeMessage,
+      failureCode: "job_processing_failed",
+      retryable: true,
+      lastFailureMessage: safeMessage,
     });
   }
 }
@@ -111,6 +123,8 @@ export async function completeJobWithReviewInputs(command: {
   command.deps.jobs.updateJob(command.jobId, {
     jobStatus: "processing",
     errorMessage: null,
+    failureCode: null,
+    retryable: false,
   });
   const artifactStore = command.deps.artifactStore ?? new LocalJobArtifactStore(command.deps.outputRoot);
 
@@ -128,6 +142,14 @@ export async function completeJobWithReviewInputs(command: {
       userInputs: command.userInputs,
       parentRevisionId: previousJob.activeRevisionId,
     });
+    const completedCandidate: JobRecord = {
+      ...previousJob,
+      jobStatus: command.completionStatus ?? "completed",
+      reportPath: result.reportFilePath,
+      activeRevisionId: result.revision.revisionId,
+    };
+    const validation = await command.deps.completedJobPublication.validate(completedCandidate);
+    if (!validation.ok) throw new Error(`Revision publication incomplete: ${validation.code}.`);
     command.deps.jobs.updateJob(command.jobId, {
       jobStatus: command.completionStatus ?? "completed",
       reportPath: result.reportFilePath,
@@ -143,6 +165,7 @@ export async function completeJobWithReviewInputs(command: {
       ),
     };
   } catch (error) {
+    await command.deps.completedJobPublication.restoreActiveRevision(command.jobId, previousJob.activeRevisionId);
     command.deps.jobs.updateJob(command.jobId, {
       jobStatus: previousJob.jobStatus,
       errorMessage: previousJob.errorMessage,

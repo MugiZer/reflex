@@ -381,8 +381,9 @@ describe("Milestone 4 Job API", () => {
           }],
         }),
       });
-      expect(partial.status).toBe(500);
+      expect(partial.status).toBe(422);
       await expect(partial.json()).resolves.toEqual(expect.objectContaining({
+        code: "invalid_review_input",
         error: "All required Review inputs must be supplied before calculation.",
       }));
       expect((await getJson(`${baseUrl}/api/jobs/${created.jobId}`)).jobStatus).toBe("needs_review");
@@ -514,8 +515,9 @@ describe("Milestone 4 Job API", () => {
         }),
       });
 
-      expect(response.status).toBe(500);
+      expect(response.status).toBe(422);
       await expect(response.json()).resolves.toEqual(expect.objectContaining({
+        code: "invalid_review_input",
         error: "Invalid overrideScope.",
       }));
     } finally {

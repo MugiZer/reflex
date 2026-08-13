@@ -1,16 +1,22 @@
 import type { IncomingMessage } from "node:http";
 import { extname } from "node:path";
 
-export async function parseMultipartUpload(req: IncomingMessage): Promise<{
+import { ApplicationFailure } from "../../application/applicationFailure.js";
+
+export const DEFAULT_MAX_IFC_UPLOAD_BYTES = 256 * 1024 * 1024;
+
+export async function parseMultipartUpload(req: IncomingMessage, options: {
+  maxBytes?: number;
+} = {}): Promise<{
   filename: string;
   content: Buffer;
 }> {
   const contentType = req.headers["content-type"] ?? "";
   const boundary = contentType.match(/boundary=([^;]+)/)?.[1];
   if (!boundary) {
-    throw new Error("Expected multipart upload.");
+    throw invalidUpload("Expected a multipart IFC upload.");
   }
-  const body = await readBuffer(req);
+  const body = await readBuffer(req, options.maxBytes ?? DEFAULT_MAX_IFC_UPLOAD_BYTES);
   const marker = Buffer.from(`--${boundary}`);
   const parts = splitBuffer(body, marker);
   for (const part of parts) {
@@ -31,19 +37,37 @@ export async function parseMultipartUpload(req: IncomingMessage): Promise<{
       content = content.subarray(0, -2);
     }
     if (content.length === 0 || !allowedIfcExtension(filename)) {
-      throw new Error("Expected a non-empty IFC upload.");
+      throw invalidUpload("Expected a non-empty IFC upload with a supported IFC extension.");
     }
     return { filename, content };
   }
-  throw new Error('Missing multipart file field "ifc".');
+  throw invalidUpload('Missing multipart file field "ifc".');
 }
 
-export async function readBuffer(req: IncomingMessage): Promise<Buffer> {
+export async function readBuffer(req: IncomingMessage, maxBytes = Number.POSITIVE_INFINITY): Promise<Buffer> {
+  const declaredLength = Number(req.headers["content-length"]);
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) throw uploadTooLarge();
   const chunks: Buffer[] = [];
+  let receivedBytes = 0;
   for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    receivedBytes += bytes.length;
+    if (receivedBytes > maxBytes) throw uploadTooLarge();
+    chunks.push(bytes);
   }
   return Buffer.concat(chunks);
+}
+
+function uploadTooLarge(): ApplicationFailure {
+  return new ApplicationFailure(
+    "payload_too_large",
+    "upload_too_large",
+    "The IFC upload exceeds the configured size limit.",
+  );
+}
+
+function invalidUpload(message: string): ApplicationFailure {
+  return new ApplicationFailure("invalid_input", "invalid_upload", message);
 }
 
 function allowedIfcExtension(filename: string): boolean {

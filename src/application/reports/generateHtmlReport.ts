@@ -1,4 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 
 import type { CalculationSnapshot, LayerCalculation } from "../../domain/calculations/calculationTypes.js";
@@ -20,7 +21,9 @@ export async function generateHtmlReport(command: {
   const artifactStore = command.artifactStore ?? new LocalJobArtifactStore(command.outputRoot);
   const reportFilePath = artifactStore.pathsFor(command.jobId ?? legacyJobId(command.fileHash)).reportFile(command.revision.revisionId);
   await mkdir(dirname(reportFilePath), { recursive: true });
-  await writeFile(reportFilePath, renderReport(command), "utf8");
+  const report = renderReport({ ...command, jobId: command.jobId ?? legacyJobId(command.fileHash) });
+  await writeFile(reportFilePath, report, "utf8");
+  await writeFile(`${reportFilePath}.sha256`, `${createHash("sha256").update(report).digest("hex")}\n`, "utf8");
   return { reportFilePath };
 }
 
@@ -29,6 +32,7 @@ function legacyJobId(fileHash: string): string {
 }
 
 function renderReport(command: {
+  jobId: string;
   fileHash: string;
   revision: Revision;
   calculationSnapshots: CalculationSnapshot[];
@@ -55,7 +59,7 @@ function renderReport(command: {
   }).join("");
 
   return "<!doctype html>" +
-    "<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">" +
+    "<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"conformity-job-id\" content=\"" + escapeHtml(command.jobId) + "\"><meta name=\"conformity-revision-sha256\" content=\"" + revisionHash(command.revision) + "\">" +
     "<title>Thermal Calculation Report " + escapeHtml(command.revision.revisionId) + "</title>" +
     "<style>" + reportStyles() + "</style></head><body>" +
     "<header class=\"brandbar\"><div class=\"brand\"><span class=\"brand-icon\">C</span>Conformity</div><div class=\"product\">THERMAL ASSEMBLY ANALYSIS</div><div class=\"revision\">REV " + escapeHtml(shortId(command.revision.revisionId)) + "</div></header>" +
@@ -67,6 +71,10 @@ function renderReport(command: {
     renderTopologyResults(command.topologyResults ?? []) +
     "</main></div>" +
     "<script>" + reportScript(inventory.length) + "</script></body></html>";
+}
+
+function revisionHash(revision: Revision): string {
+  return createHash("sha256").update(JSON.stringify(revision)).digest("hex");
 }
 
 function renderTopologyResults(results: readonly TopologyResult[]): string {

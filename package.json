@@ -7,6 +7,7 @@
     "ifc:inspect": "tsx scripts/ifc-inspect.ts",
     "demo:core": "tsx scripts/demo-core.ts",
     "serve:localhost": "tsx scripts/serve-localhost.ts",
+    "pilot:workspace": "tsx scripts/paid-pilot-workspace.ts",
     "verify:milestone-4": "tsx scripts/verify-milestone-4.ts",
     "verify:topology-request-spine-regression": "tsx scripts/verify-topology-request-spine-regression.ts",
     "verify:topology-request-contract": "tsx scripts/verify-topology-request-contract.ts",

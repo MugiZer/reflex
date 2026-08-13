@@ -7,6 +7,9 @@ export type JobUpdate = {
   errorMessage?: string | null;
   reportPath?: string | null;
   activeRevisionId?: string | null;
+  failureCode?: string | null;
+  retryable?: boolean;
+  lastFailureMessage?: string | null;
 };
 
 export interface JobRepository {

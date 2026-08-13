@@ -1,8 +1,14 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
 import { access, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { createJob } from "../../application/jobs/createJob.js";
+import { ApplicationFailure } from "../../application/applicationFailure.js";
+import { safeOperationalDiagnostic } from "../../application/safeOperationalDiagnostic.js";
+import { recoverPaidPilotJobs } from "../../application/jobs/recoverPaidPilotJobs.js";
+import { requireCompletedJobPublication } from "../../application/jobs/completedJobPublication.js";
+import { retryFailedJob } from "../../application/jobs/retryFailedJob.js";
 import { reconcileJobReviewPlan } from "../../application/jobs/reconcileJobReviewPlan.js";
 import { getJobWorkspace } from "../../application/jobs/getJobWorkspace.js";
 import type { ProcessIfcJobDeps } from "../../application/jobs/processIfcJob.js";
@@ -31,6 +37,7 @@ import { assertCompletedPilotPublicationLineage, type ComponentEvaluationReposit
 import { LocalJobArtifactStore } from "../../infrastructure/storage/local-files/jobArtifactStore.js";
 import { LocalJobFileStorage } from "../../infrastructure/storage/local-files/jobFileStorage.js";
 import { LocalViewerGeometryCache } from "../../infrastructure/storage/local-files/viewerGeometryCache.js";
+import { LocalCompletedJobPublicationValidator } from "../../infrastructure/jobs/validateCompletedJobArtifacts.js";
 import { renderAppShellClientScript } from "./frontend/appShellClient.js";
 import { renderIfcReviewViewerClientScript } from "./ifcReviewViewerClient.js";
 import { parseMultipartUpload, readBuffer } from "./multipartUpload.js";
@@ -53,22 +60,28 @@ export function createLocalhostApp(command: {
   componentScreeningThresholdWPerM2K?: number | null;
   topologyPilotEnabled?: boolean;
   topologyPilotPolicy?: TopologyPilotPolicy;
+  maxUploadBytes?: number;
 }): LocalhostApp {
   const jobs = new SqliteJobRepository(command.databasePath);
   const componentEvaluations = new SqliteComponentEvaluationRepository(command.databasePath);
   const storage = new LocalJobFileStorage(command.storageRoot);
   const artifactStore = new LocalJobArtifactStore(command.outputRoot);
+  const completedJobPublication = new LocalCompletedJobPublicationValidator(artifactStore);
   const viewerGeometryCache = new LocalViewerGeometryCache(artifactStore);
   const viewerGeometryExtractor = new WebIfcViewerGeometryExtractor();
   const workerDeps: ProcessIfcJobDeps = {
     jobs,
     outputRoot: command.outputRoot,
     artifactStore,
+    completedJobPublication,
     ...command.workerOverrides,
   };
   const thermalTreatmentWorker = new OpenSource2dCalculationWorker({ artifactRoot: join(command.outputRoot, "thermal-treatment-worker") });
   const topologyWorker = command.topologyWorker ?? configuredTopologyWorker();
-  const startupCleanup = cleanupLocalTopologyArtifacts(command.outputRoot);
+  const startupCleanup = Promise.all([
+    cleanupLocalTopologyArtifacts(command.outputRoot),
+    recoverPaidPilotJobs({ jobs, validator: completedJobPublication }),
+  ]);
   const topologyRequests = command.topologyRequests ?? createTopologyAnalysisRequestService({
     artifactStore: new LocalTopologyArtifactStore(command.outputRoot),
     worker: topologyWorker,
@@ -81,7 +94,7 @@ export function createLocalhostApp(command: {
         return await sendHealth(res, jobs, command.outputRoot, topologyWorker);
       }
       if (req.method === "POST" && url.pathname === "/api/jobs") {
-        const upload = await parseMultipartUpload(req);
+        const upload = await parseMultipartUpload(req, { maxBytes: command.maxUploadBytes });
         const result = await createJob({
           originalFilename: upload.filename,
           content: upload.content,
@@ -118,6 +131,11 @@ export function createLocalhostApp(command: {
       if (req.method === "GET" && topologyReviewJobId) {
         if (!jobs.getJob(topologyReviewJobId)) return json(res, 404, { error: "Job not found" });
         return json(res, 200, { topologyReviews: jobs.listTopologyReviews(topologyReviewJobId) });
+      }
+
+      const retryJobId = matchPath(url.pathname, /^\/api\/jobs\/([^/]+)\/retry$/);
+      if (req.method === "POST" && retryJobId) {
+        return json(res, 202, retryFailedJob({ jobId: retryJobId, jobs, deps: workerDeps }));
       }
       const replayJobId = matchPath(url.pathname, /^\/api\/jobs\/([^/]+)\/component-evaluations\/replay$/);
       if (req.method === "POST" && replayJobId) {
@@ -166,7 +184,7 @@ export function createLocalhostApp(command: {
 
       const reportJobId = matchPath(url.pathname, /^\/api\/jobs\/([^/]+)\/report$/);
       if (req.method === "GET" && reportJobId) {
-        return await sendReport(res, jobs, componentEvaluations, topologyRequests, reportJobId);
+        return await sendReport(res, jobs, componentEvaluations, topologyRequests, completedJobPublication, reportJobId);
       }
 
       const ifcJobId = matchPath(url.pathname, /^\/api\/jobs\/([^/]+)\/ifc$/);
@@ -199,13 +217,27 @@ export function createLocalhostApp(command: {
       }
       return text(res, 404, "Not found");
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return json(res, 500, {
-        error: message,
-      });
+      return sendApplicationFailure(res, error);
     }
   });
   return { server, jobs, close: () => { try { componentEvaluations.close(); } finally { jobs.close(); } } };
+}
+
+function sendApplicationFailure(res: ServerResponse, error: unknown): void {
+  if (error instanceof ApplicationFailure) {
+    const status = error.kind === "payload_too_large" ? 413
+      : error.kind === "invalid_input" ? 422
+      : error.kind === "not_found" ? 404
+      : 409;
+    return json(res, status, { code: error.code, error: error.safeMessage });
+  }
+  const correlationId = randomUUID();
+  console.error(`[${correlationId}] Unexpected localhost request failure.`, safeOperationalDiagnostic(error));
+  return json(res, 500, {
+    code: "internal_error",
+    error: "The request could not be completed.",
+    correlationId,
+  });
 }
 
 async function sendJob(
@@ -257,6 +289,7 @@ async function sendReport(
   jobs: JobRepository,
   componentEvaluations: ComponentEvaluationRepository,
   topologyIntegrity: ReturnType<typeof createTopologyAnalysisRequestService>,
+  completedJobPublication: LocalCompletedJobPublicationValidator,
   jobId: string,
 ): Promise<void> {
   const job = jobs.getJob(jobId);
@@ -266,6 +299,7 @@ async function sendReport(
   if (!job.reportPath) {
     return json(res, 404, { error: "Report has not been generated." });
   }
+  await requireCompletedJobPublication({ job, jobs, validator: completedJobPublication });
   const topologyResults = jobs.listTopologyReviews(jobId)
     .filter((review) => review.sourceRevisionId === job.activeRevisionId && review.topologyResult !== null)
     .map((review) => review.topologyResult!);
@@ -354,10 +388,8 @@ async function sendViewerGeometry(
     });
     await viewerGeometryCache.write(cacheKey, geometry);
     return json(res, 200, geometry);
-  } catch (error) {
-    return json(res, 422, {
-      error: error instanceof Error ? error.message : "IFC geometry extraction failed.",
-    });
+  } catch {
+    return json(res, 422, { code: "viewer_geometry_unavailable", error: "IFC geometry extraction failed." });
   }
 }
 
@@ -379,7 +411,12 @@ function linksFor(job: JobRecord): Record<string, string> {
 }
 
 async function readJson(req: IncomingMessage): Promise<unknown> {
-  return JSON.parse((await readBuffer(req)).toString("utf8"));
+  try {
+    return JSON.parse((await readBuffer(req, 1024 * 1024)).toString("utf8"));
+  } catch (error) {
+    if (error instanceof ApplicationFailure) throw error;
+    throw new ApplicationFailure("invalid_input", "invalid_json", "Expected a valid JSON request body.");
+  }
 }
 
 function parseTopologyDeadline(req: IncomingMessage): string | undefined {
@@ -436,11 +473,11 @@ async function sendHealth(res: ServerResponse, jobs: JobRepository, outputRoot: 
     workerPreflight: { status: "ready", diagnostic: null },
     selectedBundle: { status: "ready", diagnostic: null },
   };
-  try { jobs.listRecentJobs(1); } catch (error) { checks.sqlite = { status: "unavailable", diagnostic: error instanceof Error ? error.message : "SQLite is unavailable." }; }
-  try { await mkdir(outputRoot, { recursive: true }); await access(outputRoot); } catch (error) { checks.artifactStorage = { status: "unavailable", diagnostic: error instanceof Error ? error.message : "Artifact storage is unavailable." }; }
+  try { jobs.listRecentJobs(1); } catch { checks.sqlite = { status: "unavailable", diagnostic: "SQLite is unavailable." }; }
+  try { await mkdir(outputRoot, { recursive: true }); await access(outputRoot); } catch { checks.artifactStorage = { status: "unavailable", diagnostic: "Artifact storage is unavailable." }; }
   if (!worker.runtimeIdentity.executable || worker.runtimeIdentity.runtimeHash !== PROVEN_TOPOLOGY_BUNDLE.runtimeHash) checks.pinnedRuntime = { status: "unavailable", diagnostic: "Configured topology runtime is not pinned to the selected release hash." };
   if (checks.pinnedRuntime.status === "ready" && worker.preflight) {
-    try { await worker.preflight(); } catch (error) { checks.workerPreflight = { status: "unavailable", diagnostic: error instanceof Error ? error.message : "Topology worker preflight failed." }; }
+    try { await worker.preflight(); } catch { checks.workerPreflight = { status: "unavailable", diagnostic: "Topology worker preflight failed." }; }
   }
   const topologyAvailable = Object.values(checks).every((check) => check.status === "ready");
   const layerOnlyAvailable = checks.sqlite.status === "ready";

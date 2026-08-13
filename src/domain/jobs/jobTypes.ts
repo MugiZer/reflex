@@ -4,7 +4,7 @@ import type { TopologyResult } from "../topology/topologyTypes.js";
 import type { TopologyPilotDecision } from "../topology/topologyPilotPolicy.js";
 
 export type JobStatus = "queued" | "processing" | "needs_review" | "completed" | "failed";
-export type JobRecord = { jobId: string; jobStatus: JobStatus; originalFilename: string; uploadPath: string; fileHash: string | null; createdAt: string; updatedAt: string; errorMessage: string | null; reportPath: string | null; activeRevisionId: string | null; };
+export type JobRecord = { jobId: string; jobStatus: JobStatus; originalFilename: string; uploadPath: string; fileHash: string | null; createdAt: string; updatedAt: string; errorMessage: string | null; reportPath: string | null; activeRevisionId: string | null; failureCode?: string | null; retryable?: boolean; lastFailureMessage?: string | null; };
 export type JobReviewState = { jobId: string; requestedInputs: RequestedInput[]; planVersion?: string; materialLibraryVersion?: string; };
 export type JobSummary = Pick<JobRecord, "jobId" | "jobStatus" | "originalFilename" | "createdAt" | "updatedAt">;
 /** Immutable optional enrichment; it never becomes part of a layer-only Revision. */

@@ -82,8 +82,8 @@ async function runPhase(phase: ProductionReadinessPhase): Promise<VerificationRu
 
 function commandFor(phaseId: ProductionReadinessPhase["id"]): string[] {
   if (phaseId === "typecheck") return [resolve("node_modules/typescript/bin/tsc"), "--noEmit"];
-  if (phaseId === "focused-public-seam") return [resolve("node_modules/vitest/vitest.mjs"), "run", "tests/milestone5Verifier.test.ts", "tests/reviewWorkflowRegression.test.ts", "tests/localhostAppLifecycle.test.ts"];
-  if (phaseId === "full-regression") return [resolve("node_modules/vitest/vitest.mjs"), "run", "--maxWorkers=1", "--exclude", "tests/**/*topology*.test.ts", "--exclude", "tests/component*.test.ts", "--exclude", "tests/provenPythonTopologyWorker.integration.test.ts"];
+  if (phaseId === "focused-public-seam") return [resolve("node_modules/vitest/vitest.mjs"), "run", "tests/milestone5Verifier.test.ts", "tests/reviewWorkflowRegression.test.ts", "tests/localhostAppLifecycle.test.ts", "tests/paidPilotSafety.test.ts"];
+  if (phaseId === "full-regression") return [resolve("node_modules/vitest/vitest.mjs"), "run", "--maxWorkers=1", "--exclude", "tests/**/*topology*.test.ts", "--exclude", "tests/**/*Topology*.test.ts", "--exclude", "tests/component*.test.ts", "--exclude", "tests/provenPythonTopologyWorker.integration.test.ts"];
   if (phaseId === "http-end-to-end") return [resolve("node_modules/vitest/vitest.mjs"), "run", "tests/milestone5Verifier.test.ts"];
   throw new Error(`No executable command is registered for ${phaseId}.`);
 }

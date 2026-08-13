@@ -123,6 +123,12 @@ export async function cleanupLocalTopologyArtifacts(artifactRoot: string): Promi
   const topologyRoot = join(artifactRoot, "topology");
   let entries;
   try { entries = await readdir(topologyRoot, { withFileTypes: true }); } catch (error) { if (isNodeNotFound(error)) return; throw error; }
+  const lockNames = new Set(entries
+    .filter((entry) => entry.isDirectory() && entry.name.endsWith(".lock"))
+    .map((entry) => entry.name.slice(0, -".lock".length)));
+  await Promise.all(entries
+    .filter((entry) => entry.isDirectory() && entry.name.includes(".tmp-") && !lockNames.has(entry.name.slice(0, entry.name.indexOf(".tmp-"))))
+    .map((entry) => rm(join(topologyRoot, entry.name), { recursive: true, force: true })));
   for (const entry of entries) {
     if (!entry.isDirectory() || !entry.name.endsWith(".lock")) continue;
     const lockPath = join(topologyRoot, entry.name);

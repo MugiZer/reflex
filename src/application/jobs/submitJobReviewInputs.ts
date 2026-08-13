@@ -4,6 +4,7 @@ import { defaultMaterialLibraryV1 } from "../../domain/materials/library.v1.js";
 import { materialLibraryEntryForKey } from "../../domain/materials/resolveLayerLambda.js";
 import { readActiveRevisionArtifact } from "../../infrastructure/storage/local-files/jobReviewArtifactStore.js";
 import { completeJobWithReviewInputs, type ProcessIfcJobDeps } from "./processIfcJob.js";
+import { ApplicationFailure } from "../applicationFailure.js";
 
 type ReviewMode = "library" | "manual" | "mixed";
 
@@ -15,14 +16,14 @@ export async function submitJobReviewInputs(command: {
 }): Promise<{ jobId: string; revisionId: string; jobStatus: "completed" | "needs_review"; calculatedAssemblyCount: number; skippedAssemblyCount: number; unresolvedDecisionCount: number }> {
   const job = command.jobs.getJob(command.jobId);
   if (!job) {
-    throw new Error("Job not found");
+    throw new ApplicationFailure("not_found", "job_not_found", "Job not found.");
   }
   if (job.jobStatus !== "needs_review" && job.jobStatus !== "completed") {
-    throw new Error(`Job is ${job.jobStatus}; Review inputs require needs_review or completed.`);
+    throw new ApplicationFailure("conflict", "invalid_job_state", `Job is ${job.jobStatus}; Review inputs require needs_review or completed.`);
   }
   const submission = validateReviewInputBody(command.jobs, command.jobId, command.body);
   if (job.jobStatus === "needs_review" && submission.requestedInputs.length === 0) {
-    throw new Error("This Job requires additional IFC evidence or a special-physics model before calculation.");
+    throw new ApplicationFailure("conflict", "calculation_blocked", "This Job requires additional IFC evidence or a special-physics model before calculation.");
   }
   const activeRevision = await readActiveRevisionArtifact({
     artifactStore: command.deps.artifactStore,
@@ -69,14 +70,14 @@ function validateReviewInputBody(
   body: unknown,
 ): { requestedInputs: RequestedInput[]; userInputs: UserInput[]; reviewMode: ReviewMode | undefined; allowPartial: boolean } {
   if (!isRecord(body) || !Array.isArray(body.inputs)) {
-    throw new Error("Expected inputs array.");
+    throw invalidReviewInput("Expected inputs array.");
   }
   if (body.assemblyGroupId !== undefined && typeof body.assemblyGroupId !== "string") {
-    throw new Error("assemblyGroupId must be a string when supplied.");
+    throw invalidReviewInput("assemblyGroupId must be a string when supplied.");
   }
   const reviewState = jobs.getReviewState(jobId);
   if (!reviewState) {
-    throw new Error("No Review state exists for Job.");
+    throw new ApplicationFailure("conflict", "missing_review_state", "No Review state exists for Job.");
   }
   const requestedById = new Map(
     reviewState.requestedInputs.map((input) => [input.requestedInputId, input]),
@@ -84,20 +85,20 @@ function validateReviewInputBody(
   const seenRequestedInputIds = new Set<string>();
   const userInputs = body.inputs.map((input, index): UserInput => {
     if (!isRecord(input) || typeof input.requestedInputId !== "string") {
-      throw new Error(`Input ${index} missing requestedInputId.`);
+      throw invalidReviewInput(`Input ${index} missing requestedInputId.`);
     }
     const requested = requestedById.get(input.requestedInputId);
     if (!requested) {
-      throw new Error(`Unknown requested input: ${input.requestedInputId}`);
+      throw invalidReviewInput(`Unknown requested input: ${input.requestedInputId}`);
     }
     if (
       typeof body.assemblyGroupId === "string" &&
       requested.assemblyGroupId !== body.assemblyGroupId
     ) {
-      throw new Error(`Requested input does not belong to assembly group: ${input.requestedInputId}`);
+      throw invalidReviewInput(`Requested input does not belong to assembly group: ${input.requestedInputId}`);
     }
     if (seenRequestedInputIds.has(input.requestedInputId)) {
-      throw new Error(`Duplicate requested input: ${input.requestedInputId}`);
+      throw invalidReviewInput(`Duplicate requested input: ${input.requestedInputId}`);
     }
     seenRequestedInputIds.add(input.requestedInputId);
     const overrideScope = validateOverrideScope(input.overrideScope);
@@ -107,7 +108,7 @@ function validateReviewInputBody(
       : materialLibraryEntry.lambdaWPerMK;
     const unit = input.unit === undefined ? requested.unit : validateUnit(input.unit);
     if (unit !== requested.unit) {
-      throw new Error(`Invalid unit for ${input.requestedInputId}: expected ${requested.unit ?? "null"}`);
+      throw invalidReviewInput(`Invalid unit for ${input.requestedInputId}: expected ${requested.unit ?? "null"}`);
     }
     return {
       userInputId: `ui_${jobId}_${index}_${Date.now()}`,
@@ -162,7 +163,7 @@ function libraryInputsForReviewMode(command: {
 function reviewModeFrom(value: unknown): ReviewMode | undefined {
   if (value === undefined) return undefined;
   if (value === "library" || value === "manual" || value === "mixed") return value;
-  throw new Error("Invalid reviewMode.");
+  throw invalidReviewInput("Invalid reviewMode.");
 }
 function mergeReviewInputs(command: {
   requestedInputs: RequestedInput[];
@@ -176,7 +177,7 @@ function mergeReviewInputs(command: {
     const input = submittedById.get(requested.requestedInputId) ?? activeById.get(requested.requestedInputId);
     if (!input) {
       if (requested.required === false || command.allowPartial) return [];
-      throw new Error("All required Review inputs must be supplied before calculation.");
+      throw invalidReviewInput("All required Review inputs must be supplied before calculation.");
     }
     return [input];
   });
@@ -184,7 +185,7 @@ function mergeReviewInputs(command: {
 
 function allowPartialFrom(value: unknown): boolean {
   if (value === undefined) return false;
-  if (typeof value !== "boolean") throw new Error("allowPartial must be a boolean when supplied.");
+  if (typeof value !== "boolean") throw invalidReviewInput("allowPartial must be a boolean when supplied.");
   return value;
 }
 
@@ -197,14 +198,14 @@ function validateOverrideScope(value: unknown): OverrideScopeKind {
   ) {
     return value;
   }
-  throw new Error("Invalid overrideScope.");
+  throw invalidReviewInput("Invalid overrideScope.");
 }
 
 function materialLibraryEntryFor(value: unknown) {
   if (value === undefined || value === null) return null;
-  if (typeof value !== "string") throw new Error("Invalid materialLibraryKey.");
+  if (typeof value !== "string") throw invalidReviewInput("Invalid materialLibraryKey.");
   const entry = materialLibraryEntryForKey(defaultMaterialLibraryV1, value);
-  if (!entry) throw new Error("Unknown materialLibraryKey.");
+  if (!entry) throw invalidReviewInput("Unknown materialLibraryKey.");
   return entry;
 }
 
@@ -212,7 +213,7 @@ function validateUnit(value: unknown): string | null {
   if (value === null || typeof value === "string") {
     return value;
   }
-  throw new Error("Invalid unit.");
+  throw invalidReviewInput("Invalid unit.");
 }
 
 function validateValue(
@@ -222,16 +223,20 @@ function validateValue(
   if (inputType === "number") {
     const parsed = typeof value === "number" ? value : Number(value);
     if (!Number.isFinite(parsed) || parsed <= 0) {
-      throw new Error("Numeric Review input must be greater than zero.");
+      throw invalidReviewInput("Numeric Review input must be greater than zero.");
     }
     return parsed;
   }
   if (typeof value !== "string" || value.trim() === "") {
-    throw new Error("Text Review input must not be empty.");
+    throw invalidReviewInput("Text Review input must not be empty.");
   }
   return value.trim();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function invalidReviewInput(message: string): ApplicationFailure {
+  return new ApplicationFailure("invalid_input", "invalid_review_input", message);
 }

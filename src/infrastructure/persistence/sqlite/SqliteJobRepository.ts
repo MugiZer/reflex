@@ -18,6 +18,9 @@ type JobRow = {
   error_message: string | null;
   report_path: string | null;
   active_revision_id: string | null;
+  failure_code: string | null;
+  retryable: number;
+  last_failure_message: string | null;
 };
 
 export class SqliteJobRepository implements ClosableJobRepository {
@@ -38,7 +41,10 @@ export class SqliteJobRepository implements ClosableJobRepository {
         updated_at text not null,
         error_message text,
         report_path text,
-        active_revision_id text
+        active_revision_id text,
+        failure_code text,
+        retryable integer not null default 0,
+        last_failure_message text
       );
       create table if not exists job_review_state (
         job_id text primary key,
@@ -74,6 +80,7 @@ export class SqliteJobRepository implements ClosableJobRepository {
       create index if not exists topology_pilot_events_by_job on topology_pilot_events(job_id, created_at);
     `);
     this.ensureTopologyReviewColumns();
+    this.ensureJobRecoveryColumns();
   }
 
   close(): void {
@@ -84,8 +91,9 @@ export class SqliteJobRepository implements ClosableJobRepository {
     this.db.prepare(`
       insert into jobs (
         job_id, job_status, original_filename, upload_path, file_hash,
-        created_at, updated_at, error_message, report_path, active_revision_id
-      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        created_at, updated_at, error_message, report_path, active_revision_id,
+        failure_code, retryable, last_failure_message
+      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       record.jobId,
       record.jobStatus,
@@ -97,6 +105,9 @@ export class SqliteJobRepository implements ClosableJobRepository {
       record.errorMessage,
       record.reportPath,
       record.activeRevisionId,
+      record.failureCode ?? null,
+      record.retryable === true ? 1 : 0,
+      record.lastFailureMessage ?? null,
     );
   }
 
@@ -128,16 +139,20 @@ export class SqliteJobRepository implements ClosableJobRepository {
     }
     const next = {
       jobStatus: changes.jobStatus ?? existing.jobStatus,
-      fileHash: changes.fileHash ?? existing.fileHash,
-      errorMessage: changes.errorMessage ?? existing.errorMessage,
-      reportPath: changes.reportPath ?? existing.reportPath,
-      activeRevisionId: changes.activeRevisionId ?? existing.activeRevisionId,
+      fileHash: changes.fileHash !== undefined ? changes.fileHash : existing.fileHash,
+      errorMessage: changes.errorMessage !== undefined ? changes.errorMessage : existing.errorMessage,
+      reportPath: changes.reportPath !== undefined ? changes.reportPath : existing.reportPath,
+      activeRevisionId: changes.activeRevisionId !== undefined ? changes.activeRevisionId : existing.activeRevisionId,
+      failureCode: changes.failureCode !== undefined ? changes.failureCode : existing.failureCode ?? null,
+      retryable: changes.retryable !== undefined ? changes.retryable : existing.retryable ?? false,
+      lastFailureMessage: changes.lastFailureMessage !== undefined ? changes.lastFailureMessage : existing.lastFailureMessage ?? null,
       updatedAt: new Date().toISOString(),
     };
     this.db.prepare(`
       update jobs
       set job_status = ?, file_hash = ?, error_message = ?, report_path = ?,
-        active_revision_id = ?, updated_at = ?
+        active_revision_id = ?, failure_code = ?, retryable = ?,
+        last_failure_message = ?, updated_at = ?
       where job_id = ?
     `).run(
       next.jobStatus,
@@ -145,6 +160,9 @@ export class SqliteJobRepository implements ClosableJobRepository {
       next.errorMessage,
       next.reportPath,
       next.activeRevisionId,
+      next.failureCode,
+      next.retryable ? 1 : 0,
+      next.lastFailureMessage,
       next.updatedAt,
       jobId,
     );
@@ -192,6 +210,16 @@ export class SqliteJobRepository implements ClosableJobRepository {
     for (const [name, definition] of required) if (!columns.has(name)) this.db.exec(`alter table job_topology_reviews add column ${name} ${definition}`);
     // Legacy rows receive an empty migration default; only real semantic keys are unique.
     this.db.exec("create unique index if not exists job_topology_reviews_idempotency on job_topology_reviews(job_id, idempotency_key) where idempotency_key <> ''");
+  }
+
+  private ensureJobRecoveryColumns(): void {
+    const columns = new Set((this.db.prepare("pragma table_info(jobs)").all() as Array<{ name: string }>).map((column) => column.name));
+    const required = [
+      ["failure_code", "text"],
+      ["retryable", "integer not null default 0"],
+      ["last_failure_message", "text"],
+    ] as const;
+    for (const [name, definition] of required) if (!columns.has(name)) this.db.exec(`alter table jobs add column ${name} ${definition}`);
   }
 
   getTopologyReviewByIdempotencyKey(jobId: string, idempotencyKey: string): JobTopologyReview | null {
@@ -280,5 +308,8 @@ function mapJobRow(row: JobRow): JobRecord {
     errorMessage: row.error_message,
     reportPath: row.report_path,
     activeRevisionId: row.active_revision_id,
+    failureCode: row.failure_code,
+    retryable: row.retryable === 1,
+    lastFailureMessage: row.last_failure_message,
   };
 }
