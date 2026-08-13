@@ -14,9 +14,10 @@ if (!profileId || !(profileId in VERIFICATION_PROFILES) || profileId === "releas
   throw new Error("Usage: tsx scripts/verify-profile.ts <fast|integration|numerical>");
 }
 
-const discoveredFiles = execFileSync("git", ["ls-files", "--cached", "tests"], { encoding: "utf8" })
+const discoveredFiles = execFileSync("rg", ["--files", "tests", "-g", "*.test.ts"], { encoding: "utf8" })
   .split(/\r?\n/)
-  .filter((file) => file.endsWith(".test.ts"));
+  .filter((file) => file.endsWith(".test.ts"))
+  .map((file) => file.replaceAll("\\", "/"));
 const entries = selectVerificationProfile(profileId);
 validateProfileInventory(TEST_INVENTORY, discoveredFiles);
 

@@ -42,7 +42,7 @@ function file(name: string): string { return `tests/${name}.test.ts`; }
 export const TEST_INVENTORY: readonly TestInventoryEntry[] = [
   ...fast.map((name) => ({ file: file(name), profile: "fast" as const, budgetMs: 90_000, dependencies: dependenciesForFast(name), workerMode: ["componentEvaluationPublicSeam", "topologyAnalysisRequest", "topologyHardening"].includes(name) ? "deterministic" as const : "none" as const, sharedResource: "none" as const })),
   ...integration.map((name) => ({ file: file(name), profile: "integration" as const, budgetMs: 240_000, dependencies: dependenciesForIntegration(name), workerMode: "none" as const, sharedResource: "isolated-workspace" as const })),
-  ...numerical.map((name) => ({ file: file(name), profile: "numerical" as const, budgetMs: 600_000, dependencies: ["sqlite", "filesystem", "localhost"] as const, workerMode: "real-python" as const, sharedResource: "real-worker" as const })),
+  ...numerical.map((name) => ({ file: file(name), profile: "numerical" as const, budgetMs: 600_000, dependencies: dependenciesForNumerical(name), workerMode: "real-python" as const, sharedResource: "real-worker" as const })),
 ];
 
 function dependenciesForIntegration(name: string): TestInventoryEntry["dependencies"] {
@@ -55,6 +55,11 @@ function dependenciesForFast(name: string): TestInventoryEntry["dependencies"] {
   if (name === "componentEvaluationPublicSeam") return ["sqlite", "filesystem", "localhost"];
   if (name === "topologyAnalysisRequest") return ["filesystem"];
   return [];
+}
+
+function dependenciesForNumerical(name: string): TestInventoryEntry["dependencies"] {
+  if (name === "provenPythonTopologyWorker.integration") return ["filesystem"];
+  return ["sqlite", "filesystem", "localhost"];
 }
 
 export function validateProfileInventory(entries: readonly TestInventoryEntry[], discoveredFiles: readonly string[]): void {

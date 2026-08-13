@@ -33,6 +33,42 @@ B and C can proceed independently after A. A and B are now implemented and verif
 - [A — Verification Foundation](issues/01-A-verification-foundation.md) — implemented foundation reused by both remaining tickets.
 - [B — Paid-Pilot Safety and Recovery](issues/02-B-paid-pilot-safety-and-recovery.md) — implemented minimum operational guarantees for safely accepting customer IFC files in an isolated founder-operated pilot.
 - [C — Automatic Family Adapter and Qualification](issues/03-C-automatic-family-adapter-and-qualification.md) — the differentiating feature, qualified so generated results cannot outrun their evidence.
+- [D1 — Verification Profiles and Fast Feedback](issues/04-fast-verification-profiles-and-worker-proof.md) — compact developer feedback with an authoritative profile inventory and deterministic worker proof where numerical work is not the claim.
+- [D2 — Numerical Release Proof and Evidence Gate](issues/05-numerical-release-proof-and-evidence-gate.md) — the real-worker release composition and reproducible GO/NO-GO evidence.
+
+## Locked architecture: verification before and after
+
+Implementation tickets: [D1 — Verification Profiles and Fast Feedback](issues/04-fast-verification-profiles-and-worker-proof.md), then [D2 — Numerical Release Proof and Evidence Gate](issues/05-numerical-release-proof-and-evidence-gate.md). This is parallel developer-velocity work and does not block C.
+
+### Developer commands
+
+`npm test` remains the complete working-contract suite. For ordinary feedback, run `npm run verify:fast`: it runs only the declared deterministic tests and refuses an inventory that selects the real Python worker. Run `npm run verify:integration` when changing persistence, local files, WebIFC, or localhost composition; it is deliberately single-worker because its tests use isolated local resources. The test inventory in `src/verifier/verificationProfiles.ts` is authoritative: every test file visible under `tests/` must appear exactly once with its resource facts and budget. A newly added test is therefore forced through classification before either profile can claim a pass.
+
+### Before
+
+- The default test command runs the entire repository test portfolio, including slow integration and real Python/topology tests.
+- The production-readiness verifier overlaps phases: the same public-seam and HTTP test files can run again in full regression.
+- Full regression forces one worker for the whole non-topology set, even where tests use isolated temporary state.
+- Policy, persistence, and HTTP tests can pay for the real Python worker even when they are not proving numerical behavior.
+- The result is a single slow feedback path, while the distinction between fast checks and release proof is implicit.
+
+### After
+
+- A profile-aware verification module exposes four explicit proof profiles: `fast`, `integration`, `numerical`, and `release`.
+- Each test file belongs to one release profile by execution cost and dependency, not by filename. The release profile runs every profile once with no accidental overlap.
+- `fast` covers deterministic domain/application behavior and safe HTTP semantics without spawning the real Python worker.
+- `integration` covers SQLite, filesystem, WebIFC, and localhost composition with isolated temporary state.
+- `numerical` contains the small real-worker proof pack: pinned runtime, process protocol, cancellation/deadline behavior, numerical reference cases, and artifact compatibility.
+- Non-numerical topology/component tests use the existing worker interface with a deterministic adapter; the real adapter remains mandatory for numerical and release claims.
+- Parallelism is enabled per profile only after shared resources are identified. Real-worker and shared-resource proof remains serialized where required.
+- `npm test` remains the complete suite required by the working contract; the new fast profile is the short development feedback command, and the release profile is the deliberate pre-release check.
+
+### Locked non-goals
+
+- No shared mutable fixture state across tests.
+- No generic test framework or universal worker abstraction.
+- No deletion, weakening, or replacement of the real numerical proof pack.
+- No requirement that the automatic family-adapter feature wait for this velocity ticket.
 
 ## Preserved architecture decisions
 

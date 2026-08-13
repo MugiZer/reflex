@@ -27,4 +27,12 @@ describe("verification profiles", () => {
     const fastEntry = TEST_INVENTORY.find((entry) => entry.profile === "fast")!;
     expect(() => selectVerificationProfile("fast", [{ ...fastEntry, budgetMs: 90_001 }])).toThrow("budget");
   });
+
+  it("records the worker-only numerical proof facts accurately", () => {
+    expect(TEST_INVENTORY.find((entry) => entry.file === "tests/provenPythonTopologyWorker.integration.test.ts")).toMatchObject({
+      dependencies: ["filesystem"],
+      workerMode: "real-python",
+      sharedResource: "real-worker",
+    });
+  });
 });
