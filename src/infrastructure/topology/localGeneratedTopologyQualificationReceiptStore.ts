@@ -24,12 +24,24 @@ export class LocalGeneratedTopologyQualificationReceiptStore {
 
   async read(adapterHash: string): Promise<GeneratedTopologyQualificationReceipt | null> {
     try {
-      return JSON.parse(await readFile(join(this.outputRoot, "topology-adapter-qualification", `${adapterHash}.json`), "utf8")) as GeneratedTopologyQualificationReceipt;
+      return freezeReceipt(JSON.parse(await readFile(join(this.outputRoot, "topology-adapter-qualification", `${adapterHash}.json`), "utf8")) as GeneratedTopologyQualificationReceipt);
     } catch (error) {
       if (isNotFound(error)) return null;
       throw error;
     }
   }
+}
+
+function freezeReceipt(receipt: GeneratedTopologyQualificationReceipt): GeneratedTopologyQualificationReceipt {
+  const freeze = (value: unknown): unknown => {
+    if (Array.isArray(value)) return Object.freeze(value.map(freeze));
+    if (typeof value === "object" && value !== null) {
+      for (const child of Object.values(value)) freeze(child);
+      return Object.freeze(value);
+    }
+    return value;
+  };
+  return freeze(receipt) as GeneratedTopologyQualificationReceipt;
 }
 
 function isAlreadyExists(error: unknown): boolean { return isNodeError(error) && error.code === "EEXIST"; }

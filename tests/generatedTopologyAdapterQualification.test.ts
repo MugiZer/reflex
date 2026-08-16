@@ -23,7 +23,9 @@ describe("generated topology adapter qualification", () => {
       expect(receipt.gates.map((gate) => gate.gateId)).toEqual(["P3-contract-geometry", "P6-worker", "P3-independent-reference", "P6-envelope-sensitivity"]);
       expect(receipt.gates.every((gate) => gate.failedCases.length === 0 && gate.unexecutedCases.length === 0)).toBe(true);
       expect(receipt.worker.runtimeHash).toBe(PROVEN_TOPOLOGY_BUNDLE.runtimeHash);
-      expect(await new LocalGeneratedTopologyQualificationReceiptStore(root).read(receipt.adapterHash)).toEqual(receipt);
+      const reloaded = await new LocalGeneratedTopologyQualificationReceiptStore(root).read(receipt.adapterHash);
+      expect(reloaded).toEqual(receipt);
+      expect(() => { (reloaded!.gates[0]!.dependencyIdentities as any).boundaryVersion = "mutated-reloaded-boundary"; }).toThrow();
       expect(() => { (receipt.worker as any).executable = "mutated-worker.exe"; }).toThrow();
       expect(receipt.worker.executable).toBe(pythonExecutable);
       const originalBoundaryVersion = adapter.dependencies.boundaryVersion;
