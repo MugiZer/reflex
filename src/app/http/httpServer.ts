@@ -15,6 +15,7 @@ import type { ProcessIfcJobDeps } from "../../application/jobs/processIfcJob.js"
 import { submitJobReviewInputs } from "../../application/jobs/submitJobReviewInputs.js";
 import { submitJobTopologyReview } from "../../application/topology/submitJobTopologyReview.js";
 import { createTopologyAnalysisRequestService } from "../../application/topology/createTopologyAnalysisRequestService.js";
+import { qualifyGeneratedTopologyAdapter } from "../../application/topology/qualifyGeneratedTopologyAdapter.js";
 import { refreshJobTopologyReport } from "../../application/topology/refreshJobTopologyReport.js";
 import { generateHtmlReport } from "../../application/reports/generateHtmlReport.js";
 import type { TopologyWorkerRuntime } from "../../domain/topology/topologyTypes.js";
@@ -48,6 +49,7 @@ import { renderAppShell } from "./renderAppShell.js";
 export type LocalhostApp = {
   server: Server;
   jobs: ClosableJobRepository;
+  qualifyGeneratedTopologyAdapter: (adapter: unknown, testedRevision: string, now?: Date) => ReturnType<typeof qualifyGeneratedTopologyAdapter>;
   close(): void;
 };
 
@@ -226,7 +228,12 @@ export function createLocalhostApp(command: {
       return sendApplicationFailure(res, error);
     }
   });
-  return { server, jobs, close: () => { try { componentEvaluations.close(); } finally { jobs.close(); } } };
+  return {
+    server,
+    jobs,
+    qualifyGeneratedTopologyAdapter: (adapter, testedRevision, now) => qualifyGeneratedTopologyAdapter({ adapter, outputRoot: command.outputRoot, pythonExecutable: topologyWorker.runtimeIdentity.executable, testedRevision, now }),
+    close: () => { try { componentEvaluations.close(); } finally { jobs.close(); } },
+  };
 }
 
 function sendApplicationFailure(res: ServerResponse, error: unknown): void {
