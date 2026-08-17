@@ -23,6 +23,7 @@ import { generateHtmlReport } from "../../application/reports/generateHtmlReport
 import type { TopologyWorkerRuntime } from "../../domain/topology/topologyTypes.js";
 import type { TopologyPilotPolicy } from "../../domain/topology/topologyPilotPolicy.js";
 import type { ComponentPattern } from "../../domain/topology/componentPatternInterpreter.js";
+import type { AmbiguousFamilyFitAgent } from \ ../../application/topology/fitGeneratedTopologyFamilyMatch.js\;
 import { ReplayComponentEvaluationError, replayJobComponentEvaluation } from "../../application/topology/replayJobComponentEvaluation.js";
 import { PROVEN_TOPOLOGY_BUNDLE, createProvenPythonTopologyWorker } from "../../infrastructure/topology/createProvenPythonTopologyWorker.js";
 import { cleanupLocalTopologyArtifacts, LocalTopologyArtifactStore } from "../../infrastructure/topology/localTopologyArtifactStore.js";
@@ -70,6 +71,7 @@ export function createLocalhostApp(command: {
   generatedTopologyAdapterManifestRoot?: string;
   generatedTopologyAdapterQualification?: (input: GeneratedTopologyAdapterQualificationCommand) => ReturnType<typeof qualifyGeneratedTopologyAdapter>;
   thermalTreatmentRegistry?: ThermalTreatmentFamilyRegistry;
+  fitAgent?: AmbiguousFamilyFitAgent;
 }): LocalhostApp {
   const jobs = new SqliteJobRepository(command.databasePath);
   const componentEvaluations = new SqliteComponentEvaluationRepository(command.databasePath);
@@ -162,7 +164,7 @@ export function createLocalhostApp(command: {
           const cancellation = requestCancellationSignal(req, res);
         try {
           const topologyEvidence = createLocalTopologyReviewEvidenceLoader(artifactStore);
-          const result = await submitJobTopologyReview({ jobId: topologyReviewJobId, body: await readJson(req), jobs, componentEvaluations, evidence: topologyEvidence, requests: topologyRequests, bundle: PROVEN_TOPOLOGY_BUNDLE, deadlineAt: parseTopologyDeadline(req), cancellationSignal: cancellation.signal, componentPatterns: command.componentPatterns, generatedTopologyAdapters: (await generatedTopologyRuntime).registry, screeningThresholdWPerM2K: command.componentScreeningThresholdWPerM2K, topologyPilotEnabled: command.topologyPilotEnabled, topologyPilotPolicy: command.topologyPilotPolicy });
+          const result = await submitJobTopologyReview({ jobId: topologyReviewJobId, body: await readJson(req), jobs, componentEvaluations, evidence: topologyEvidence, requests: topologyRequests, bundle: PROVEN_TOPOLOGY_BUNDLE, deadlineAt: parseTopologyDeadline(req), cancellationSignal: cancellation.signal, componentPatterns: command.componentPatterns, generatedTopologyAdapters: (await generatedTopologyRuntime).registry, fitAgent: command.fitAgent, screeningThresholdWPerM2K: command.componentScreeningThresholdWPerM2K, topologyPilotEnabled: command.topologyPilotEnabled, topologyPilotPolicy: command.topologyPilotPolicy });
           await refreshJobTopologyReport({
             jobId: topologyReviewJobId,
             jobs,

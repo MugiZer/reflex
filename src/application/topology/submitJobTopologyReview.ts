@@ -17,6 +17,7 @@ import { deriveComponentEvaluationAggregate } from "../../domain/topology/compon
 import type { GeneratedTopologyAdapterRegistry } from "../../domain/topology/generatedTopologyAdapterRegistry.js";
 import { findExactGeneratedTopologyFamilyMatch } from "../../domain/topology/exactGeneratedTopologyFamilyMatch.js";
 import { generatedTopologyAdapterHash, type GeneratedTopologyAdapter } from "../../domain/topology/generatedTopologyAdapter.js";
+import { attemptAmbiguousGeneratedTopologyFamilyFit, type AmbiguousFamilyFitAgent } from "./fitGeneratedTopologyFamilyMatch.js";
 
 /** Loads immutable Job evidence, validates ownership, and persists optional topology enrichment. */
 export async function submitJobTopologyReview(command: {
@@ -31,6 +32,7 @@ export async function submitJobTopologyReview(command: {
   cancellationSignal?: AbortSignal;
   componentPatterns?: readonly ComponentPattern[];
   generatedTopologyAdapters?: GeneratedTopologyAdapterRegistry;
+  fitAgent?: AmbiguousFamilyFitAgent;
   screeningThresholdWPerM2K?: number | null;
   topologyPilotEnabled?: boolean;
   topologyPilotPolicy?: TopologyPilotPolicy;
@@ -62,7 +64,7 @@ export async function submitJobTopologyReview(command: {
   const decision = decideTopologyPilotPolicy({ policy, jobId: command.jobId, sourceRevisionId: job.activeRevisionId, sourceAssemblyGroupId: submission.sourceAssemblyGroupId, opportunityId: opportunity.opportunityId });
   if (decision.disposition !== "eligible") return savePilotRun(command, submission, opportunity, decision as PolicyExclusionDecision, decision.disposition as PolicyExclusionDecision["disposition"], decision.decisionCode);
   const executionCommand = { ...command, bundle: policy.bundle, deadlineAt: boundedDeadlineAt(command.deadlineAt, policy.limits.deadlineMs) };
-  const component = recordComponentInterpretation({ command: executionCommand, job, submission, evidence, opportunity, revisionCreatedAt: revision.createdAt });
+  const component = await recordComponentInterpretation({ command: executionCommand, job, submission, evidence, opportunity, revisionCreatedAt: revision.createdAt });
   if (component?.interpretation.outcome === "matched") {
     const plan = bindIfcLayers(component.interpretation.plan, opportunity, layerOnlySnapshot);
     if (!Number.isInteger(policy.limits.maxScenarioCount) || policy.limits.maxScenarioCount < 1 || plan.scenarios.length > policy.limits.maxScenarioCount) {
@@ -122,7 +124,7 @@ function ensurePilotEvent(jobs: JobRepository, run: TopologyPilotRun): void {
   jobs.saveTopologyPilotEvent(event);
 }
 
-function recordComponentInterpretation(input: { command: Parameters<typeof submitJobTopologyReview>[0]; job: NonNullable<ReturnType<JobRepository["getJob"]>>; submission: TopologyReviewSubmission; evidence: readonly unknown[]; opportunity: ReturnType<typeof detectIfcTopologyOpportunities>[number]; revisionCreatedAt: string }): { graph: ComponentEvaluationGraph; interpretation: ReturnType<typeof interpretComponentPattern> } | null {
+async function recordComponentInterpretation(input: { command: Parameters<typeof submitJobTopologyReview>[0]; job: NonNullable<ReturnType<JobRepository["getJob"]>>; submission: TopologyReviewSubmission; evidence: readonly unknown[]; opportunity: ReturnType<typeof detectIfcTopologyOpportunities>[number]; revisionCreatedAt: string }): Promise<{ graph: ComponentEvaluationGraph; interpretation: ReturnType<typeof interpretComponentPattern> | { outcome: "matched"; patternId: string; patternVersion: string; reasons: readonly string[]; plan: import("../../domain/topology/componentKnowledgeBase.js").TopologyScenarioPlan } } | null> {
   const at = input.revisionCreatedAt;
   const evidencePayload = { fileHash: input.job.fileHash, calculationInputEvidence: input.evidence } as unknown as JsonValue;
   const ifcImportId = componentEvaluationIdentities.ifcImport({ jobId: input.job.jobId, sourceRevisionId: input.job.activeRevisionId!, contentSha256: input.job.fileHash!, parserVersion: "web-ifc-0.0.77" });
@@ -135,11 +137,13 @@ function recordComponentInterpretation(input: { command: Parameters<typeof submi
   const authoritativeKeys = [memberKind && input.submission.answers.memberKindAuthority !== "missing" ? "profileKind" : "", memberMaterial && input.submission.answers.memberMaterialAuthority !== "missing" ? "memberMaterial" : ""].filter(Boolean);
   const conflictingKeys = input.submission.answers.memberWidthConflict === true ? ["memberWidthM"] : [];
   const exact = input.command.generatedTopologyAdapters ? findExactGeneratedTopologyFamilyMatch({ answers: input.submission.answers, bundle: input.command.bundle, registry: input.command.generatedTopologyAdapters }) : null;
-  const patternEvidence = { evidenceSignature: sha256(input.opportunity.thermalConstructionSignature), profileKind: exact?.adapter.family.profileKind ?? memberKind, materialLabel: exact?.adapter.family.materialIdentity ?? memberMaterial, values: { memberWidthM: input.submission.answers.memberWidthM as JsonValue | "i-dont-know" }, authoritativeKeys, conflictingKeys };
-  const patterns = exact ? [generatedAdapterPattern(exact.adapter)] : (input.command.componentPatterns ?? [REPEATING_C_PROFILE_PATTERN]);
+  const fit = !exact && input.command.generatedTopologyAdapters && input.command.fitAgent ? await attemptAmbiguousGeneratedTopologyFamilyFit({ answers: input.submission.answers, bundle: input.command.bundle, registry: input.command.generatedTopologyAdapters, agent: input.command.fitAgent, canonicalEvidenceReference: `topology-opportunity:${sha256(input.opportunity.thermalConstructionSignature)}`, correlationId: randomUUID(), deadline: new Date(input.command.deadlineAt ?? Date.now()), signal: input.command.cancellationSignal }) : null;
+  const authorized = exact ?? fit;
+  const patternEvidence = { evidenceSignature: sha256(input.opportunity.thermalConstructionSignature), profileKind: authorized?.adapter.family.profileKind ?? memberKind, materialLabel: authorized?.adapter.family.materialIdentity ?? memberMaterial, values: { memberWidthM: input.submission.answers.memberWidthM as JsonValue | "i-dont-know" }, authoritativeKeys, conflictingKeys };
+  const patterns = authorized ? [generatedAdapterPattern(authorized.adapter)] : (input.command.componentPatterns ?? [REPEATING_C_PROFILE_PATTERN]);
   const interpreted = interpretComponentPattern({ evidence: patternEvidence, patterns });
-  const interpretation = exact && interpreted.outcome === "matched"
-    ? { ...interpreted, reasons: [...interpreted.reasons, `exact-family:${exact.familySignature}`], plan: { pack: { packId: exact.adapter.family.familyId, version: exact.adapter.family.familyVersion, immaterialityGateWPerM2K: 0 }, scenarios: [{ scenarioId: sha256(canonicalTopologyJson(exact.recipe)), parameters: {}, recipe: exact.recipe }] } }
+  const interpretation = authorized && interpreted.outcome === "matched"
+    ? { ...interpreted, reasons: [...interpreted.reasons, `${exact ? "exact" : "fit"}-family:${authorized.familySignature}`], plan: { pack: { packId: authorized.adapter.family.familyId, version: authorized.adapter.family.familyVersion, immaterialityGateWPerM2K: 0 }, scenarios: [{ scenarioId: sha256(canonicalTopologyJson(authorized.recipe)), parameters: {}, recipe: authorized.recipe }] } }
     : interpreted;
   const selected = interpretation.outcome === "matched" ? patterns.find((item) => item.patternId === interpretation.patternId && item.version === interpretation.patternVersion) ?? null : null;
   const matchOutcome = interpretation.outcome;
