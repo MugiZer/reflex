@@ -5,14 +5,12 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { activateQualifiedGeneratedTopologyAdapter, rehydrateGeneratedTopologyAdapterRegistry } from "../src/application/topology/generatedTopologyAdapterLifecycle.js";
-import { qualifyGeneratedTopologyAdapter } from "../src/application/topology/qualifyGeneratedTopologyAdapter.js";
 import { GeneratedTopologyAdapterRegistry } from "../src/domain/topology/generatedTopologyAdapterRegistry.js";
-import type { GeneratedTopologyAdapter } from "../src/domain/topology/generatedTopologyAdapter.js";
+import { generatedTopologyAdapterHash, type GeneratedTopologyAdapter, type GeneratedTopologyQualificationReceipt } from "../src/domain/topology/generatedTopologyAdapter.js";
 import { PROVEN_TOPOLOGY_BUNDLE } from "../src/infrastructure/topology/createProvenPythonTopologyWorker.js";
 import { LocalGeneratedTopologyAdapterManifestStore } from "../src/infrastructure/topology/localGeneratedTopologyAdapterManifestStore.js";
 import { createGeneratedTopologyAdapterRuntime } from "../src/infrastructure/topology/createGeneratedTopologyAdapterRuntime.js";
 
-const pythonExecutable = resolve(process.env.TOPOLOGY_WORKER_PYTHON ?? ".scratch/component-topology-kernel/conformance-proof/.venv/Scripts/python.exe");
 const zFixture = resolve(".scratch/component-topology-kernel/recipe-contract/valid-z-profile-regression.json");
 
 describe("generated topology adapter lifecycle", () => {
@@ -20,11 +18,12 @@ describe("generated topology adapter lifecycle", () => {
     const root = await mkdtemp(join(tmpdir(), "generated-topology-lifecycle-"));
     try {
       const adapter = await zAdapter();
-      const receipt = await qualifyGeneratedTopologyAdapter({ adapter, outputRoot: root, pythonExecutable, testedRevision: "ticket-02-p5", now: new Date("2026-08-16T00:00:00.000Z") });
+      const receipt = qualifiedReceipt(adapter);
       const manifests = new LocalGeneratedTopologyAdapterManifestStore(root);
       const registry = new GeneratedTopologyAdapterRegistry();
       expect(await activateQualifiedGeneratedTopologyAdapter({ adapter, qualificationReceipt: receipt, manifests, registry })).toBe("activated");
       expect(registry.get(receipt.adapterHash)).toEqual(adapter);
+      expect(registry.componentPatterns()).toEqual([expect.objectContaining({ patternId: "generated-z-girt", version: "1.0.0", lifecycle: "promoted", adapterHash: receipt.adapterHash })]);
       expect(await activateQualifiedGeneratedTopologyAdapter({ adapter, qualificationReceipt: receipt, manifests, registry })).toBe("duplicate");
 
       const restarted = new GeneratedTopologyAdapterRegistry();
@@ -42,8 +41,14 @@ describe("generated topology adapter lifecycle", () => {
       expect(disabled.diagnostics.map((item) => item.outcome)).toEqual(["disabled"]);
 
       await writeFile(join(root, "generated-topology-adapter-manifests", "corrupt.json"), "not-json", "utf8");
-      const corrupt = await rehydrateGeneratedTopologyAdapterRegistry({ manifests, registry: new GeneratedTopologyAdapterRegistry(), bundle: PROVEN_TOPOLOGY_BUNDLE });
+      const protectedRegistry = new GeneratedTopologyAdapterRegistry();
+      protectedRegistry.add("unrelated-existing-adapter", adapter);
+      const corrupt = await rehydrateGeneratedTopologyAdapterRegistry({ manifests, registry: protectedRegistry, bundle: PROVEN_TOPOLOGY_BUNDLE });
       expect(corrupt.diagnostics.map((item) => item.outcome)).toContain("corruption");
+      expect(protectedRegistry.get("unrelated-existing-adapter")).toEqual(adapter);
+      await writeFile(join(root, "generated-topology-adapter-manifests", "incomplete.json"), JSON.stringify({ schema: "generated-topology-adapter-manifest/v1", adapterHash: receipt.adapterHash, adapter, qualificationReceipt: { schema: "generated-topology-adapter-qualification-receipt/v1", decision: "GO", adapterHash: receipt.adapterHash, gates: [] }, sourceDataset: adapter.provenance, dependencyIdentities: adapter.dependencies, contentHash: "incomplete" }), "utf8");
+      const incomplete = await rehydrateGeneratedTopologyAdapterRegistry({ manifests, registry: protectedRegistry, bundle: PROVEN_TOPOLOGY_BUNDLE });
+      expect(incomplete.diagnostics.map((item) => item.outcome)).toContain("corruption");
       expect(await readdir(join(root, "generated-topology-adapter-diagnostics"))).not.toEqual([]);
     } finally { await rm(root, { recursive: true, force: true }); }
   }, 300_000);
@@ -52,15 +57,37 @@ describe("generated topology adapter lifecycle", () => {
     const root = await mkdtemp(join(tmpdir(), "generated-topology-lifecycle-failure-"));
     try {
       const adapter = await zAdapter();
-      const receipt = await qualifyGeneratedTopologyAdapter({ adapter, outputRoot: root, pythonExecutable, testedRevision: "ticket-02-p5-failure" });
+      const receipt = qualifiedReceipt(adapter);
       const blockedRoot = join(root, "manifest-root-file");
       await writeFile(blockedRoot, "file-not-directory", "utf8");
       const registry = new GeneratedTopologyAdapterRegistry();
+      registry.add("unrelated-existing-adapter", adapter);
       expect(await activateQualifiedGeneratedTopologyAdapter({ adapter, qualificationReceipt: receipt, manifests: new LocalGeneratedTopologyAdapterManifestStore(blockedRoot), registry })).toBe("persistence-failure");
-      expect(registry.available()).toEqual([]);
+      expect(registry.get("unrelated-existing-adapter")).toEqual(adapter);
     } finally { await rm(root, { recursive: true, force: true }); }
   }, 300_000);
+
+  it("does not publish a restart projection when durable diagnostic persistence fails", async () => {
+    const adapter = await zAdapter();
+    const registry = new GeneratedTopologyAdapterRegistry();
+    registry.add("unrelated-existing-adapter", adapter);
+    const manifests = {
+      async scan() { return [{ path: "broken.json", manifest: null, error: "corrupt" }]; },
+      async isDisabled() { return false; },
+      async recordDiagnostic() { throw new Error("diagnostic store unavailable"); },
+      async persist() { return "stored" as const; },
+    };
+    const result = await rehydrateGeneratedTopologyAdapterRegistry({ manifests, registry, bundle: PROVEN_TOPOLOGY_BUNDLE });
+    expect(result.outcome).toBe("persistence-failure");
+    expect(registry.get("unrelated-existing-adapter")).toEqual(adapter);
+  });
 });
+
+function qualifiedReceipt(adapter: GeneratedTopologyAdapter): GeneratedTopologyQualificationReceipt {
+  const adapterHash = generatedTopologyAdapterHash(adapter);
+  const gate = (gateId: "P3-contract-geometry" | "P6-worker" | "P3-independent-reference" | "P6-envelope-sensitivity") => ({ gateId, selectedCases: [gateId], passedCases: [gateId], failedCases: [], unexecutedCases: [], fixtureIdentity: `fixture:${gateId}`, oracleIdentity: null, adapterHash, dependencyIdentities: adapter.dependencies, command: "lifecycle fixture", durationMs: 0, testedRevision: "ticket-02-p5" });
+  return { schema: "generated-topology-adapter-qualification-receipt/v1", decision: "GO", adapterHash, recipeHash: null, worker: { executable: "C:/sentinel/python.exe", runtimeHash: adapter.dependencies.runtimeHash }, compilerVersion: adapter.dependencies.compilerVersion, primitiveRegistryHash: adapter.dependencies.primitiveRegistryHash, materialPackHash: adapter.dependencies.materialPackHash, boundaryVersion: adapter.dependencies.boundaryVersion, gates: [gate("P3-contract-geometry"), gate("P6-worker"), gate("P3-independent-reference"), gate("P6-envelope-sensitivity")], qualifiedAt: "2026-08-16T00:00:00.000Z" };
+}
 
 async function zAdapter(): Promise<GeneratedTopologyAdapter> {
   const recipeTemplate = JSON.parse(await readFile(zFixture, "utf8"));

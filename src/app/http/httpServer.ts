@@ -16,11 +16,13 @@ import { submitJobReviewInputs } from "../../application/jobs/submitJobReviewInp
 import { submitJobTopologyReview } from "../../application/topology/submitJobTopologyReview.js";
 import { createTopologyAnalysisRequestService } from "../../application/topology/createTopologyAnalysisRequestService.js";
 import { qualifyGeneratedTopologyAdapter } from "../../application/topology/qualifyGeneratedTopologyAdapter.js";
+import { createGeneratedTopologyAdapterRuntime } from "../../infrastructure/topology/createGeneratedTopologyAdapterRuntime.js";
 import { refreshJobTopologyReport } from "../../application/topology/refreshJobTopologyReport.js";
 import { generateHtmlReport } from "../../application/reports/generateHtmlReport.js";
 import type { TopologyWorkerRuntime } from "../../domain/topology/topologyTypes.js";
 import type { TopologyPilotPolicy } from "../../domain/topology/topologyPilotPolicy.js";
 import type { ComponentPattern } from "../../domain/topology/componentPatternInterpreter.js";
+import type { GeneratedTopologyAdapter } from "../../domain/topology/generatedTopologyAdapter.js";
 import { ReplayComponentEvaluationError, replayJobComponentEvaluation } from "../../application/topology/replayJobComponentEvaluation.js";
 import { PROVEN_TOPOLOGY_BUNDLE, createProvenPythonTopologyWorker } from "../../infrastructure/topology/createProvenPythonTopologyWorker.js";
 import { cleanupLocalTopologyArtifacts, LocalTopologyArtifactStore } from "../../infrastructure/topology/localTopologyArtifactStore.js";
@@ -65,6 +67,7 @@ export function createLocalhostApp(command: {
   topologyPilotEnabled?: boolean;
   topologyPilotPolicy?: TopologyPilotPolicy;
   maxUploadBytes?: number;
+  generatedTopologyAdapterManifestRoot?: string;
   thermalTreatmentRegistry?: ThermalTreatmentFamilyRegistry;
 }): LocalhostApp {
   const jobs = new SqliteJobRepository(command.databasePath);
@@ -85,9 +88,11 @@ export function createLocalhostApp(command: {
   const thermalTreatmentWorker = new OpenSource2dCalculationWorker({ artifactRoot: join(command.outputRoot, "thermal-treatment-worker") });
   const thermalTreatmentRegistry = command.thermalTreatmentRegistry ?? continuousZGirtFamilyRegistry;
   const topologyWorker = command.topologyWorker ?? configuredTopologyWorker();
+  const generatedTopologyRuntime = createGeneratedTopologyAdapterRuntime(command.generatedTopologyAdapterManifestRoot ?? join(command.outputRoot, "generated-topology-adapters"));
   const startupCleanup = Promise.all([
     cleanupLocalTopologyArtifacts(command.outputRoot),
     recoverPaidPilotJobs({ jobs, validator: completedJobPublication }),
+    generatedTopologyRuntime,
   ]);
   const topologyRequests = command.topologyRequests ?? createTopologyAnalysisRequestService({
     artifactStore: new LocalTopologyArtifactStore(command.outputRoot),
@@ -149,13 +154,13 @@ export function createLocalhostApp(command: {
       if (req.method === "POST" && replayJobId) {
         const body = await readJson(req);
         if (!isRecord(body) || typeof body.evaluationId !== "string" || typeof body.patternId !== "string" || typeof body.patternVersion !== "string") return json(res,400,{error:"evaluationId, patternId, and patternVersion are required."});
-        try{return json(res,202,replayJobComponentEvaluation({jobId:replayJobId,evaluationId:body.evaluationId,patternId:body.patternId,patternVersion:body.patternVersion,jobs,componentEvaluations,patterns:command.componentPatterns??[]}));}catch(error){const status=error instanceof ReplayComponentEvaluationError&&error.code==="component_evaluation_not_found"?404:422;return json(res,status,{error:error instanceof Error?error.message:String(error)});}
+        try{return json(res,202,replayJobComponentEvaluation({jobId:replayJobId,evaluationId:body.evaluationId,patternId:body.patternId,patternVersion:body.patternVersion,jobs,componentEvaluations,patterns:[...(await generatedTopologyRuntime).registry.componentPatterns(), ...(command.componentPatterns ?? [])]}));}catch(error){const status=error instanceof ReplayComponentEvaluationError&&error.code==="component_evaluation_not_found"?404:422;return json(res,status,{error:error instanceof Error?error.message:String(error)});}
       }
       if (req.method === "POST" && topologyReviewJobId) {
           const cancellation = requestCancellationSignal(req, res);
         try {
           const topologyEvidence = createLocalTopologyReviewEvidenceLoader(artifactStore);
-          const result = await submitJobTopologyReview({ jobId: topologyReviewJobId, body: await readJson(req), jobs, componentEvaluations, evidence: topologyEvidence, requests: topologyRequests, bundle: PROVEN_TOPOLOGY_BUNDLE, deadlineAt: parseTopologyDeadline(req), cancellationSignal: cancellation.signal, componentPatterns: command.componentPatterns, screeningThresholdWPerM2K: command.componentScreeningThresholdWPerM2K, topologyPilotEnabled: command.topologyPilotEnabled, topologyPilotPolicy: command.topologyPilotPolicy });
+          const result = await submitJobTopologyReview({ jobId: topologyReviewJobId, body: await readJson(req), jobs, componentEvaluations, evidence: topologyEvidence, requests: topologyRequests, bundle: PROVEN_TOPOLOGY_BUNDLE, deadlineAt: parseTopologyDeadline(req), cancellationSignal: cancellation.signal, componentPatterns: command.componentPatterns, generatedTopologyAdapters: (await generatedTopologyRuntime).registry, screeningThresholdWPerM2K: command.componentScreeningThresholdWPerM2K, topologyPilotEnabled: command.topologyPilotEnabled, topologyPilotPolicy: command.topologyPilotPolicy });
           await refreshJobTopologyReport({
             jobId: topologyReviewJobId,
             jobs,
@@ -231,7 +236,14 @@ export function createLocalhostApp(command: {
   return {
     server,
     jobs,
-    qualifyGeneratedTopologyAdapter: (adapter, testedRevision, now) => qualifyGeneratedTopologyAdapter({ adapter, outputRoot: command.outputRoot, pythonExecutable: topologyWorker.runtimeIdentity.executable, testedRevision, now }),
+    qualifyGeneratedTopologyAdapter: async (adapter, testedRevision, now) => {
+      const receipt = await qualifyGeneratedTopologyAdapter({ adapter, outputRoot: command.outputRoot, pythonExecutable: topologyWorker.runtimeIdentity.executable, testedRevision, now });
+      if (receipt.decision === "GO") {
+        const outcome = await (await generatedTopologyRuntime).activate(adapter as GeneratedTopologyAdapter, receipt);
+        if (outcome !== "activated" && outcome !== "duplicate") throw new Error(`Generated topology adapter activation failed: ${outcome}.`);
+      }
+      return receipt;
+    },
     close: () => { try { componentEvaluations.close(); } finally { jobs.close(); } },
   };
 }

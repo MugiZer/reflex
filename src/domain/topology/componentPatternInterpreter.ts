@@ -6,6 +6,8 @@ import type { JsonValue } from "./topologyTypes.js";
 export type ComponentPattern = Readonly<{
   patternId: string;
   version: string;
+  /** Content identity when this promoted pattern is backed by a generated adapter. */
+  adapterHash?: string;
   lifecycle: "draft" | "candidate" | "promoted" | "rejected";
   promotedAt?: string;
   recognition: Readonly<{ profileKinds: readonly string[]; materialTokens: readonly string[] }>;

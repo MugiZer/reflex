@@ -14,6 +14,7 @@ import { interpretComponentPattern, type ComponentPattern } from "../../domain/t
 import { REPEATING_C_PROFILE_PATTERN } from "../../domain/topology/patterns/repeatingCProfilePattern.js";
 import { componentEvaluationIdentities, type ComponentEvaluationGraph, type ComponentEvaluationRepository } from "../../domain/topology/componentEvaluationRecords.js";
 import { deriveComponentEvaluationAggregate } from "../../domain/topology/componentEvaluationAggregate.js";
+import type { GeneratedTopologyAdapterRegistry } from "../../domain/topology/generatedTopologyAdapterRegistry.js";
 
 /** Loads immutable Job evidence, validates ownership, and persists optional topology enrichment. */
 export async function submitJobTopologyReview(command: {
@@ -27,6 +28,7 @@ export async function submitJobTopologyReview(command: {
   deadlineAt?: string;
   cancellationSignal?: AbortSignal;
   componentPatterns?: readonly ComponentPattern[];
+  generatedTopologyAdapters?: GeneratedTopologyAdapterRegistry;
   screeningThresholdWPerM2K?: number | null;
   topologyPilotEnabled?: boolean;
   topologyPilotPolicy?: TopologyPilotPolicy;
@@ -128,7 +130,9 @@ function recordComponentInterpretation(input: { command: Parameters<typeof submi
   const annotationId = componentEvaluationIdentities.annotation({ evidenceSnapshotId: evidenceSha256, occurrenceId, payload: annotationPayload, authority: "user-confirmed" });
   const memberKind = typeof input.submission.answers.memberKind === "string" ? input.submission.answers.memberKind : "";
   const memberMaterial = typeof input.submission.answers.memberMaterial === "string" ? input.submission.answers.memberMaterial : "";
-  const patterns = input.command.componentPatterns ?? [REPEATING_C_PROFILE_PATTERN];
+  const generatedPatterns = input.command.generatedTopologyAdapters?.componentPatterns() ?? [];
+  const generatedCandidates = generatedPatterns.filter((pattern) => pattern.recognition.profileKinds.includes(memberKind.toLowerCase()) && pattern.recognition.materialTokens.some((token) => memberMaterial.toLowerCase().includes(token.toLowerCase())));
+  const patterns = generatedCandidates.length > 0 ? generatedCandidates : (input.command.componentPatterns ?? [REPEATING_C_PROFILE_PATTERN]);
   const authoritativeKeys = [memberKind && input.submission.answers.memberKindAuthority !== "missing" ? "profileKind" : "", memberMaterial && input.submission.answers.memberMaterialAuthority !== "missing" ? "memberMaterial" : ""].filter(Boolean);
   const conflictingKeys = input.submission.answers.memberWidthConflict === true ? ["memberWidthM"] : [];
   const interpretation = interpretComponentPattern({ evidence: { evidenceSignature: sha256(input.opportunity.thermalConstructionSignature), profileKind: memberKind, materialLabel: memberMaterial, values: { memberWidthM: input.submission.answers.memberWidthM as JsonValue | "i-dont-know" }, authoritativeKeys, conflictingKeys }, patterns });

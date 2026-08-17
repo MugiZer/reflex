@@ -72,14 +72,19 @@ function createManifest(adapter: GeneratedTopologyAdapter, receipt: GeneratedTop
   return Object.freeze({ ...immutable, contentHash: sha256(canonicalTopologyJson(immutable as never)) });
 }
 function validateManifest(value: unknown): GeneratedTopologyAdapterManifest {
-  if (!isRecord(value) || value.schema !== "generated-topology-adapter-manifest/v1" || typeof value.adapterHash !== "string" || !isRecord(value.adapter) || !validReceipt(value.qualificationReceipt) || !isRecord(value.sourceDataset) || !isRecord(value.dependencyIdentities) || typeof value.contentHash !== "string") throw new Error("Invalid adapter manifest.");
+  if (!isRecord(value) || value.schema !== "generated-topology-adapter-manifest/v1" || typeof value.adapterHash !== "string" || !isRecord(value.adapter) || !isRecord(value.qualificationReceipt) || !validReceipt(value.qualificationReceipt) || !isRecord(value.sourceDataset) || !isRecord(value.dependencyIdentities) || typeof value.contentHash !== "string") throw new Error("Invalid adapter manifest.");
   const manifest = value as GeneratedTopologyAdapterManifest;
   assertGeneratedTopologyAdapter(manifest.adapter);
   const immutable = { schema: manifest.schema, adapterHash: manifest.adapterHash, adapter: manifest.adapter, qualificationReceipt: manifest.qualificationReceipt, sourceDataset: manifest.sourceDataset, dependencyIdentities: manifest.dependencyIdentities };
   if (manifest.adapterHash !== generatedTopologyAdapterHash(manifest.adapter) || canonicalTopologyJson(manifest.sourceDataset as never) !== canonicalTopologyJson(manifest.adapter.provenance as never) || canonicalTopologyJson(manifest.dependencyIdentities as never) !== canonicalTopologyJson(manifest.adapter.dependencies as never) || manifest.contentHash !== sha256(canonicalTopologyJson(immutable as never))) throw new Error("Adapter manifest integrity check failed.");
   return Object.freeze(manifest);
 }
-function validReceipt(value: Record<string, unknown>): boolean { return value.schema === "generated-topology-adapter-qualification-receipt/v1" && (value.decision === "GO" || value.decision === "NO-GO") && typeof value.adapterHash === "string" && Array.isArray(value.gates) && value.gates.every((gate) => isRecord(gate) && Array.isArray(gate.failedCases) && Array.isArray(gate.unexecutedCases)); }
+function validReceipt(value: Record<string, unknown>): boolean {
+  if (value.schema !== "generated-topology-adapter-qualification-receipt/v1" || (value.decision !== "GO" && value.decision !== "NO-GO") || typeof value.adapterHash !== "string" || !Array.isArray(value.gates)) return false;
+  const required = ["P3-contract-geometry", "P6-worker", "P3-independent-reference", "P6-envelope-sensitivity"];
+  const gateIds = value.gates.map((gate) => isRecord(gate) ? gate.gateId : undefined);
+  return value.gates.length === required.length && required.every((gateId) => gateIds.includes(gateId)) && new Set(gateIds).size === required.length && value.gates.every((gate) => isRecord(gate) && Array.isArray(gate.selectedCases) && Array.isArray(gate.passedCases) && Array.isArray(gate.failedCases) && Array.isArray(gate.unexecutedCases) && typeof gate.adapterHash === "string" && isRecord(gate.dependencyIdentities));
+}
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function sha256(value: string): string { return createHash("sha256").update(value, "utf8").digest("hex"); }
 function isAlreadyExists(error: unknown): boolean { return isNodeError(error) && error.code === "EEXIST"; }

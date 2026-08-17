@@ -9,6 +9,7 @@ export async function createGeneratedTopologyAdapterRuntime(manifestRoot: string
   const manifests = new LocalGeneratedTopologyAdapterManifestStore(manifestRoot);
   const registry = new GeneratedTopologyAdapterRegistry();
   const restart = await rehydrateGeneratedTopologyAdapterRegistry({ manifests, registry, bundle: PROVEN_TOPOLOGY_BUNDLE });
+  if (restart.outcome !== "restart") throw new Error("Generated topology adapter restart rehydration failed closed: durable diagnostics could not be persisted.");
   return Object.freeze({
     registry,
     restart,
