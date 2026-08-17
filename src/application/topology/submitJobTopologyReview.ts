@@ -15,6 +15,8 @@ import { REPEATING_C_PROFILE_PATTERN } from "../../domain/topology/patterns/repe
 import { componentEvaluationIdentities, type ComponentEvaluationGraph, type ComponentEvaluationRepository } from "../../domain/topology/componentEvaluationRecords.js";
 import { deriveComponentEvaluationAggregate } from "../../domain/topology/componentEvaluationAggregate.js";
 import type { GeneratedTopologyAdapterRegistry } from "../../domain/topology/generatedTopologyAdapterRegistry.js";
+import { findExactGeneratedTopologyFamilyMatch } from "../../domain/topology/exactGeneratedTopologyFamilyMatch.js";
+import { generatedTopologyAdapterHash, type GeneratedTopologyAdapter } from "../../domain/topology/generatedTopologyAdapter.js";
 
 /** Loads immutable Job evidence, validates ownership, and persists optional topology enrichment. */
 export async function submitJobTopologyReview(command: {
@@ -130,12 +132,15 @@ function recordComponentInterpretation(input: { command: Parameters<typeof submi
   const annotationId = componentEvaluationIdentities.annotation({ evidenceSnapshotId: evidenceSha256, occurrenceId, payload: annotationPayload, authority: "user-confirmed" });
   const memberKind = typeof input.submission.answers.memberKind === "string" ? input.submission.answers.memberKind : "";
   const memberMaterial = typeof input.submission.answers.memberMaterial === "string" ? input.submission.answers.memberMaterial : "";
-  const generatedPatterns = input.command.generatedTopologyAdapters?.componentPatterns() ?? [];
-  const generatedCandidates = generatedPatterns.filter((pattern) => pattern.recognition.profileKinds.includes(memberKind.toLowerCase()) && pattern.recognition.materialTokens.some((token) => memberMaterial.toLowerCase().includes(token.toLowerCase())));
-  const patterns = generatedCandidates.length > 0 ? generatedCandidates : (input.command.componentPatterns ?? [REPEATING_C_PROFILE_PATTERN]);
   const authoritativeKeys = [memberKind && input.submission.answers.memberKindAuthority !== "missing" ? "profileKind" : "", memberMaterial && input.submission.answers.memberMaterialAuthority !== "missing" ? "memberMaterial" : ""].filter(Boolean);
   const conflictingKeys = input.submission.answers.memberWidthConflict === true ? ["memberWidthM"] : [];
-  const interpretation = interpretComponentPattern({ evidence: { evidenceSignature: sha256(input.opportunity.thermalConstructionSignature), profileKind: memberKind, materialLabel: memberMaterial, values: { memberWidthM: input.submission.answers.memberWidthM as JsonValue | "i-dont-know" }, authoritativeKeys, conflictingKeys }, patterns });
+  const exact = input.command.generatedTopologyAdapters ? findExactGeneratedTopologyFamilyMatch({ answers: input.submission.answers, bundle: input.command.bundle, registry: input.command.generatedTopologyAdapters }) : null;
+  const patternEvidence = { evidenceSignature: sha256(input.opportunity.thermalConstructionSignature), profileKind: exact?.adapter.family.profileKind ?? memberKind, materialLabel: exact?.adapter.family.materialIdentity ?? memberMaterial, values: { memberWidthM: input.submission.answers.memberWidthM as JsonValue | "i-dont-know" }, authoritativeKeys, conflictingKeys };
+  const patterns = exact ? [generatedAdapterPattern(exact.adapter)] : (input.command.componentPatterns ?? [REPEATING_C_PROFILE_PATTERN]);
+  const interpreted = interpretComponentPattern({ evidence: patternEvidence, patterns });
+  const interpretation = exact && interpreted.outcome === "matched"
+    ? { ...interpreted, reasons: [...interpreted.reasons, `exact-family:${exact.familySignature}`], plan: { pack: { packId: exact.adapter.family.familyId, version: exact.adapter.family.familyVersion, immaterialityGateWPerM2K: 0 }, scenarios: [{ scenarioId: sha256(canonicalTopologyJson(exact.recipe)), parameters: {}, recipe: exact.recipe }] } }
+    : interpreted;
   const selected = interpretation.outcome === "matched" ? patterns.find((item) => item.patternId === interpretation.patternId && item.version === interpretation.patternVersion) ?? null : null;
   const matchOutcome = interpretation.outcome;
   const matchId = componentEvaluationIdentities.patternMatch({ occurrenceId, annotationId, outcome: matchOutcome, patternId: selected?.patternId ?? null, patternVersion: selected?.version ?? null });
@@ -153,6 +158,21 @@ function recordComponentInterpretation(input: { command: Parameters<typeof submi
   };
   if (interpretation.outcome !== "matched") input.command.componentEvaluations.append(graph);
   return { graph, interpretation };
+}
+
+function generatedAdapterPattern(adapter: GeneratedTopologyAdapter): ComponentPattern {
+  return {
+    patternId: adapter.family.familyId,
+    version: adapter.family.familyVersion,
+    adapterHash: generatedTopologyAdapterHash(adapter),
+    lifecycle: "promoted",
+    recognition: adapter.recognition,
+    requiredAuthorities: adapter.requiredAuthorities,
+    permittedUnknowns: [],
+    maxScenarioCount: 1,
+    immaterialityGateWPerM2K: 0,
+    recipeTemplate: adapter.recipeTemplate,
+  };
 }
 
 function bindIfcLayers(plan: import("../../domain/topology/componentKnowledgeBase.js").TopologyScenarioPlan, opportunity: ReturnType<typeof detectIfcTopologyOpportunities>[number], layerOnlySnapshot: JsonValue): import("../../domain/topology/componentKnowledgeBase.js").TopologyScenarioPlan {

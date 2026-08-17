@@ -7,9 +7,10 @@ import { describe, expect, it } from "vitest";
 import { createLocalhostApp } from "../src/app/http/httpServer.js";
 import { generatedTopologyAdapterHash, type GeneratedTopologyAdapter, type GeneratedTopologyQualificationReceipt } from "../src/domain/topology/generatedTopologyAdapter.js";
 import { REPEATING_C_PROFILE_PATTERN } from "../src/domain/topology/patterns/repeatingCProfilePattern.js";
-import { PROVEN_TOPOLOGY_BUNDLE } from "../src/infrastructure/topology/createProvenPythonTopologyWorker.js";
+import { createProvenPythonTopologyWorker, PROVEN_TOPOLOGY_BUNDLE } from "../src/infrastructure/topology/createProvenPythonTopologyWorker.js";
 
 const fixturePath = resolve("tests/fixtures/ifc/repeating-c-profile.ifc");
+const pythonExecutable = resolve(process.env.TOPOLOGY_WORKER_PYTHON ?? ".scratch/component-topology-kernel/conformance-proof/.venv/Scripts/python.exe");
 
 describe("generated topology adapter production lifecycle", () => {
   it("uses a persisted adapter for localhost matching immediately and after restart", async () => {
@@ -20,7 +21,7 @@ describe("generated topology adapter production lifecycle", () => {
     const config = {
       databasePath: join(root, "data", "app.db"), storageRoot: join(root, "storage"), outputRoot: join(root, "outputs"), generatedTopologyAdapterManifestRoot: manifestRoot,
       generatedTopologyAdapterQualification: async () => receipt,
-      topologyWorker: { runtimeIdentity: { executable: "C:/sentinel/python.exe", runtimeHash: PROVEN_TOPOLOGY_BUNDLE.runtimeHash }, async verifyArtifacts() {}, async runJsonl() { throw new Error("production lifecycle proof does not require numerical execution"); } },
+      topologyWorker: createProvenPythonTopologyWorker({ pythonExecutable }),
     };
     let app = createLocalhostApp(config);
     try {
@@ -44,6 +45,23 @@ describe("generated topology adapter production lifecycle", () => {
       expect(response.status, await response.text()).toBe(202);
       const matched = await json<any>(await fetch(`${baseUrl}/api/jobs/${job.jobId}`));
       expect(matched.componentEvaluations[0].match).toMatchObject({ outcome: "matched", patternId: "generated-c-profile", patternVersion: "1.0.0" });
+      expect(matched.componentEvaluations[0].results).toMatchObject([{ outcome: "preliminary-unsafe", resultPayload: { effectiveUValueWPerM2K: expect.any(Number) } }]);
+      const secondForm = new FormData(); secondForm.set("ifc", new Blob([await readFile(resolve("tests/fixtures/ifc/repeating-c-profile-bounded-failure.ifc"))]), "repeating-c-profile-bounded-failure.ifc");
+      const secondCreated = await json<any>(await fetch(`${baseUrl}/api/jobs`, { method: "POST", body: secondForm }));
+      let secondJob = await waitForJob(baseUrl, secondCreated.jobId);
+      if (!secondJob.activeRevisionId) {
+        const inputs = secondJob.review.requestedInputs.map((input: any) => ({ requestedInputId: input.requestedInputId, value: input.datapoint === "layer_thickness" ? 0.08 : input.inputType === "number" ? 0.12 : "confirmed", unit: input.unit, overrideScope: "assembly_group" }));
+        const reviewed = await fetch(`${baseUrl}/api/jobs/${secondJob.jobId}/review-inputs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ inputs }) });
+        expect(reviewed.ok, await reviewed.text()).toBe(true);
+        secondJob = await waitForActiveRevision(baseUrl, secondJob.jobId);
+      }
+      const secondOpportunity = secondJob.topologyOpportunities[0];
+      const secondResponse = await fetch(`${baseUrl}/api/jobs/${secondJob.jobId}/topology-reviews`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ opportunityId: secondOpportunity.opportunityId, thermalConstructionSignature: secondOpportunity.thermalConstructionSignature, sourceRevisionId: secondJob.activeRevisionId, sourceAssemblyGroupId: secondOpportunity.sourceAssemblyGroupIds[0], answers }) });
+      expect(secondResponse.status, await secondResponse.text()).toBe(202);
+      const secondMatched = await json<any>(await fetch(`${baseUrl}/api/jobs/${secondJob.jobId}`));
+      expect(secondMatched.componentEvaluations[0]).toMatchObject({ match: { outcome: "matched", patternId: "generated-c-profile" }, results: [{ outcome: "preliminary-unsafe" }] });
+      expect(secondMatched.componentEvaluations[0].recipes[0].recipeId).not.toBe(matched.componentEvaluations[0].recipes[0].recipeId);
+      expect(secondMatched.componentEvaluations[0].recipes[0].canonicalRecipe.layers).not.toEqual(matched.componentEvaluations[0].recipes[0].canonicalRecipe.layers);
       const beforeRestart = JSON.stringify(matched.componentEvaluations);
 
       await close(app);
