@@ -3,7 +3,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { conformsToJsonSchema, type AgentAttemptEvidence, type AgentExecutionRequest, type AgentExecutionResult, type AgentProvider } from "../../domain/agent/agentProvider.js";
+import { type AgentAttemptEvidence, type AgentExecutionRequest, type AgentExecutionResult, type AgentProvider } from "../../domain/agent/agentProvider.js";
+import { validateAgentStructuredOutput } from "./validateAgentStructuredOutput.js";
 
 export type CodexCliAgentProviderOptions = Readonly<{ executable?: string; model?: string }>;
 
@@ -38,7 +39,7 @@ export class CodexCliAgentProvider implements AgentProvider {
       const content = await readFile(outputPath, "utf8").catch(() => "");
       let output: unknown;
       try { output = JSON.parse(content); } catch { return { kind: "schema_invalid", reason: "Codex final message was not JSON.", attemptEvidence: { ...evidence, outcome: "schema_invalid" } }; }
-      if (!conformsToJsonSchema(output, request.outputSchema)) return { kind: "schema_invalid", reason: "Codex output does not conform to the requested JSON Schema.", attemptEvidence: { ...evidence, outcome: "schema_invalid" } };
+      if (!validateAgentStructuredOutput(output, request.outputSchema)) return { kind: "schema_invalid", reason: "Codex output does not conform to the requested JSON Schema.", attemptEvidence: { ...evidence, outcome: "schema_invalid" } };
       return { kind: "completed", output, attemptEvidence: { ...evidence, outcome: "completed" } };
     } catch (error) {
       const kind = request.signal?.aborted ? "cancelled" : "retryable_infrastructure_failure";

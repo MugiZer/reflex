@@ -43,6 +43,7 @@
   },
   "homepage": "https://github.com/MugiZer/conformity_ubakusclone#readme",
   "dependencies": {
+    "ajv": "^8.20.0",
     "web-ifc": "^0.0.77"
   },
   "devDependencies": {

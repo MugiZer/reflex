@@ -43,28 +43,28 @@ export type AgentExecutionResult =
 
 export type AgentProvider = Readonly<{ execute(request: AgentExecutionRequest): Promise<AgentExecutionResult> }>;
 
+/** Immutable, sanitized evidence for an agent execution. Provider payloads and prompts never cross this boundary. */
+export type AgentAttempt = Readonly<{
+  schema: "agent-attempt/v1";
+  attemptId: string;
+  role: AgentRole;
+  promptVersion: string;
+  canonicalEvidenceReferences: readonly string[];
+  outputSchemaSha256: string;
+  result: AgentAttemptEvidence;
+}>;
+
+export type AgentAttemptRepository = Readonly<{
+  append(attempt: AgentAttempt): Promise<void>;
+  listByCorrelationId(correlationId: string): Promise<readonly AgentAttempt[]>;
+}>;
+
 export type AgentProviderConfiguration = Readonly<{
   environment: "development" | "test" | "production";
   provider: "codex" | "openrouter";
   codex?: Readonly<{ model: string }>;
   openRouter?: Readonly<{ apiKey: string; model: string; structuredOutputModels: readonly string[] }>;
 }>;
-
-/** Validates the intentionally small JSON Schema subset required for agent final output. */
-export function conformsToJsonSchema(value: unknown, schema: JsonSchema): boolean {
-  if (schema.type === "object") {
-    if (!isRecord(value)) return false;
-    const required = Array.isArray(schema.required) ? schema.required.filter((item): item is string => typeof item === "string") : [];
-    if (required.some((key) => !(key in value))) return false;
-    const properties = isRecord(schema.properties) ? schema.properties : {};
-    if (schema.additionalProperties === false && Object.keys(value).some((key) => !(key in properties))) return false;
-    return Object.entries(properties).every(([key, property]) => !(key in value) || (isRecord(property) && conformsToJsonSchema(value[key], property)));
-  }
-  if (schema.type === "string") return typeof value === "string" && (!Array.isArray(schema.enum) || schema.enum.includes(value));
-  if (schema.type === "number") return typeof value === "number" && Number.isFinite(value);
-  if (schema.type === "boolean") return typeof value === "boolean";
-  return false;
-}
 
 /** Validates the fail-closed provider route; infrastructure composes the concrete adapter. */
 export function createConfiguredAgentProvider(config: AgentProviderConfiguration): AgentProviderConfiguration {
@@ -79,5 +79,3 @@ export function createConfiguredAgentProvider(config: AgentProviderConfiguration
   if (!config.codex?.model.trim()) throw new Error("Codex model configuration is required.");
   return config;
 }
-
-function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

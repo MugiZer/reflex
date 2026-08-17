@@ -1,4 +1,5 @@
-import { conformsToJsonSchema, type AgentAttemptEvidence, type AgentExecutionRequest, type AgentExecutionResult, type AgentProvider } from "../../domain/agent/agentProvider.js";
+import { type AgentAttemptEvidence, type AgentExecutionRequest, type AgentExecutionResult, type AgentProvider } from "../../domain/agent/agentProvider.js";
+import { validateAgentStructuredOutput } from "./validateAgentStructuredOutput.js";
 
 export type OpenRouterAgentProviderOptions = Readonly<{
   apiKey: string;
@@ -43,10 +44,11 @@ export class OpenRouterAgentProvider implements AgentProvider {
       if (!response.ok) return { kind: "terminal_provider_failure", reason: `OpenRouter returned HTTP ${response.status}.`, attemptEvidence: evidence("terminal_provider_failure") };
       const body: unknown = await response.json().catch(() => null);
       const content = messageContent(body);
+      if (refusal(body)) return { kind: "refused", reason: refusal(body)!, attemptEvidence: evidence("refused") };
       if (content === null) return { kind: "schema_invalid", reason: "OpenRouter response did not contain a structured message.", attemptEvidence: evidence("schema_invalid") };
       let output: unknown;
       try { output = JSON.parse(content); } catch { return { kind: "schema_invalid", reason: "OpenRouter structured message was not JSON.", attemptEvidence: evidence("schema_invalid") }; }
-      if (!conformsToJsonSchema(output, request.outputSchema)) return { kind: "schema_invalid", reason: "OpenRouter output does not conform to the requested JSON Schema.", attemptEvidence: evidence("schema_invalid") };
+      if (!validateAgentStructuredOutput(output, request.outputSchema)) return { kind: "schema_invalid", reason: "OpenRouter output does not conform to the requested JSON Schema.", attemptEvidence: evidence("schema_invalid") };
       return { kind: "completed", output, attemptEvidence: evidence("completed", { safeUsage: safeUsage(body) }) };
     } catch (error) {
       if (request.signal?.aborted) return { kind: "cancelled", attemptEvidence: evidence("cancelled") };
@@ -57,6 +59,7 @@ export class OpenRouterAgentProvider implements AgentProvider {
 }
 
 function messageContent(value: unknown): string | null { if (!isRecord(value) || !Array.isArray(value.choices) || !isRecord(value.choices[0]) || !isRecord(value.choices[0].message)) return null; const content = value.choices[0].message.content; return typeof content === "string" ? content : null; }
+function refusal(value: unknown): string | null { if (!isRecord(value) || !Array.isArray(value.choices) || !isRecord(value.choices[0]) || !isRecord(value.choices[0].message)) return null; const reason = value.choices[0].message.refusal; return typeof reason === "string" && reason ? reason : null; }
 function safeUsage(value: unknown): AgentAttemptEvidence["safeUsage"] { if (!isRecord(value) || !isRecord(value.usage)) return null; const inputTokens = value.usage.prompt_tokens; const outputTokens = value.usage.completion_tokens; return typeof inputTokens === "number" || typeof outputTokens === "number" ? { ...(typeof inputTokens === "number" ? { inputTokens } : {}), ...(typeof outputTokens === "number" ? { outputTokens } : {}) } : null; }
 function retryAfter(value: string | null): number | null { if (!value) return null; const seconds = Number(value); return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1_000 : null; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

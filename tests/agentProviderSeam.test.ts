@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createServer } from "node:http";
 
 import {
   createConfiguredAgentProvider,
@@ -56,12 +57,34 @@ describe("agent provider seam", () => {
     await expect(provider.execute({ ...request, model: "another-model" })).resolves.toMatchObject({ kind: "authentication_or_configuration_failure" });
   });
 
+  it("proves the OpenRouter protocol against a controlled HTTP server", async () => {
+    let authorization = "", received: any;
+    const server = createServer((incoming, response) => {
+      authorization = incoming.headers.authorization ?? "";
+      let raw = "";
+      incoming.on("data", (chunk) => { raw += chunk; });
+      incoming.on("end", () => { received = JSON.parse(raw); response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ choices: [{ message: { content: "{\"decision\":\"accept\"}" } }] })); });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    const endpoint = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}/chat/completions`;
+    try {
+      const provider = new OpenRouterAgentProvider({ apiKey: "server-secret", model: "openai/gpt-5", structuredOutputModels: ["openai/gpt-5"], endpoint });
+      await expect(provider.execute(request)).resolves.toMatchObject({ kind: "completed", output: { decision: "accept" } });
+      expect(authorization).toBe("Bearer server-secret");
+      expect(received).toMatchObject({ model: "openai/gpt-5", response_format: { type: "json_schema", json_schema: { strict: true, schema: outputSchema } } });
+    } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
+  });
+
   it("classifies rate limits, malformed output, and cancellation without a provider-specific result shape", async () => {
     const rateLimited = new OpenRouterAgentProvider({ apiKey: "secret", model: "openai/gpt-5", structuredOutputModels: ["openai/gpt-5"], fetch: async () => new Response("slow down", { status: 429 }) });
     await expect(rateLimited.execute(request)).resolves.toMatchObject({ kind: "rate_limited" });
 
     const malformed = new OpenRouterAgentProvider({ apiKey: "secret", model: "openai/gpt-5", structuredOutputModels: ["openai/gpt-5"], fetch: async () => new Response(JSON.stringify({ choices: [{ message: { content: "not-json" } }] }), { status: 200 }) });
     await expect(malformed.execute(request)).resolves.toMatchObject({ kind: "schema_invalid" });
+
+    const refused = new OpenRouterAgentProvider({ apiKey: "secret", model: "openai/gpt-5", structuredOutputModels: ["openai/gpt-5"], fetch: async () => new Response(JSON.stringify({ choices: [{ message: { refusal: "policy" } }] }), { status: 200 }) });
+    await expect(refused.execute(request)).resolves.toMatchObject({ kind: "refused" });
 
     const controller = new AbortController();
     controller.abort();
