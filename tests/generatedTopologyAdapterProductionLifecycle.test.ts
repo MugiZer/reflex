@@ -13,6 +13,38 @@ const fixturePath = resolve("tests/fixtures/ifc/repeating-c-profile.ifc");
 const pythonExecutable = resolve(process.env.TOPOLOGY_WORKER_PYTHON ?? ".scratch/component-topology-kernel/conformance-proof/.venv/Scripts/python.exe");
 
 describe("generated topology adapter production lifecycle", () => {
+  it("keeps the baseline workspace and report unchanged when a generated-family value is outside its envelope", async () => {
+    const root = await mkdtemp(join(tmpdir(), "generated-topology-outside-envelope-"));
+    const adapter = await cAdapter();
+    const config = {
+      databasePath: join(root, "data", "app.db"), storageRoot: join(root, "storage"), outputRoot: join(root, "outputs"), generatedTopologyAdapterManifestRoot: join(root, "adapter-manifests"),
+      generatedTopologyAdapterQualification: async () => qualifiedReceipt(adapter), topologyWorker: createProvenPythonTopologyWorker({ pythonExecutable }),
+    };
+    const app = createLocalhostApp(config);
+    try {
+      await app.qualifyGeneratedTopologyAdapter(adapter, "outside-envelope-proof", new Date("2026-08-16T00:00:00.000Z"));
+      const baseUrl = await listen(app);
+      const form = new FormData(); form.set("ifc", new Blob([await readFile(fixturePath)]), "repeating-c-profile.ifc");
+      const created = await json<any>(await fetch(`${baseUrl}/api/jobs`, { method: "POST", body: form }));
+      let job = await waitForJob(baseUrl, created.jobId);
+      if (!job.activeRevisionId) {
+        const inputs = job.review.requestedInputs.map((input: any) => ({ requestedInputId: input.requestedInputId, value: input.datapoint === "layer_thickness" ? 0.15 : input.inputType === "number" ? 0.12 : "confirmed", unit: input.unit, overrideScope: "assembly_group" }));
+        expect((await fetch(`${baseUrl}/api/jobs/${job.jobId}/review-inputs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ inputs }) })).ok).toBe(true);
+        job = await waitForActiveRevision(baseUrl, job.jobId);
+      }
+      const beforeAssemblies = JSON.stringify(job.architectActions.assemblies);
+      const beforeReport = await (await fetch(`${baseUrl}/api/jobs/${job.jobId}/report`)).text();
+      const opportunity = job.topologyOpportunities[0]!;
+      const answers = { memberKind: "c", memberMaterial: "galvanized steel", memberWidthM: 0.2, repeatSpacingM: 0.6, continuousThroughLayers: true, exteriorBoundary: "external-wall", interiorBoundary: "internal" };
+      expect((await fetch(`${baseUrl}/api/jobs/${job.jobId}/topology-reviews`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ opportunityId: opportunity.opportunityId, thermalConstructionSignature: opportunity.thermalConstructionSignature, sourceRevisionId: job.activeRevisionId, sourceAssemblyGroupId: opportunity.sourceAssemblyGroupIds[0], answers }) })).status).toBe(202);
+      const after = await json<any>(await fetch(`${baseUrl}/api/jobs/${job.jobId}`));
+      expect(after.componentEvaluations).toMatchObject([{ match: { outcome: "rejected" }, recipes: [], requests: [], results: [] }]);
+      expect(JSON.stringify(after.architectActions.assemblies)).toBe(beforeAssemblies);
+      expect(after.activeRevisionId).toBe(job.activeRevisionId);
+      await expect((await fetch(`${baseUrl}/api/jobs/${job.jobId}/report`)).text()).resolves.toBe(beforeReport);
+    } finally { await close(app); await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); }
+  }, 30_000);
+
   it("uses a persisted adapter for localhost matching immediately and after restart", async () => {
     const root = await mkdtemp(join(tmpdir(), "generated-topology-production-"));
     const manifestRoot = join(root, "adapter-manifests");
