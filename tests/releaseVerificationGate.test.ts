@@ -59,6 +59,15 @@ describe("release verification gate", () => {
     expect(overBudgetAssessment.reasons.join(" ")).toContain("budget");
   });
 
+  it("requires an explicit successful OpenRouter canary when production release declares it", () => {
+    const notProven = assessReleaseVerification(expectedProfiles.map(passing), TEST_INVENTORY, undefined, { required: true, decision: "NOT-PROVEN", reason: "credentials were not supplied" });
+    expect(notProven.decision).toBe("NOT-PROVEN");
+    expect(notProven.reasons.join(" ")).toContain("OpenRouter canary");
+
+    const failed = assessReleaseVerification(expectedProfiles.map(passing), TEST_INVENTORY, undefined, { required: true, decision: "NO-GO", reason: "provider returned rate_limited" });
+    expect(failed.decision).toBe("NO-GO");
+  });
+
   it("rejects stale or incomplete GO evidence", () => {
     const assessment = assessReleaseVerification(expectedProfiles.map(passing), TEST_INVENTORY);
     const evidence = {
@@ -74,6 +83,7 @@ describe("release verification gate", () => {
     expect(validateReleaseEvidence({ ...evidence, profiles: [passing("fast"), passing("fast"), passing("numerical")] }, { revision: "revision", committedTree: "tree", workingTreeSha256: "worktree" }).valid).toBe(false);
     expect(validateReleaseEvidence({ ...evidence, profiles: evidence.profiles.map((profile) => ({ ...profile, cleanup: { attempted: true, completed: false, diagnostic: "still running" } })) }, { revision: "revision", committedTree: "tree", workingTreeSha256: "worktree" }).valid).toBe(false);
     expect(validateReleaseEvidence({ ...evidence, profiles: evidence.profiles.map((profile) => profile.profile === "numerical" ? { ...profile, fixtureIdentities: [] } : profile) }, { revision: "revision", committedTree: "tree", workingTreeSha256: "worktree" }).valid).toBe(false);
+    expect(validateReleaseEvidence({ ...evidence, providerCanary: { required: true, decision: "NOT-PROVEN", reason: "not run" }, assessment: { ...assessment, decision: "GO" } }, { revision: "revision", committedTree: "tree", workingTreeSha256: "worktree" }).valid).toBe(false);
   });
 
   it("publishes a non-GO artifact for a controlled skipped-worker mutation", async () => {
@@ -94,6 +104,20 @@ describe("release verification gate", () => {
       expect(evidence.profileInventory).toHaveLength(TEST_INVENTORY.length);
       expect(evidence.profiles.map((profile: { profile: string }) => profile.profile)).toEqual(["fast", "integration", "numerical"]);
       expect(validateReleaseEvidence({ ...evidence, tested: { ...evidence.tested, workingTreeSha256: "corrupted" } }, evidence.tested).valid).toBe(false);
+    } finally {
+      await rm(evidenceDirectory, { recursive: true, force: true });
+    }
+  }, 20_000);
+
+  it("persists NOT-PROVEN when a release requires the OpenRouter canary without credentials", async () => {
+    const evidenceDirectory = await mkdtemp(join(tmpdir(), "release-openrouter-canary-"));
+    try {
+      const cli = spawnSync(process.execPath, [resolve("node_modules/tsx/dist/cli.mjs"), "scripts/verify-release.ts", "--known-bad=skip-worker", "--require-openrouter-canary", `--evidence=${evidenceDirectory}`], { cwd: resolve("."), encoding: "utf8", shell: false, timeout: 15_000, env: { ...process.env, OPENROUTER_API_KEY: "", OPENROUTER_MODEL: "", OPENROUTER_STRUCTURED_OUTPUT_MODELS: "" } });
+      expect(cli.status).toBe(1);
+      expect(`${cli.stdout}\n${cli.stderr}`).toContain("OPENROUTER_CANARY decision=NOT-PROVEN");
+      const artifact = (await readdir(evidenceDirectory)).find((file) => file.endsWith(".json"));
+      const evidence = JSON.parse(await readFile(join(evidenceDirectory, artifact!), "utf8"));
+      expect(evidence.providerCanary).toMatchObject({ required: true, decision: "NOT-PROVEN" });
     } finally {
       await rm(evidenceDirectory, { recursive: true, force: true });
     }

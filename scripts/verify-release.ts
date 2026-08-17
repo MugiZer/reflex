@@ -13,10 +13,12 @@ import {
   type ReleaseProfileResult,
 } from "../src/verifier/releaseVerificationGate.js";
 import { TEST_INVENTORY, VERIFICATION_PROFILES, selectVerificationProfile, validateProfileInventory } from "../src/verifier/verificationProfiles.js";
+import { runOpenRouterProviderCanary } from "../src/verifier/openRouterProviderCanary.js";
 
 const root = process.cwd();
 const evidenceDirectory = resolve(argumentValue("--evidence") ?? ".scratch/production-readiness-checkup/evidence");
 const knownBad = argumentValue("--known-bad");
+const requireOpenRouterCanary = process.argv.includes("--require-openrouter-canary");
 const profiles: readonly ReleaseProfileId[] = ["fast", "integration", "numerical"];
 
 let profileResults: ReleaseProfileResult[];
@@ -35,7 +37,8 @@ try {
 }
 
 const tested = { revision: git(["rev-parse", "HEAD"]), committedTree: git(["rev-parse", "HEAD^{tree}"]), workingTreeSha256: await worktreeSha() };
-const assessment = assessReleaseVerification(profileResults, TEST_INVENTORY, Object.fromEntries(profiles.map((profile) => [profile, VERIFICATION_PROFILES[profile].budgetMs])) as Record<ReleaseProfileId, number>);
+const providerCanary = requireOpenRouterCanary ? await requiredOpenRouterCanary() : null;
+const assessment = assessReleaseVerification(profileResults, TEST_INVENTORY, Object.fromEntries(profiles.map((profile) => [profile, VERIFICATION_PROFILES[profile].budgetMs])) as Record<ReleaseProfileId, number>, providerCanary);
 const evidence = {
   schema: RELEASE_VERIFICATION_SCHEMA,
   tested,
@@ -43,6 +46,7 @@ const evidence = {
   exactCommands: profileResults.map((result) => result.command),
   profileInventory: TEST_INVENTORY,
   profiles: profileResults,
+  providerCanary,
   assessment,
   completedAt: new Date().toISOString(),
 };
@@ -54,6 +58,7 @@ if (!evidenceValidation.valid) {
   process.exitCode = 1;
 }
 console.log(`RELEASE decision=${assessment.decision} selected=${assessment.counts.selected} passed=${assessment.counts.passed} failed=${assessment.counts.failed} unexecuted=${assessment.counts.unexecuted}`);
+if (providerCanary) console.log(`OPENROUTER_CANARY decision=${providerCanary.decision}`);
 console.log(`EVIDENCE ${evidencePath}`);
 if (assessment.decision !== "GO" || !evidenceValidation.valid) process.exitCode = 1;
 
@@ -160,6 +165,12 @@ async function writeEvidence(directory: string, value: unknown): Promise<string>
 function parseReport(output: string): any { try { return JSON.parse(output.slice(output.indexOf("{"))); } catch { return null; } }
 function normalizePath(value: string): string { return value.replaceAll("\\", "/").replace(`${root.replaceAll("\\", "/")}/`, ""); }
 function argumentValue(name: string): string | undefined { return process.argv.find((argument) => argument.startsWith(`${name}=`))?.slice(name.length + 1); }
+async function requiredOpenRouterCanary() {
+  const model = process.env.OPENROUTER_MODEL;
+  const structuredOutputModels = (process.env.OPENROUTER_STRUCTURED_OUTPUT_MODELS ?? "").split(",").map((value) => value.trim()).filter(Boolean);
+  const result = await runOpenRouterProviderCanary({ apiKey: process.env.OPENROUTER_API_KEY, model, structuredOutputModels });
+  return { required: true as const, decision: result.decision, reason: result.reason };
+}
 function git(arguments_: string[]): string { return (execFileSync("git", arguments_, { cwd: root, encoding: "utf8" }) ?? "").trim(); }
 function sha(value: string | Buffer): string { return createHash("sha256").update(value).digest("hex"); }
 async function worktreeSha(): Promise<string> {
