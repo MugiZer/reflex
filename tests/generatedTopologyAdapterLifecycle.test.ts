@@ -37,6 +37,7 @@ describe("generated topology adapter lifecycle", () => {
       expect(incompatible.diagnostics.map((item) => item.outcome)).toEqual(["incompatibility"]);
 
       await manifests.disable(receipt.adapterHash, "operator-disabled");
+      expect(await activateQualifiedGeneratedTopologyAdapter({ adapter, qualificationReceipt: receipt, manifests, registry })).toBe("disabled");
       const disabled = await rehydrateGeneratedTopologyAdapterRegistry({ manifests, registry: new GeneratedTopologyAdapterRegistry(), bundle: PROVEN_TOPOLOGY_BUNDLE });
       expect(disabled.diagnostics.map((item) => item.outcome)).toEqual(["disabled"]);
 

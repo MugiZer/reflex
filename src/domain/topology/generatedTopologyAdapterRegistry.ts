@@ -9,7 +9,7 @@ export class GeneratedTopologyAdapterRegistry {
   get(adapterHash: string): GeneratedTopologyAdapter | null { return this.adapters.get(adapterHash) ?? null; }
   componentPatterns(): readonly ComponentPattern[] {
     return Object.freeze([...this.adapters.entries()].flatMap(([adapterHash, adapter]) => {
-      const permittedUnknowns = adapter.parameterBindings.map((binding) => ({
+      const permittedUnknowns = adapter.parameterBindings.filter((binding) => adapter.permittedUnknowns.includes(binding.key)).map((binding) => ({
         key: binding.key,
         values: [...new Set([adapter.qualificationCases.reference.parameters[binding.key], adapter.qualificationCases.sensitivity.parameters[binding.key]].filter((value): value is number => typeof value === "number" && Number.isFinite(value)))],
         label: binding.key,

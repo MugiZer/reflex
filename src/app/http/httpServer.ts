@@ -15,14 +15,14 @@ import type { ProcessIfcJobDeps } from "../../application/jobs/processIfcJob.js"
 import { submitJobReviewInputs } from "../../application/jobs/submitJobReviewInputs.js";
 import { submitJobTopologyReview } from "../../application/topology/submitJobTopologyReview.js";
 import { createTopologyAnalysisRequestService } from "../../application/topology/createTopologyAnalysisRequestService.js";
-import { qualifyGeneratedTopologyAdapter } from "../../application/topology/qualifyGeneratedTopologyAdapter.js";
+import { qualifyGeneratedTopologyAdapter, type GeneratedTopologyAdapterQualificationCommand } from "../../application/topology/qualifyGeneratedTopologyAdapter.js";
+import { qualifyAndActivateGeneratedTopologyAdapter } from "../../application/topology/generatedTopologyAdapterLifecycle.js";
 import { createGeneratedTopologyAdapterRuntime } from "../../infrastructure/topology/createGeneratedTopologyAdapterRuntime.js";
 import { refreshJobTopologyReport } from "../../application/topology/refreshJobTopologyReport.js";
 import { generateHtmlReport } from "../../application/reports/generateHtmlReport.js";
 import type { TopologyWorkerRuntime } from "../../domain/topology/topologyTypes.js";
 import type { TopologyPilotPolicy } from "../../domain/topology/topologyPilotPolicy.js";
 import type { ComponentPattern } from "../../domain/topology/componentPatternInterpreter.js";
-import type { GeneratedTopologyAdapter } from "../../domain/topology/generatedTopologyAdapter.js";
 import { ReplayComponentEvaluationError, replayJobComponentEvaluation } from "../../application/topology/replayJobComponentEvaluation.js";
 import { PROVEN_TOPOLOGY_BUNDLE, createProvenPythonTopologyWorker } from "../../infrastructure/topology/createProvenPythonTopologyWorker.js";
 import { cleanupLocalTopologyArtifacts, LocalTopologyArtifactStore } from "../../infrastructure/topology/localTopologyArtifactStore.js";
@@ -68,6 +68,7 @@ export function createLocalhostApp(command: {
   topologyPilotPolicy?: TopologyPilotPolicy;
   maxUploadBytes?: number;
   generatedTopologyAdapterManifestRoot?: string;
+  generatedTopologyAdapterQualification?: (input: GeneratedTopologyAdapterQualificationCommand) => ReturnType<typeof qualifyGeneratedTopologyAdapter>;
   thermalTreatmentRegistry?: ThermalTreatmentFamilyRegistry;
 }): LocalhostApp {
   const jobs = new SqliteJobRepository(command.databasePath);
@@ -89,6 +90,7 @@ export function createLocalhostApp(command: {
   const thermalTreatmentRegistry = command.thermalTreatmentRegistry ?? continuousZGirtFamilyRegistry;
   const topologyWorker = command.topologyWorker ?? configuredTopologyWorker();
   const generatedTopologyRuntime = createGeneratedTopologyAdapterRuntime(command.generatedTopologyAdapterManifestRoot ?? join(command.outputRoot, "generated-topology-adapters"));
+  const qualifyAdapter = command.generatedTopologyAdapterQualification ?? qualifyGeneratedTopologyAdapter;
   const startupCleanup = Promise.all([
     cleanupLocalTopologyArtifacts(command.outputRoot),
     recoverPaidPilotJobs({ jobs, validator: completedJobPublication }),
@@ -237,12 +239,11 @@ export function createLocalhostApp(command: {
     server,
     jobs,
     qualifyGeneratedTopologyAdapter: async (adapter, testedRevision, now) => {
-      const receipt = await qualifyGeneratedTopologyAdapter({ adapter, outputRoot: command.outputRoot, pythonExecutable: topologyWorker.runtimeIdentity.executable, testedRevision, now });
-      if (receipt.decision === "GO") {
-        const outcome = await (await generatedTopologyRuntime).activate(adapter as GeneratedTopologyAdapter, receipt);
-        if (outcome !== "activated" && outcome !== "duplicate") throw new Error(`Generated topology adapter activation failed: ${outcome}.`);
-      }
-      return receipt;
+      return qualifyAndActivateGeneratedTopologyAdapter({
+        qualification: qualifyAdapter,
+        qualificationCommand: { adapter, outputRoot: command.outputRoot, pythonExecutable: topologyWorker.runtimeIdentity.executable, testedRevision, now },
+        activate: async (qualifiedAdapter, receipt) => (await generatedTopologyRuntime).activate(qualifiedAdapter, receipt),
+      });
     },
     close: () => { try { componentEvaluations.close(); } finally { jobs.close(); } },
   };

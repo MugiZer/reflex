@@ -72,19 +72,32 @@ function createManifest(adapter: GeneratedTopologyAdapter, receipt: GeneratedTop
   return Object.freeze({ ...immutable, contentHash: sha256(canonicalTopologyJson(immutable as never)) });
 }
 function validateManifest(value: unknown): GeneratedTopologyAdapterManifest {
-  if (!isRecord(value) || value.schema !== "generated-topology-adapter-manifest/v1" || typeof value.adapterHash !== "string" || !isRecord(value.adapter) || !isRecord(value.qualificationReceipt) || !validReceipt(value.qualificationReceipt) || !isRecord(value.sourceDataset) || !isRecord(value.dependencyIdentities) || typeof value.contentHash !== "string") throw new Error("Invalid adapter manifest.");
+  if (!isRecord(value) || value.schema !== "generated-topology-adapter-manifest/v1" || typeof value.adapterHash !== "string" || !isRecord(value.adapter) || !isRecord(value.qualificationReceipt) || !validReceiptShape(value.qualificationReceipt) || !isRecord(value.sourceDataset) || !isRecord(value.dependencyIdentities) || typeof value.contentHash !== "string") throw new Error("Invalid adapter manifest.");
   const manifest = value as GeneratedTopologyAdapterManifest;
   assertGeneratedTopologyAdapter(manifest.adapter);
+  if (!validReceiptForAdapter(manifest.qualificationReceipt, manifest.adapter)) throw new Error("Adapter qualification receipt is incomplete or inconsistent with the adapter.");
   const immutable = { schema: manifest.schema, adapterHash: manifest.adapterHash, adapter: manifest.adapter, qualificationReceipt: manifest.qualificationReceipt, sourceDataset: manifest.sourceDataset, dependencyIdentities: manifest.dependencyIdentities };
   if (manifest.adapterHash !== generatedTopologyAdapterHash(manifest.adapter) || canonicalTopologyJson(manifest.sourceDataset as never) !== canonicalTopologyJson(manifest.adapter.provenance as never) || canonicalTopologyJson(manifest.dependencyIdentities as never) !== canonicalTopologyJson(manifest.adapter.dependencies as never) || manifest.contentHash !== sha256(canonicalTopologyJson(immutable as never))) throw new Error("Adapter manifest integrity check failed.");
   return Object.freeze(manifest);
 }
-function validReceipt(value: Record<string, unknown>): boolean {
-  if (value.schema !== "generated-topology-adapter-qualification-receipt/v1" || (value.decision !== "GO" && value.decision !== "NO-GO") || typeof value.adapterHash !== "string" || !Array.isArray(value.gates)) return false;
+function validReceiptShape(value: Record<string, unknown>): boolean {
+  if (value.schema !== "generated-topology-adapter-qualification-receipt/v1" || value.decision !== "GO" || typeof value.adapterHash !== "string" || typeof value.compilerVersion !== "string" || typeof value.primitiveRegistryHash !== "string" || typeof value.materialPackHash !== "string" || typeof value.boundaryVersion !== "string" || !isRecord(value.worker) || typeof value.worker.executable !== "string" || typeof value.worker.runtimeHash !== "string" || typeof value.qualifiedAt !== "string" || !Array.isArray(value.gates)) return false;
   const required = ["P3-contract-geometry", "P6-worker", "P3-independent-reference", "P6-envelope-sensitivity"];
   const gateIds = value.gates.map((gate) => isRecord(gate) ? gate.gateId : undefined);
-  return value.gates.length === required.length && required.every((gateId) => gateIds.includes(gateId)) && new Set(gateIds).size === required.length && value.gates.every((gate) => isRecord(gate) && Array.isArray(gate.selectedCases) && Array.isArray(gate.passedCases) && Array.isArray(gate.failedCases) && Array.isArray(gate.unexecutedCases) && typeof gate.adapterHash === "string" && isRecord(gate.dependencyIdentities));
+  return value.gates.length === required.length && required.every((gateId) => gateIds.includes(gateId)) && new Set(gateIds).size === required.length && value.gates.every((gate) => isRecord(gate) && Array.isArray(gate.selectedCases) && gate.selectedCases.length > 0 && Array.isArray(gate.passedCases) && gate.passedCases.length > 0 && Array.isArray(gate.failedCases) && gate.failedCases.length === 0 && Array.isArray(gate.unexecutedCases) && gate.unexecutedCases.length === 0 && typeof gate.adapterHash === "string" && isRecord(gate.dependencyIdentities) && typeof gate.fixtureIdentity === "string" && typeof gate.command === "string" && gate.command.trim() !== "" && typeof gate.testedRevision === "string" && gate.testedRevision.trim() !== "" && typeof gate.durationMs === "number" && Number.isFinite(gate.durationMs) && gate.durationMs >= 0 && (gate.oracleIdentity === null || typeof gate.oracleIdentity === "string"));
 }
+function validReceiptForAdapter(value: Record<string, unknown>, adapter: GeneratedTopologyAdapter): value is GeneratedTopologyQualificationReceipt {
+  const dependencies = adapter.dependencies;
+  if (!validReceiptShape(value)) return false;
+  const worker = value.worker as Record<string, unknown>;
+  const gates = value.gates as readonly unknown[];
+  if (value.adapterHash !== generatedTopologyAdapterHash(adapter) || value.compilerVersion !== dependencies.compilerVersion || value.primitiveRegistryHash !== dependencies.primitiveRegistryHash || value.materialPackHash !== dependencies.materialPackHash || value.boundaryVersion !== dependencies.boundaryVersion || worker.runtimeHash !== dependencies.runtimeHash) return false;
+  return gates.every((rawGate: unknown) => {
+    if (!isRecord(rawGate)) return false;
+    return rawGate.adapterHash === value.adapterHash && canonicalTopologyJson(rawGate.dependencyIdentities as never) === canonicalTopologyJson(dependencies as never) && arraySubset(rawGate.passedCases, rawGate.selectedCases);
+  });
+}
+function arraySubset(values: unknown, selected: unknown): boolean { return Array.isArray(values) && Array.isArray(selected) && values.every((value) => selected.includes(value)); }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function sha256(value: string): string { return createHash("sha256").update(value, "utf8").digest("hex"); }
 function isAlreadyExists(error: unknown): boolean { return isNodeError(error) && error.code === "EEXIST"; }
