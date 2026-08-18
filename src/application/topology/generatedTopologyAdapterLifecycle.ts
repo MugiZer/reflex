@@ -12,7 +12,7 @@ export async function activateQualifiedGeneratedTopologyAdapter(command: { adapt
   try {
     if (await command.manifests.isDisabled(command.qualificationReceipt.adapterHash)) return "disabled";
     const persisted = await command.manifests.persist(command.adapter, command.qualificationReceipt);
-    const published = command.registry.add(command.qualificationReceipt.adapterHash, command.adapter);
+    const published = command.registry.add(command.qualificationReceipt.adapterHash, command.adapter, command.qualificationReceipt);
     return persisted === "duplicate" || published === "duplicate" ? "duplicate" : "activated";
   } catch (error) {
     if (error instanceof ImmutableAdapterIdentityConflict) return "identity-conflict";
@@ -36,7 +36,7 @@ export async function qualifyAndActivateGeneratedTopologyAdapter(command: {
 
 export async function rehydrateGeneratedTopologyAdapterRegistry(command: { manifests: GeneratedTopologyAdapterManifestStore; registry: GeneratedTopologyAdapterRegistry; bundle: TopologyBundleIdentity; onDiagnostic?: (diagnostic: DurableAdapterDiagnostic) => Promise<void> | void }): Promise<Readonly<{ outcome: "restart" | "persistence-failure"; loaded: number; diagnostics: readonly DurableAdapterDiagnostic[] }>> {
   const diagnostics: DurableAdapterDiagnostic[] = [];
-  const eligible: { adapterHash: string; adapter: GeneratedTopologyAdapter }[] = [];
+  const eligible: { adapterHash: string; adapter: GeneratedTopologyAdapter; qualificationReceipt: GeneratedTopologyQualificationReceipt }[] = [];
   const rejectedAdapterHashes: string[] = [];
   for (const entry of await command.manifests.scan()) {
     if (!entry.manifest) { diagnostics.push({ outcome: "corruption", path: entry.path, message: entry.error ?? "Unreadable adapter manifest." }); continue; }
@@ -44,7 +44,7 @@ export async function rehydrateGeneratedTopologyAdapterRegistry(command: { manif
     try { disabled = await command.manifests.isDisabled(entry.manifest.adapterHash); } catch (error) { diagnostics.push({ outcome: "corruption", path: entry.path, message: error instanceof Error ? error.message : "Cannot read adapter disable record." }); continue; }
     if (disabled) { rejectedAdapterHashes.push(entry.manifest.adapterHash); diagnostics.push({ outcome: "disabled", path: entry.path, message: "Adapter is disabled." }); continue; }
     if (!manifestEligible(entry.manifest, command.bundle)) { rejectedAdapterHashes.push(entry.manifest.adapterHash); diagnostics.push({ outcome: "incompatibility", path: entry.path, message: "Adapter receipt or dependencies are not eligible for this production bundle." }); continue; }
-    eligible.push({ adapterHash: entry.manifest.adapterHash, adapter: entry.manifest.adapter });
+    eligible.push({ adapterHash: entry.manifest.adapterHash, adapter: entry.manifest.adapter, qualificationReceipt: entry.manifest.qualificationReceipt });
   }
   for (const diagnostic of diagnostics) {
     try { await command.manifests.recordDiagnostic(diagnostic); }

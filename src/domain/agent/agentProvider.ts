@@ -52,6 +52,7 @@ export type AgentAttempt = Readonly<{
   canonicalEvidenceReferences: readonly string[];
   outputSchemaSha256: string;
   result: AgentAttemptEvidence;
+  fitDecision?: Readonly<{ canonicalSignature: string; candidateIdentities: readonly string[]; structuredOutcome: Readonly<{ kind: string; candidateIdentity: string | null; confidence: string | null; reasons: readonly string[] }>; gates: Readonly<{ contract: boolean; envelope: boolean; recipe: boolean; dependencies: boolean; qualification: boolean }>; finalDisposition: "authorized" | "generation" | "provider-failure"; skillVersion: string }>;
 }>;
 
 export type AgentAttemptRepository = Readonly<{
