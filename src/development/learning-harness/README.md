@@ -1,6 +1,6 @@
 # Learning harness module
 
-The learning harness is a deep module with four root entry points:
+The learning harness is a deep module with five root entry points:
 
 ```text
 learning-harness/
@@ -8,6 +8,7 @@ learning-harness/
 ├── teaching.ts         # teaching-frontier interface
 ├── taskContext.ts      # task-relative learning-context interface
 ├── session.ts          # structured prediction, observation, and evidence-candidate interface
+├── signals.ts          # quiet learning signals and normalized metrics
 └── lib/                # private implementation
 ```
 

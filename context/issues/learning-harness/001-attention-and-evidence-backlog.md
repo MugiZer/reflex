@@ -5,13 +5,13 @@ This backlog is derived from the bounded `HUMAN COGNITION, ATTENTION, AND LEARNI
 ## L-001 — Make capability evidence and status decisions trustworthy
 
 - **Priority:** highest
-- **Status:** planned
+- **Status:** complete (verified 2026-08-25)
 - **Problem:** the policy requires a completed concept-level assessment, but the current model accepts any non-empty evidence array for any requested promotion. Existing ledger entries include partial or explicitly incomplete demonstrations that are treated as durable evidence.
 - **Cognitive reason:** prior-knowledge classification can only conserve attention when graph confidence is honest.
 - **Desired behavior:** validate one completed assessment packet, derive the narrowest status from outcome, independence, timing, transfer, and prerequisites, preserve corrections append-only, and prevent thin observations from promoting concepts.
 - **Required data:** concept boundary, consolidated demonstration, assessment kind, outcome, independence, assistance level, session/date, rubric version, anchors, prerequisite state, and superseded-packet reference.
 - **Likely files:** `src/development/learning-harness/learningHarness.ts`, `scripts/learning-harness-demo.ts`, `tests/learningHarness.test.ts`, and `learning/evidence/evidence-ledger.jsonl`.
-- **Acceptance:** Drive claims remain exposure only; teaching packets remain non-evidence; same-session evidence cannot earn `understood`; every promotion cites a validated packet; partial assessments create no positive mastery claim; legacy observations are quarantined or explicitly migrated without deleting history.
+- **Acceptance:** **Verified:** Drive claims remain exposure only; teaching packets remain non-evidence; same-session evidence cannot earn `understood`; every promotion cites a validated packet; partial assessments create no positive mastery claim; legacy observations remain available as non-earning context; corrections are append-only; weak prerequisites cap promotion; and the advisory capability-evidence gate passes these cases without rewriting history.
 - **Risks:** excessive ceremony, unfair legacy migration, or demotion from one anomalous failure.
 
 ## L-002 — Build a pre-task learning-context packet
