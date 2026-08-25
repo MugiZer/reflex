@@ -7,6 +7,7 @@
     "ifc:inspect": "tsx scripts/ifc-inspect.ts",
     "demo:core": "tsx scripts/demo-core.ts",
     "learning:build": "tsx scripts/learning-harness-demo.ts",
+    "learning:observe": "tsx scripts/record-learning-command.ts",
     "serve:localhost": "tsx scripts/serve-localhost.ts",
     "pilot:workspace": "tsx scripts/paid-pilot-workspace.ts",
     "verify:milestone-4": "tsx scripts/verify-milestone-4.ts",

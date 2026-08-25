@@ -1,4 +1,6 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { join } from "node:path";
 import {
   buildLearningGraph,
@@ -13,9 +15,13 @@ import {
   type TeachingPacket,
   type TeachingSliceDefinition,
 } from "../src/development/learning-harness/teaching.js";
+import { buildTaskContext, type TaskContextTask } from "../src/development/learning-harness/taskContext.js";
+import { evaluateLearningSignals, type LearningSignalObservation } from "../src/development/learning-harness/signals.js";
+import type { LearningSession } from "../src/development/learning-harness/session.js";
 
 const root = process.cwd();
 const learningDir = join(root, "learning");
+const execFileAsync = promisify(execFile);
 
 const readJson = async <T>(path: string): Promise<T> => JSON.parse(await readFile(path, "utf8")) as T;
 const readOptionalJson = async <T>(path: string, fallback: T): Promise<T> => {
@@ -41,6 +47,53 @@ const readEvidenceLedger = async (
     throw error;
   }
 };
+
+type StoredSession = { taskId: string; conceptId: string; session: LearningSession };
+
+const changedFiles = async (): Promise<string[]> => {
+  try {
+    const { stdout } = await execFileAsync("git", ["diff", "--name-only", "HEAD"], { cwd: root });
+    return stdout.split(/\r?\n/).filter(Boolean);
+  } catch {
+    return [];
+  }
+};
+
+const readSessions = async (): Promise<StoredSession[]> => {
+  try {
+    const paths = await readdir(join(learningDir, "sessions"));
+    return await Promise.all(paths.filter((path) => path.endsWith(".json")).map((path) =>
+      readJson<StoredSession>(join(learningDir, "sessions", path))));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+};
+
+const signalObservations = (sessions: readonly StoredSession[]): LearningSignalObservation[] => sessions.flatMap(({ taskId, conceptId, session }) => {
+  const observation = session.observation;
+  if (!observation) return [];
+  const observations: LearningSignalObservation[] = [{
+    id: `${session.id}:prediction`,
+    kind: "prediction",
+    conceptId,
+    taskId,
+    observedAt: observation.observedAt,
+    tested: true,
+    correct: observation.matchesPrediction,
+    mismatch: observation.matchesPrediction ? undefined : "other",
+  }];
+  if (session.completedWork) observations.push({
+    id: `${session.id}:fix`,
+    kind: "fix",
+    conceptId,
+    taskId,
+    observedAt: session.completedWork.completedAt,
+    attempted: true,
+    independent: session.hintDepth === 0 && session.debuggingSteps.length === 0,
+  });
+  return observations;
+});
 
 const sliceDefinitions: TeachingSliceDefinition[] = [
   {
@@ -162,6 +215,19 @@ async function build(): Promise<void> {
   const existing = await readOptionalJson<LearningGraph | undefined>(join(learningDir, "knowledge-graph.json"), undefined);
   const graphify = await readJson<GraphifyGraph>(join(root, "graphify-out", "graph.json"));
   const graph = buildLearningGraph(sourceClaims, evidence, existing, conceptSeeds);
+  const task = await readOptionalJson<TaskContextTask | undefined>(join(learningDir, "current-task.json"), undefined);
+  const sessions = await readSessions();
+  const taskContext = task === undefined ? undefined : buildTaskContext({
+    task: { ...task, changedFiles: task.changedFiles?.length ? task.changedFiles : await changedFiles() },
+    graphify,
+    learningGraph: graph,
+  });
+  const signalEvaluation = taskContext === undefined ? undefined : evaluateLearningSignals({
+    graph,
+    scope: { taskId: taskContext.task.id, conceptIds: taskContext.concepts.map((concept) => concept.conceptId) },
+    observations: signalObservations(sessions),
+    asOf: new Date().toISOString(),
+  });
   const teachingPackets = buildTeachingFrontier(graphify, graph, sliceDefinitions);
   const codeLinks = teachingPackets.flatMap((packet) => packet.representation.graphNodes.map((node) => ({
     sliceId: packet.sliceId,
@@ -181,6 +247,8 @@ async function build(): Promise<void> {
     writeFile(join(learningDir, "teaching-packets.json"), `${JSON.stringify(teachingPackets, null, 2)}\n`),
     writeFile(join(learningDir, "code-links.json"), `${JSON.stringify(codeLinks, null, 2)}\n`),
     writeFile(join(learningDir, "sync", "drive-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`),
+    ...(taskContext === undefined ? [] : [writeFile(join(learningDir, "current-task-context.json"), `${JSON.stringify(taskContext, null, 2)}\n`)]),
+    ...(signalEvaluation === undefined ? [] : [writeFile(join(learningDir, "ambient-learning-signals.json"), `${JSON.stringify(signalEvaluation, null, 2)}\n`)]),
   ]);
   console.log(`Built learning harness: ${graph.concepts.length} concepts, ${teachingPackets.length} teaching packets.`);
 }

@@ -17,34 +17,34 @@ This backlog is derived from the bounded `HUMAN COGNITION, ATTENTION, AND LEARNI
 ## L-002 — Build a pre-task learning-context packet
 
 - **Priority:** high
-- **Status:** blocked by L-001
+- **Status:** complete (verified 2026-08-25)
 - **Problem:** teaching slices and anchors are hard-coded, and there is no task-relative known / fragile / new classification before work.
 - **Desired behavior:** given the current real project task, assemble the relevant code/concept neighborhood, classify concepts, identify blocking prerequisites, and select one attention target plus one prediction.
 - **Required data:** current task, changed or anchored files, concept links, validated status, recency, prerequisites, mismatch history, and transfer context.
 - **Likely files:** `src/development/learning-harness/learningHarness.ts`, `scripts/learning-harness-demo.ts`, and a focused task-context module with tests.
-- **Acceptance:** one bounded context packet per task; irrelevant concepts omitted; selected anchors clickable; missing prerequisites visible; packet is not capability evidence.
+- **Acceptance:** **Verified:** the regular local harness build reads the current task and Git diff, retrieves the bounded Graphify/capability neighborhood, writes one context packet, surfaces prerequisites and one attention target, and does not treat the packet as capability evidence.
 - **Risks:** noisy traversal, oversized context, stale anchors, or another dashboard.
 
 ## L-003 — Make prediction, mismatch, and debugging explicit
 
 - **Priority:** high
-- **Status:** planned
+- **Status:** complete (verified 2026-08-25)
 - **Problem:** prediction and diagnosis are tutor instructions, not structured session state.
 - **Desired behavior:** track one prediction, observed reality, mismatch category, hint depth, corrected causal model, verification result, and bounded entry/exit from deep debugging mode.
 - **Required data:** prediction, command/modification, observation source, expected/actual result, hypothesis, hint/explanation level, diagnosis, fix, and verification.
 - **Likely files:** `.agents/skills/next-lesson/SKILL.md`, a session-observation model beside the harness, and focused tests.
-- **Acceptance:** no prediction is credited without a reality check; mismatch can become correction evidence; debugging mode has explicit start/exit; deep explanations appear only when needed.
+- **Acceptance:** **Verified:** the local `learning:observe` command records one learner prediction around a real project command and its actual exit result; the session model requires the reality check before correction, evidence candidacy, or bounded debugging state can progress. Prediction correctness remains an explicit learner/reviewer judgment rather than a guessed automated claim.
 - **Risks:** friction on trivial work, forced predictions, or treating every mismatch as failure.
 
 ## L-004 — Add quiet ambient signals and normalized metrics
 
 - **Priority:** medium
-- **Status:** planned
+- **Status:** complete (verified 2026-08-25)
 - **Problem:** the frontier does not surface repeated mispredictions, weak prerequisites, stale confidence, transfer opportunities, or denominators.
 - **Desired behavior:** surface at most one relevant task signal and report rates such as correct predictions / tested predictions and independent fixes / attempted fixes.
 - **Required data:** opportunities, attempts, correctness, assistance, recency, task identity, prerequisite edges, project/language context, and production feedback where available.
 - **Likely files:** future observation journal, capability evaluator, `selectLessonFrontier`, and generated frontier artifacts.
-- **Acceptance:** raw counts always have denominators; signals are quiet and task-relevant; signals link to observations; signals do not directly change mastery.
+- **Acceptance:** **Verified:** the regular local harness build derives task-scoped signals and normalized rates from persisted real-command sessions; signals remain quiet, link to their source observations, and never change mastery directly.
 - **Risks:** notification fatigue, false alarms, vanity metrics, and metric gaming.
 
 ## L-005 — Reduce manual harness maintenance

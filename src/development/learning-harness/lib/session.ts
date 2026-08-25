@@ -127,14 +127,15 @@ export type CapabilityEvidenceCandidate = Readonly<{
   capabilityBoundary: string;
   demonstration: string;
   kind: Exclude<CompletedWorkKind, "trivial">;
-  outcome: "passed" | "partial" | "not-demonstrated";
-  independence: "unprompted" | "lightly-prompted" | "guided";
-  assistanceLevel: "none" | "minor" | "substantial";
+  suggestedAssessment: Readonly<{
+    outcome: "passed";
+    independence: "unprompted" | "lightly-prompted" | "guided";
+    assistanceLevel: "none" | "minor" | "substantial";
+  }>;
   sessionId: string;
   assessedAt: string;
   codeAnchors: readonly string[];
   producedArtifact?: string;
-  consequentialWork: true;
   source: Readonly<{
     prediction: Prediction;
     observation: RealityObservation;
@@ -245,6 +246,10 @@ export type CompleteLearningSessionInput = Readonly<{
 export type CandidateAssessmentInput = Readonly<{
   id: string;
   rubricVersion: string;
+  outcome: "passed" | "partial" | "not-demonstrated";
+  independence: "unprompted" | "lightly-prompted" | "guided";
+  assistanceLevel: "none" | "minor" | "substantial";
+  consequentialWork: boolean;
   delayedRetrieval?: boolean;
   transferContext?: string;
   supersedesPacketId?: string;
@@ -561,7 +566,7 @@ export const isMeaningfulCompletedWork = (
 
 const assistanceFor = (
   session: LearningSession,
-): Pick<CapabilityEvidenceCandidate, "independence" | "assistanceLevel"> => {
+): Pick<CapabilityEvidenceCandidate["suggestedAssessment"], "independence" | "assistanceLevel"> => {
   if (session.hintDepth === 0 && session.debuggingSteps.length === 0) {
     return { independence: "unprompted", assistanceLevel: "none" };
   }
@@ -593,13 +598,11 @@ export function deriveCapabilityEvidenceCandidate(
     capabilityBoundary: session.completedWork.capabilityBoundary,
     demonstration: session.completedWork.description,
     kind,
-    outcome: "passed" as const,
-    ...assistance,
+    suggestedAssessment: immutable({ outcome: "passed" as const, ...assistance }),
     sessionId: session.id,
     assessedAt: session.completedWork.completedAt,
     codeAnchors: session.completedWork.codeAnchors,
     producedArtifact: session.completedWork.producedArtifact,
-    consequentialWork: true as const,
     source: {
       prediction: session.prediction,
       observation: session.observation,
@@ -608,7 +611,10 @@ export function deriveCapabilityEvidenceCandidate(
       diagnosis: session.diagnosis ?? undefined,
       verification: session.verification,
     },
-    uncertainty: ["Candidate requires explicit capability review before promotion."],
+    uncertainty: [
+      "Candidate requires explicit capability review before promotion.",
+      "The reviewer must decide outcome, independence, assistance level, and consequentiality.",
+    ],
   });
 }
 
@@ -665,9 +671,9 @@ export function toCompletedConceptAssessment(
     capabilityBoundary: candidate.capabilityBoundary,
     demonstration: candidate.demonstration,
     kind: candidate.kind,
-    outcome: candidate.outcome,
-    independence: candidate.independence,
-    assistanceLevel: candidate.assistanceLevel,
+    outcome: oneOf(input.outcome, "outcome", ["passed", "partial", "not-demonstrated"] as const),
+    independence: oneOf(input.independence, "independence", ["unprompted", "lightly-prompted", "guided"] as const),
+    assistanceLevel: oneOf(input.assistanceLevel, "assistanceLevel", ["none", "minor", "substantial"] as const),
     sessionId: candidate.sessionId,
     assessedAt: candidate.assessedAt,
     rubricVersion: nonEmpty(input.rubricVersion, "rubricVersion"),
@@ -675,7 +681,7 @@ export function toCompletedConceptAssessment(
     codeAnchors: [...candidate.codeAnchors],
     producedArtifact: candidate.producedArtifact,
     transferContext: input.transferContext,
-    consequentialWork: true,
+    consequentialWork: input.consequentialWork === true,
     supersedesPacketId: input.supersedesPacketId,
   };
 }

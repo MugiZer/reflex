@@ -235,10 +235,11 @@ describe("learning session public seam", () => {
       recordType: "capability-evidence-candidate",
       promotionStatus: "candidate",
       conceptId: claim.conceptId,
-      outcome: "passed",
-      independence: "lightly-prompted",
-      assistanceLevel: "minor",
-      consequentialWork: true,
+      suggestedAssessment: {
+        outcome: "passed",
+        independence: "lightly-prompted",
+        assistanceLevel: "minor",
+      },
     });
     expect(completed.evidenceCandidate?.id).toBe("session-2:evidence-candidate");
 
@@ -253,6 +254,10 @@ describe("learning session public seam", () => {
     const reviewPacket = toCompletedConceptAssessment(candidate, {
       id: "assessment-from-session-2",
       rubricVersion: "1",
+      outcome: "passed",
+      independence: "lightly-prompted",
+      assistanceLevel: "minor",
+      consequentialWork: false,
     });
     const review = reviewCapabilityAssessment(graph, reviewPacket);
 
@@ -260,6 +265,7 @@ describe("learning session public seam", () => {
     expect(review.graph.concepts[0]?.evidence[0]).toMatchObject({
       recordType: "completed-concept-assessment",
       id: "assessment-from-session-2",
+      consequentialWork: false,
     });
   });
 
