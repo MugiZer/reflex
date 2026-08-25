@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "learning-task-context",
+  "claim": "A real project task receives bounded local learning context without becoming capability evidence.",
+  "command": ["node", "gate-adapter.mjs"],
+  "cwd": ".",
+  "timeoutMs": 120000,
+  "completionTier": "advisory",
+  "requiredCases": [
+    "assembles-task-relative-neighborhood",
+    "classifies-recency-and-prerequisite-gap",
+    "returns-one-bounded-attention-target"
+  ]
+}

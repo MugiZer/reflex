@@ -1,7 +1,7 @@
 // @ts-check
 
 const HARNESS_ROOT = "src/development/learning-harness";
-const HARNESS_NON_ENTRYPOINT = `^${HARNESS_ROOT}/(?!(learningHarness|teaching)\\.ts$)`;
+const HARNESS_NON_ENTRYPOINT = `^${HARNESS_ROOT}/(?!(learningHarness|teaching|taskContext)\\.ts$)`;
 
 /** @type {import('dependency-cruiser').IConfiguration} */
 module.exports = {
