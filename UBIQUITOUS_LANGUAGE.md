@@ -22,6 +22,9 @@ ambiguity; detailed behavior belongs in `context/domain.md` or the code.
 | Readiness State | `ready`, `needs_review`, `estimated`, `blocked`, `superseded` | status |
 | Confidence | `low`, `medium`, or `high` trust in precision | certainty |
 | Diagnostic | Structured human/machine-visible condition | log |
+| Design Benchmark | Explicitly sourced, non-authoritative comparison target used for design guidance | compliance threshold |
+| Regulatory Target | Authority-qualified requirement with jurisdiction, code edition, applicability, and source | code value |
+| Target Evaluation | Traceable comparison of a Calculation Snapshot against a Design Benchmark or Regulatory Target | compliance verdict |
 | Report | HTML artifact rendered from active snapshots | output page |
 | Verifier | Public-flow check, not merely an internal unit test | test suite |
 | Topology Result | Optional immutable Revision enrichment; never the layer snapshot | topology U-value |

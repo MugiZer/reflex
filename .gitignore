@@ -3,6 +3,10 @@ dist/
 outputs/
 storage/
 data/
+# `src/infrastructure/storage` contains source adapters, not local runtime data.
+!src/infrastructure/storage/
+!src/infrastructure/storage/local-files/
+!src/infrastructure/storage/local-files/*.ts
 fixtures/ifc/private/
 
 *.ifc

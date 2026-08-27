@@ -23,7 +23,7 @@ import { generateHtmlReport } from "../../application/reports/generateHtmlReport
 import type { TopologyWorkerRuntime } from "../../domain/topology/topologyTypes.js";
 import type { TopologyPilotPolicy } from "../../domain/topology/topologyPilotPolicy.js";
 import type { ComponentPattern } from "../../domain/topology/componentPatternInterpreter.js";
-import type { AmbiguousFamilyFitAgent } from \ ../../application/topology/fitGeneratedTopologyFamilyMatch.js\;
+import type { AmbiguousFamilyFitAgent } from "../../application/topology/fitGeneratedTopologyFamilyMatch.js";
 import { ReplayComponentEvaluationError, replayJobComponentEvaluation } from "../../application/topology/replayJobComponentEvaluation.js";
 import { PROVEN_TOPOLOGY_BUNDLE, createProvenPythonTopologyWorker } from "../../infrastructure/topology/createProvenPythonTopologyWorker.js";
 import { cleanupLocalTopologyArtifacts, LocalTopologyArtifactStore } from "../../infrastructure/topology/localTopologyArtifactStore.js";
