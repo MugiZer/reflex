@@ -27,6 +27,8 @@ const request: AgentExecutionRequest = {
   correlationId: "provider-test-1",
 };
 
+const runExternalCodexCliTests = process.env.CONFORMITY_RUN_CODEX_CLI_TESTS === "1";
+
 describe("agent provider seam", () => {
   it("fails closed when production OpenRouter configuration is incomplete or unsupported", () => {
     expect(() => createConfiguredAgentProvider({ environment: "production", provider: "openrouter", openRouter: { apiKey: "", model: "openai/gpt-5", structuredOutputModels: ["openai/gpt-5"] } })).toThrow(/credentials/i);
@@ -100,13 +102,13 @@ describe("agent provider seam", () => {
     await expect(provider.execute({ ...request, role: "builder" })).resolves.toMatchObject({ kind: "completed" });
   });
 
-  it("executes the installed Codex CLI in an ephemeral restricted session with schema-constrained output", async () => {
+  it.skipIf(!runExternalCodexCliTests)("executes the installed Codex CLI in an ephemeral restricted session with schema-constrained output", async () => {
     const provider = new CodexCliAgentProvider({});
     const result = await provider.execute({ ...request, model: "configured-default", workingDirectory: process.cwd(), deadline: new Date(Date.now() + 90_000), prompt: "Return exactly the JSON object {\"decision\":\"accept\"}. Do not inspect files or run commands." });
     expect(result).toMatchObject({ kind: "completed", output: { decision: "accept" }, attemptEvidence: { provider: "codex", model: "configured-default", correlationId: "provider-test-1", exitStatus: 0 } });
   }, 120_000);
 
-  it("proves real Codex deadline and cancellation classification", async () => {
+  it.skipIf(!runExternalCodexCliTests)("proves real Codex deadline and cancellation classification", async () => {
     const provider = new CodexCliAgentProvider({});
     await expect(provider.execute({ ...request, model: "configured-default", workingDirectory: process.cwd(), deadline: new Date(Date.now() + 1), prompt: "Return exactly the JSON object {\"decision\":\"accept\"}." })).resolves.toMatchObject({ kind: "timed_out" });
     const controller = new AbortController();
