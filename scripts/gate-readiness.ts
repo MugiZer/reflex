@@ -13,7 +13,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 
 type Authority = "advisory" | "protected";
 type Json = Record<string, unknown>;
@@ -21,18 +21,25 @@ type Json = Record<string, unknown>;
 type WorkItem = Json & {
   version: 1;
   kind: "gate-readiness-work-item";
+  bindingVersion?: "gate-readiness-work-item-binding.v2";
+  recordRevision?: number;
   workItemId: string;
   claim: string;
   claimHash: string;
   ticketRef: string;
   sourceRevision: string;
   authority: Authority;
-  phase: "DRAFTED";
-  gateId: string;
-  gateSessionPath: string;
-  candidatePath: string;
+  phase: WorkItemPhase;
+  gateId?: string;
+  gateSessionPath?: string;
+  candidatePath?: string;
   reviewReceiptPath: string;
+  sessionGeneration?: number;
+  transitions?: Array<{ revision: number; phase: WorkItemPhase; recordedAt: string; reason: string }>;
 };
+
+type WorkItemPhase = "DRAFTED" | "SESSION_PREPARED" | "GATE_AUTHORED" | "RED_SEALED" |
+  "GATE_PUBLISHED" | "GATE_REVIEWED" | "IMPLEMENTATION_READY" | "RECOVERY_PREPARED";
 
 // A host may inject a released verifier adapter. The default follows the
 // documented local installation without binding the workflow to one account.
@@ -61,26 +68,28 @@ async function start(options: { repositoryPath: string; ticketPath: string }): P
   const ticket = await readTicket(ticketPath);
   const sourceRevision = git(repositoryPath, ["rev-parse", "HEAD"]);
   const existing = await findMatchingWorkItem(repositoryPath, ticketPath, ticket.claim, sourceRevision);
-  const workItem = existing ?? await createWorkItem(repositoryPath, ticketPath, ticket, sourceRevision);
+  const workItem = await migrateWorkItem(existing ?? await createWorkItem(repositoryPath, ticketPath, ticket, sourceRevision));
   return advanceWorkItem(repositoryPath, workItem, false);
 }
 
 async function advance(options: { repositoryPath: string; workItemId: string }): Promise<Json> {
   const repositoryPath = repositoryRoot(options.repositoryPath);
-  const workItem = await findWorkItem(repositoryPath, options.workItemId);
+  const workItem = await migrateWorkItem(await findWorkItem(repositoryPath, options.workItemId));
   return advanceWorkItem(repositoryPath, workItem, true);
 }
 
 async function status(options: { repositoryPath: string; workItemId: string }): Promise<Json> {
   const repositoryPath = repositoryRoot(options.repositoryPath);
-  const workItem = await findWorkItem(repositoryPath, options.workItemId);
+  const workItem = await migrateWorkItem(await findWorkItem(repositoryPath, options.workItemId));
   return readinessStatus(repositoryPath, workItem);
 }
 
-async function advanceWorkItem(repositoryPath: string, workItem: WorkItem, requestAudit: boolean): Promise<Json> {
-  const session = await ensureSession(repositoryPath, workItem);
+async function advanceWorkItem(repositoryPath: string, workItem: WorkItem, requestAudit: boolean, recoveryAttempts = 0): Promise<Json> {
+  const prepared = await ensureSession(repositoryPath, workItem);
+  workItem = prepared.workItem;
+  const session = prepared.session;
   if (session.phase !== "IMPLEMENTATION_READY") {
-    let continued = runVerifier(["continue", workItem.gateSessionPath], repositoryPath);
+    let continued = runVerifier(["continue", sessionPath(workItem)], repositoryPath);
     let continuedValue = parseJson(continued.stdout);
     if (continuedValue?.action === "AUTHOR_GATE") {
       const role = await runSemanticRole({
@@ -90,30 +99,46 @@ async function advanceWorkItem(repositoryPath: string, workItem: WorkItem, reque
         claim: workItem.claim,
         claimHash: workItem.claimHash,
         authority: workItem.authority,
-        gateId: workItem.gateId,
+        gateId: session.id,
         gateOwnerPath: stringAt(session, "worktrees", "gateOwnerPath"),
       });
       if (!role.ok) return blocked(workItem, "AUTHOR_GATE", role.reason);
-      continued = runVerifier(["continue", workItem.gateSessionPath], repositoryPath);
+      continued = runVerifier(["continue", sessionPath(workItem)], repositoryPath);
       continuedValue = parseJson(continued.stdout);
+    }
+    if (continuedValue?.action === "REPAIR_SESSION" && recoveryAttempts === 0) {
+      const recovered = await prepareFreshSession(repositoryPath, workItem, "the prior Gate Session cannot safely resume");
+      return advanceWorkItem(repositoryPath, recovered, requestAudit, recoveryAttempts + 1);
     }
     if (!continued.ok || continuedValue?.status !== "READY_FOR_IMPLEMENTATION") {
       return blocked(workItem, String(continuedValue?.action ?? "CONTINUE_GATE_SESSION"), String(continuedValue?.reason ?? (continued.reason || "Gate Session did not seal a behavioral red")));
     }
+    workItem = await transitionWorkItem(repositoryPath, workItem, "RED_SEALED", "Gate Session sealed the behavioral red");
   }
 
-  const refreshed = await loadSession(workItem);
+  const refreshed = await loadSession(sessionPath(workItem), workItem);
   const publication = protectedPublication(repositoryPath, refreshed, workItem.authority);
+  if (publication.ok && workItem.phase !== "GATE_PUBLISHED" && workItem.phase !== "GATE_REVIEWED" && workItem.phase !== "IMPLEMENTATION_READY") {
+    workItem = await transitionWorkItem(repositoryPath, workItem, "GATE_PUBLISHED", "sealed gate commit is reachable from the configured protected ref");
+  }
   if (requestAudit && publication.ok && !validateReceipt(repositoryPath, workItem).ok) {
     await writeAuditReceipt(repositoryPath, workItem, refreshed);
   }
-  return readinessStatus(repositoryPath, workItem);
+  if (validateReceipt(repositoryPath, workItem).ok && workItem.phase === "GATE_PUBLISHED") {
+    workItem = await transitionWorkItem(repositoryPath, workItem, "GATE_REVIEWED", "fresh matching GATE-READY receipt was validated");
+  }
+  const result = await readinessStatus(repositoryPath, workItem);
+  if (result.status === "IMPLEMENTATION_READY" && workItem.phase !== "IMPLEMENTATION_READY") {
+    workItem = await transitionWorkItem(repositoryPath, workItem, "IMPLEMENTATION_READY", "all protected readiness prerequisites are attributable and current");
+    return readinessStatus(repositoryPath, workItem);
+  }
+  return result;
 }
 
 async function readinessStatus(repositoryPath: string, workItem: WorkItem): Promise<Json> {
   let session: Json;
   try {
-    session = await loadSession(workItem);
+    session = await loadSession(sessionPath(workItem), workItem);
   } catch (error) {
     return blocked(workItem, "PREPARE_CLEAN_CANDIDATE", errorMessage(error));
   }
@@ -135,23 +160,46 @@ async function readinessStatus(repositoryPath: string, workItem: WorkItem): Prom
     phase: "IMPLEMENTATION_READY",
     workItemId: workItem.workItemId,
     workItemRecordPath: recordPath(repositoryPath, workItem.workItemId),
-    candidatePath: workItem.candidatePath,
-    gateSessionPath: workItem.gateSessionPath,
+    candidatePath: stringAt(session, "worktrees", "candidatePath"),
+    gateSessionPath: sessionPath(workItem),
   };
 }
 
-async function ensureSession(repositoryPath: string, workItem: WorkItem): Promise<Json> {
-  if (existsSync(workItem.gateSessionPath)) {
-    return loadSession(workItem);
+async function ensureSession(repositoryPath: string, workItem: WorkItem): Promise<{ workItem: WorkItem; session: Json }> {
+  if (workItem.gateSessionPath && existsSync(workItem.gateSessionPath)) {
+    const existing = await loadSession(workItem.gateSessionPath).catch(() => undefined);
+    if (existing && existing.phase !== "TERMINAL" && sessionMatchesWorkItem(existing, workItem)) return { workItem, session: existing };
   }
+  const prepared = await prepareFreshSession(repositoryPath, workItem, workItem.gateSessionPath ? "the prior Gate Session is terminal, malformed, or bound to legacy record bytes" : "a Gate Session has not yet been prepared");
+  return { workItem: prepared, session: await loadSession(sessionPath(prepared), prepared) };
+}
+
+async function prepareFreshSession(repositoryPath: string, workItem: WorkItem, reason: string): Promise<WorkItem> {
+  const generation = (workItem.sessionGeneration ?? 0) + 1;
+  const gateId = generation === 1
+    ? (workItem.gateId ?? configuredGateId(workItem.workItemId))
+    : `${workItem.gateId ?? configuredGateId(workItem.workItemId)}-r${generation}`;
   const prepared = runVerifier([
-    "prepare", workItem.gateId,
+    "prepare", gateId,
     "--repo", repositoryPath,
     "--authority", workItem.authority,
     "--work-item-record", recordPath(repositoryPath, workItem.workItemId),
+    "--source-revision", workItem.sourceRevision,
   ], repositoryPath);
   if (!prepared.ok) throw new Error(prepared.reason);
-  return loadSession(workItem);
+  const response = parseJson(prepared.stdout);
+  const path = typeof response?.session === "object" && response.session !== null && typeof (response.session as Json).path === "string"
+    ? (response.session as Json).path as string
+    : undefined;
+  if (!path) throw new Error("Gate Session prepare did not return its canonical session path");
+  const session = await loadSession(path, workItem);
+  const phase = generation > 1 ? "RECOVERY_PREPARED" : "SESSION_PREPARED";
+  return transitionWorkItem(repositoryPath, workItem, phase, reason, {
+    gateId: typeof session.id === "string" ? session.id : gateId,
+    gateSessionPath: path,
+    candidatePath: stringAt(session, "worktrees", "candidatePath"),
+    sessionGeneration: generation,
+  });
 }
 
 async function writeAuditReceipt(repositoryPath: string, workItem: WorkItem, session: Json): Promise<void> {
@@ -165,7 +213,7 @@ async function writeAuditReceipt(repositoryPath: string, workItem: WorkItem, ses
     gateCommit: stringAt(session, "gate", "revision"),
     gateHash: stringAt(session, "gate", "hash"),
     redHash: stringAt(session, "red", "reportHash"),
-    gateSessionPath: workItem.gateSessionPath,
+    gateSessionPath: sessionPath(workItem),
   });
   if (!role.ok || !role.value) return;
   const findings = typeof role.value.findings === "string" ? role.value.findings : undefined;
@@ -180,7 +228,7 @@ async function writeAuditReceipt(repositoryPath: string, workItem: WorkItem, ses
 
 function validateReceipt(repositoryPath: string, workItem: WorkItem): { ok: true } | { ok: false; reason: string } {
   if (!existsSync(workItem.reviewReceiptPath)) return { ok: false, reason: "a fresh GATE-READY receipt has not been recorded" };
-  const result = runVerifier(["validate-gate-review-receipt", workItem.gateSessionPath, workItem.reviewReceiptPath], repositoryPath);
+  const result = runVerifier(["validate-gate-review-receipt", sessionPath(workItem), workItem.reviewReceiptPath], repositoryPath);
   const validation = parseJson(result.stdout);
   return result.ok && validation?.receipt && typeof validation.receipt === "object" &&
     (validation.receipt as Json).decision === "GATE-READY"
@@ -193,6 +241,7 @@ function protectedPublication(repositoryPath: string, session: Json, authority: 
   const ref = process.env.GATE_READINESS_PROTECTED_REF ?? "refs/heads/protected";
   const gateCommit = stringAt(session, "gate", "revision");
   const gateHash = stringAt(session, "gate", "hash");
+  const hashVersion = stringAt(session, "gate", "hashVersion") ?? "protected-gate-package-sha256-v1";
   const gateId = typeof session.id === "string" ? session.id : undefined;
   if (!gateCommit || !gateHash || !gateId) return { ok: false, reason: "Gate Session lacks sealed publication facts" };
   if (!gitResult(repositoryPath, ["merge-base", "--is-ancestor", gateCommit, ref]).ok) {
@@ -202,34 +251,25 @@ function protectedPublication(repositoryPath: string, session: Json, authority: 
   if (!gitResult(repositoryPath, ["cat-file", "-e", `${ref}:${packagePrefix}/gate.json`]).ok) {
     return { ok: false, reason: "the protected ref does not retain the sealed gate package" };
   }
-  const actual = hashPackageAtRef(repositoryPath, ref, packagePrefix);
-  return actual === gateHash
+  const published = runVerifier([
+    "hash-gate-package",
+    "--repo", repositoryPath,
+    "--revision", ref,
+    "--package", packagePrefix,
+    "--hash-version", hashVersion,
+  ], repositoryPath);
+  const actual = parseJson(published.stdout)?.hash;
+  return published.ok && actual === gateHash
     ? { ok: true }
-    : { ok: false, reason: actual
+    : { ok: false, reason: typeof actual === "string"
       ? `the protected ref gate bytes do not match the sealed gate hash (${actual})`
-      : "the protected ref gate package cannot be hashed" };
-}
-
-function hashPackageAtRef(repositoryPath: string, ref: string, prefix: string): string | undefined {
-  const listed = gitResult(repositoryPath, ["ls-tree", "-r", "--name-only", ref, "--", prefix]);
-  if (!listed.ok) return undefined;
-  const files = listed.stdout.split(/\r?\n/).filter(Boolean).sort();
-  if (files.length === 0) return undefined;
-  const hash = createHash("sha256");
-  for (const file of files) {
-    const contents = spawnSync("git", ["-C", repositoryPath, "show", `${ref}:${file}`], { encoding: null, windowsHide: true });
-    if (contents.status !== 0 || !Buffer.isBuffer(contents.stdout)) return undefined;
-    hash.update(file.slice(prefix.length + 1).replaceAll("\\", "/"));
-    hash.update("\0");
-    hash.update(contents.stdout);
-  }
-  return hash.digest("hex");
+      : `the protected ref gate package cannot be hashed: ${published.reason}` };
 }
 
 function candidateIsAttributable(session: Json, workItem: WorkItem): { ok: true } | { ok: false; reason: string } {
   const candidatePath = stringAt(session, "worktrees", "candidatePath");
   const sourceRevision = stringAt(session, "source", "revision");
-  if (!candidatePath || candidatePath !== workItem.candidatePath || !sourceRevision) return { ok: false, reason: "record candidate is not the sealed managed candidate" };
+  if (!candidatePath || !sourceRevision || sourceRevision !== workItem.sourceRevision) return { ok: false, reason: "Gate Session source facts do not match the immutable work item" };
   const revision = gitResult(candidatePath, ["rev-parse", "HEAD"]);
   const clean = gitResult(candidatePath, ["status", "--porcelain=v1"]);
   return revision.ok && clean.ok && revision.stdout === sourceRevision && clean.stdout === ""
@@ -239,12 +279,11 @@ function candidateIsAttributable(session: Json, workItem: WorkItem): { ok: true 
 
 async function createWorkItem(repositoryPath: string, ticketPath: string, ticket: { claim: string; authority: Authority }, sourceRevision: string): Promise<WorkItem> {
   const workItemId = randomUUID();
-  const gateId = configuredGateId(workItemId);
-  const commonDirectory = resolve(repositoryPath, git(repositoryPath, ["rev-parse", "--git-common-dir"]));
-  const worktreeRoot = join(dirname(repositoryPath), `.${basename(repositoryPath)}-protected-verifier-worktrees`, gateId);
   const workItem: WorkItem = {
     version: 1,
     kind: "gate-readiness-work-item",
+    bindingVersion: "gate-readiness-work-item-binding.v2",
+    recordRevision: 1,
     workItemId,
     claim: ticket.claim,
     claimHash: claimHash(ticket.claim),
@@ -252,10 +291,9 @@ async function createWorkItem(repositoryPath: string, ticketPath: string, ticket
     sourceRevision,
     authority: ticket.authority,
     phase: "DRAFTED",
-    gateId,
-    gateSessionPath: join(commonDirectory, "protected-verifier", "sessions", `${gateId}.json`),
-    candidatePath: join(worktreeRoot, "candidate"),
     reviewReceiptPath: join(repositoryPath, ".gate-readiness", "receipts", `${workItemId}.json`),
+    sessionGeneration: 0,
+    transitions: [{ revision: 1, phase: "DRAFTED", recordedAt: new Date().toISOString(), reason: "work item created" }],
     createdAt: new Date().toISOString(),
   };
   await atomicWrite(recordPath(repositoryPath, workItemId), JSON.stringify(workItem, null, 2) + "\n");
@@ -282,13 +320,89 @@ async function findWorkItem(repositoryPath: string, workItemId: string): Promise
 async function readWorkItem(path: string): Promise<WorkItem | undefined> {
   const value = parseJson(await readFile(path, "utf8"));
   return value?.version === 1 && value.kind === "gate-readiness-work-item" && typeof value.workItemId === "string" &&
-    typeof value.claim === "string" && typeof value.gateId === "string" && value.claimHash === claimHash(value.claim) ? value as WorkItem : undefined;
+    typeof value.claim === "string" && typeof value.sourceRevision === "string" && typeof value.reviewReceiptPath === "string" && value.claimHash === claimHash(value.claim) ? value as WorkItem : undefined;
 }
 
-async function loadSession(workItem: WorkItem): Promise<Json> {
-  const value = parseJson(await readFile(workItem.gateSessionPath, "utf8"));
-  if (!value || value.kind !== "gate-session" || value.id !== workItem.gateId) throw new Error("work item Gate Session is unavailable or invalid");
+async function loadSession(path: string, expectedWorkItem?: WorkItem): Promise<Json> {
+  const value = parseJson(await readFile(path, "utf8"));
+  if (!value || value.kind !== "gate-session" || typeof value.id !== "string") throw new Error("work item Gate Session is unavailable or invalid");
+  if (expectedWorkItem && !sessionMatchesWorkItem(value, expectedWorkItem)) {
+    throw new Error("Gate Session immutable work-item binding does not match this coordinator record");
+  }
   return value;
+}
+
+function sessionMatchesWorkItem(session: Json, workItem: WorkItem): boolean {
+  const binding = session.workItem;
+  const source = session.source;
+  const bindingMatches = binding !== null && typeof binding === "object" && !Array.isArray(binding) &&
+    (binding as Json).workItemId === workItem.workItemId &&
+    (binding as Json).claimHash === workItem.claimHash &&
+    (binding as Json).recordPath === recordPath(repositoryRootFromRecord(workItem), workItem.workItemId);
+  const v2BindingMatches = workItem.bindingVersion !== "gate-readiness-work-item-binding.v2" ||
+    (binding as Json | undefined)?.bindingHash === workItemBindingHash(workItem);
+  return bindingMatches && v2BindingMatches &&
+    source !== null && typeof source === "object" && !Array.isArray(source) &&
+    (source as Json).revision === workItem.sourceRevision;
+}
+
+function workItemBindingHash(workItem: WorkItem): string {
+  return createHash("sha256").update(JSON.stringify({
+    bindingVersion: "gate-readiness-work-item-binding.v2",
+    workItemId: workItem.workItemId,
+    claim: workItem.claim,
+    claimHash: workItem.claimHash,
+    ticketRef: workItem.ticketRef,
+    sourceRevision: workItem.sourceRevision,
+    authority: workItem.authority,
+  })).digest("hex");
+}
+
+/** Upgrade only the coordinator record; existing session/evidence files remain immutable historical artifacts. */
+async function migrateWorkItem(workItem: WorkItem): Promise<WorkItem> {
+  if (workItem.bindingVersion === "gate-readiness-work-item-binding.v2" && typeof workItem.recordRevision === "number") return workItem;
+  const repositoryPath = repositoryRootFromRecord(workItem);
+  const migrated: WorkItem = {
+    ...workItem,
+    bindingVersion: "gate-readiness-work-item-binding.v2",
+    recordRevision: 1,
+    sessionGeneration: workItem.gateSessionPath && existsSync(workItem.gateSessionPath) ? Math.max(workItem.sessionGeneration ?? 0, 1) : (workItem.sessionGeneration ?? 0),
+    transitions: [{ revision: 1, phase: workItem.phase, recordedAt: new Date().toISOString(), reason: "legacy work-item record migrated without rewriting historical sessions" }],
+  };
+  await atomicWrite(recordPath(repositoryPath, migrated.workItemId), JSON.stringify(migrated, null, 2) + "\n");
+  return migrated;
+}
+
+async function transitionWorkItem(
+  repositoryPath: string,
+  workItem: WorkItem,
+  phase: WorkItemPhase,
+  reason: string,
+  facts: Partial<Pick<WorkItem, "gateId" | "gateSessionPath" | "candidatePath" | "sessionGeneration">> = {},
+): Promise<WorkItem> {
+  const revision = (workItem.recordRevision ?? 0) + 1;
+  const next: WorkItem = {
+    ...workItem,
+    ...facts,
+    bindingVersion: "gate-readiness-work-item-binding.v2",
+    phase,
+    recordRevision: revision,
+    transitions: [...(workItem.transitions ?? []), { revision, phase, recordedAt: new Date().toISOString(), reason }],
+  };
+  await atomicWrite(recordPath(repositoryPath, next.workItemId), JSON.stringify(next, null, 2) + "\n");
+  if (next.gateSessionPath && existsSync(next.gateSessionPath)) {
+    const session = await loadSession(next.gateSessionPath).catch(() => undefined);
+    if (session?.phase !== "TERMINAL") {
+      const refreshed = runVerifier(["refresh-work-item-record", next.gateSessionPath], repositoryPath);
+      if (!refreshed.ok) throw new Error(`work-item lifecycle update could not refresh its Gate Session binding: ${refreshed.reason}`);
+    }
+  }
+  return next;
+}
+
+function sessionPath(workItem: WorkItem): string {
+  if (!workItem.gateSessionPath) throw new Error("work item has no Gate Session reference");
+  return workItem.gateSessionPath;
 }
 
 async function readTicket(ticketPath: string): Promise<{ claim: string; authority: Authority }> {
