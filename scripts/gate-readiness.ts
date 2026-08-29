@@ -168,7 +168,9 @@ async function readinessStatus(repositoryPath: string, workItem: WorkItem): Prom
 async function ensureSession(repositoryPath: string, workItem: WorkItem): Promise<{ workItem: WorkItem; session: Json }> {
   if (workItem.gateSessionPath && existsSync(workItem.gateSessionPath)) {
     const existing = await loadSession(workItem.gateSessionPath).catch(() => undefined);
-    if (existing && existing.phase !== "TERMINAL" && sessionMatchesWorkItem(existing, workItem)) return { workItem, session: existing };
+    if (existing && existing.phase !== "TERMINAL" && sessionMatchesWorkItem(existing, workItem) && managedWorktreesExist(existing)) {
+      return { workItem, session: existing };
+    }
   }
   const prepared = await prepareFreshSession(repositoryPath, workItem, workItem.gateSessionPath ? "the prior Gate Session is terminal, malformed, or bound to legacy record bytes" : "a Gate Session has not yet been prepared");
   return { workItem: prepared, session: await loadSession(sessionPath(prepared), prepared) };
@@ -346,6 +348,15 @@ function sessionMatchesWorkItem(session: Json, workItem: WorkItem): boolean {
     (source as Json).revision === workItem.sourceRevision;
 }
 
+function managedWorktreesExist(session: Json): boolean {
+  const worktrees = session.worktrees;
+  if (worktrees === null || typeof worktrees !== "object" || Array.isArray(worktrees)) return false;
+  const candidatePath = (worktrees as Json).candidatePath;
+  const gateOwnerPath = (worktrees as Json).gateOwnerPath;
+  return typeof candidatePath === "string" && typeof gateOwnerPath === "string" &&
+    existsSync(candidatePath) && existsSync(gateOwnerPath);
+}
+
 function workItemBindingHash(workItem: WorkItem): string {
   return createHash("sha256").update(JSON.stringify({
     bindingVersion: "gate-readiness-work-item-binding.v2",
@@ -390,13 +401,6 @@ async function transitionWorkItem(
     transitions: [...(workItem.transitions ?? []), { revision, phase, recordedAt: new Date().toISOString(), reason }],
   };
   await atomicWrite(recordPath(repositoryPath, next.workItemId), JSON.stringify(next, null, 2) + "\n");
-  if (next.gateSessionPath && existsSync(next.gateSessionPath)) {
-    const session = await loadSession(next.gateSessionPath).catch(() => undefined);
-    if (session?.phase !== "TERMINAL") {
-      const refreshed = runVerifier(["refresh-work-item-record", next.gateSessionPath], repositoryPath);
-      if (!refreshed.ok) throw new Error(`work-item lifecycle update could not refresh its Gate Session binding: ${refreshed.reason}`);
-    }
-  }
   return next;
 }
 
