@@ -24,6 +24,8 @@ import type { TopologyWorkerRuntime } from "../../domain/topology/topologyTypes.
 import type { TopologyPilotPolicy } from "../../domain/topology/topologyPilotPolicy.js";
 import type { ComponentPattern } from "../../domain/topology/componentPatternInterpreter.js";
 import type { AmbiguousFamilyFitAgent } from "../../application/topology/fitGeneratedTopologyFamilyMatch.js";
+import type { AgentAttemptRepository, AgentProvider, AgentProviderConfiguration } from "../../domain/agent/agentProvider.js";
+import { createAgentProvider } from "../../infrastructure/agent/createAgentProvider.js";
 import { ReplayComponentEvaluationError, replayJobComponentEvaluation } from "../../application/topology/replayJobComponentEvaluation.js";
 import { PROVEN_TOPOLOGY_BUNDLE, createProvenPythonTopologyWorker } from "../../infrastructure/topology/createProvenPythonTopologyWorker.js";
 import { cleanupLocalTopologyArtifacts, LocalTopologyArtifactStore } from "../../infrastructure/topology/localTopologyArtifactStore.js";
@@ -72,6 +74,10 @@ export function createLocalhostApp(command: {
   generatedTopologyAdapterQualification?: (input: GeneratedTopologyAdapterQualificationCommand) => ReturnType<typeof qualifyGeneratedTopologyAdapter>;
   thermalTreatmentRegistry?: ThermalTreatmentFamilyRegistry;
   fitAgent?: AmbiguousFamilyFitAgent;
+  /** Deployment-owned provider configuration.  The factory override is a test seam only. */
+  agentProviderConfiguration?: AgentProviderConfiguration;
+  agentAttemptRepository?: AgentAttemptRepository;
+  agentProviderFactory?: (configuration: AgentProviderConfiguration) => AgentProvider;
 }): LocalhostApp {
   const jobs = new SqliteJobRepository(command.databasePath);
   const componentEvaluations = new SqliteComponentEvaluationRepository(command.databasePath);
@@ -90,6 +96,17 @@ export function createLocalhostApp(command: {
   };
   const thermalTreatmentWorker = new OpenSource2dCalculationWorker({ artifactRoot: join(command.outputRoot, "thermal-treatment-worker") });
   const thermalTreatmentRegistry = command.thermalTreatmentRegistry ?? continuousZGirtFamilyRegistry;
+  const configuredFitAgent = command.agentProviderConfiguration && command.agentAttemptRepository
+    ? Object.freeze({
+      provider: (command.agentProviderFactory ?? createAgentProvider)(command.agentProviderConfiguration),
+      attempts: command.agentAttemptRepository,
+      model: configuredAgentModel(command.agentProviderConfiguration),
+      skillVersion: "fit/v1",
+      // Provider infrastructure failure is a failed operation, not a Job correction cycle.
+      retry: { maxAttempts: 1 },
+    } satisfies AmbiguousFamilyFitAgent)
+    : undefined;
+  const fitAgent = command.fitAgent ?? configuredFitAgent;
   const topologyWorker = command.topologyWorker ?? configuredTopologyWorker();
   const generatedTopologyRuntime = createGeneratedTopologyAdapterRuntime(command.generatedTopologyAdapterManifestRoot ?? join(command.outputRoot, "generated-topology-adapters"));
   const qualifyAdapter = command.generatedTopologyAdapterQualification ?? qualifyGeneratedTopologyAdapter;
@@ -164,7 +181,7 @@ export function createLocalhostApp(command: {
           const cancellation = requestCancellationSignal(req, res);
         try {
           const topologyEvidence = createLocalTopologyReviewEvidenceLoader(artifactStore);
-          const result = await submitJobTopologyReview({ jobId: topologyReviewJobId, body: await readJson(req), jobs, componentEvaluations, evidence: topologyEvidence, requests: topologyRequests, bundle: PROVEN_TOPOLOGY_BUNDLE, deadlineAt: parseTopologyDeadline(req), cancellationSignal: cancellation.signal, componentPatterns: command.componentPatterns, generatedTopologyAdapters: (await generatedTopologyRuntime).registry, fitAgent: command.fitAgent, screeningThresholdWPerM2K: command.componentScreeningThresholdWPerM2K, topologyPilotEnabled: command.topologyPilotEnabled, topologyPilotPolicy: command.topologyPilotPolicy });
+          const result = await submitJobTopologyReview({ jobId: topologyReviewJobId, body: await readJson(req), jobs, componentEvaluations, evidence: topologyEvidence, requests: topologyRequests, bundle: PROVEN_TOPOLOGY_BUNDLE, deadlineAt: parseTopologyDeadline(req), cancellationSignal: cancellation.signal, componentPatterns: command.componentPatterns, generatedTopologyAdapters: (await generatedTopologyRuntime).registry, fitAgent, screeningThresholdWPerM2K: command.componentScreeningThresholdWPerM2K, topologyPilotEnabled: command.topologyPilotEnabled, topologyPilotPolicy: command.topologyPilotPolicy });
           await refreshJobTopologyReport({
             jobId: topologyReviewJobId,
             jobs,
@@ -535,4 +552,8 @@ function configuredTopologyWorker(): TopologyWorkerRuntime {
       throw Object.assign(new Error("Topology runtime is not configured. Set TOPOLOGY_WORKER_PYTHON to the release-owned Python executable."), { outcome: "failed" as const, code: "topology_runtime_unavailable" });
     },
   };
+}
+
+function configuredAgentModel(configuration: AgentProviderConfiguration): string {
+  return configuration.provider === "openrouter" ? configuration.openRouter!.model : configuration.codex!.model;
 }

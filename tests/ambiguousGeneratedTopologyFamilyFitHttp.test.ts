@@ -5,9 +5,9 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { createLocalhostApp } from "../src/app/http/httpServer.js";
+import type { AgentExecutionRequest, AgentProvider, AgentProviderConfiguration } from "../src/domain/agent/agentProvider.js";
 import type { GeneratedTopologyAdapterQualificationCommand } from "../src/application/topology/qualifyGeneratedTopologyAdapter.js";
 import { SqliteAgentAttemptRepository } from "../src/infrastructure/persistence/sqlite/SqliteAgentAttemptRepository.js";
-import type { AmbiguousFamilyFitAgent } from "../src/application/topology/fitGeneratedTopologyFamilyMatch.js";
 import { generatedTopologyAdapterHash, type GeneratedTopologyAdapter, type GeneratedTopologyQualificationReceipt } from "../src/domain/topology/generatedTopologyAdapter.js";
 import { REPEATING_C_PROFILE_PATTERN } from "../src/domain/topology/patterns/repeatingCProfilePattern.js";
 import { createProvenPythonTopologyWorker, PROVEN_TOPOLOGY_BUNDLE } from "../src/infrastructure/topology/createProvenPythonTopologyWorker.js";
@@ -71,9 +71,25 @@ describe("ambiguous generated topology family public proof", () => {
       reopened.close();
     });
   }, 90_000);
+
+  it("records a configured-provider infrastructure failure without changing protected Job state", async () => {
+    await withAmbiguousFitJob(async (context) => {
+      const before = await getJob(context.baseUrl, context.job.jobId);
+      const response = await postReview(context.baseUrl, context.job, context.job.topologyOpportunities[0], 0.075);
+      expect(response.status, await response.text()).toBe(202);
+      const after = await getJob(context.baseUrl, context.job.jobId);
+      expect(after.activeRevisionId).toBe(before.activeRevisionId);
+      expect(JSON.stringify(after.architectActions.assemblies)).toBe(JSON.stringify(before.architectActions.assemblies));
+      context.closeAttempts();
+      const reopened = new SqliteAgentAttemptRepository(context.attemptPath);
+      const attempts = await reopened.listByCorrelationId(context.correlationId);
+      expect(attempts).toContainEqual(expect.objectContaining({ role: "fit", result: expect.objectContaining({ provider: "openrouter", model: "openrouter-fit-model", outcome: "retryable_infrastructure_failure", safeUsage: null }), fitDecision: expect.objectContaining({ finalDisposition: "provider-failure" }) }));
+      reopened.close();
+    }, { providerFailure: true });
+  }, 90_000);
 });
 
-async function withAmbiguousFitJob(run: (context: AmbiguousFitContext) => Promise<void>): Promise<void> {
+async function withAmbiguousFitJob(run: (context: AmbiguousFitContext) => Promise<void>, options: Readonly<{ providerFailure?: boolean }> = {}): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "ambiguous-topology-fit-http-"));
   const attemptPath = join(root, "data", "fit-attempts.sqlite");
   const left = adapter("left");
@@ -83,22 +99,27 @@ async function withAmbiguousFitJob(run: (context: AmbiguousFitContext) => Promis
   let attemptsClosed = false;
   let providerCalls = 0;
   let correlationId = "";
-  const fitAgent: AmbiguousFamilyFitAgent = {
-    model: "fixture-fit-model",
-    skillVersion: "fit/v1",
-    attempts,
-    provider: {
-      execute: async (request) => {
+  const provider: AgentProvider = {
+      execute: async (request: AgentExecutionRequest) => {
         providerCalls += 1;
         correlationId = request.correlationId;
         expect(request.prompt).not.toContain("IFC payload");
+        if (options.providerFailure) return {
+          kind: "retryable_infrastructure_failure" as const,
+          reason: "deterministic configured provider failure",
+          attemptEvidence: { provider: "openrouter" as const, model: request.model, correlationId: request.correlationId, startedAt: "2026-08-18T00:00:00.000Z", durationMs: 1, outcome: "retryable_infrastructure_failure" as const, safeUsage: null },
+        };
         return {
           kind: "completed" as const,
           output: { candidateIdentity: rightHash, confidence: "high" as const, comparison: [], reasons: ["public fit proof"] },
-          attemptEvidence: { provider: "fixture", model: request.model, correlationId: request.correlationId, startedAt: "2026-08-18T00:00:00.000Z", durationMs: 1, outcome: "completed" as const, safeUsage: null },
+          attemptEvidence: { provider: "openrouter" as const, model: request.model, correlationId: request.correlationId, startedAt: "2026-08-18T00:00:00.000Z", durationMs: 1, outcome: "completed" as const, safeUsage: null },
         };
       },
-    },
+  };
+  const providerConfiguration: AgentProviderConfiguration = {
+    environment: "test",
+    provider: "openrouter",
+    openRouter: { apiKey: "test-only", model: "openrouter-fit-model", structuredOutputModels: ["openrouter-fit-model"] },
   };
   const config = {
     databasePath: join(root, "data", "app.db"),
@@ -106,7 +127,12 @@ async function withAmbiguousFitJob(run: (context: AmbiguousFitContext) => Promis
     outputRoot: join(root, "outputs"),
     generatedTopologyAdapterManifestRoot: join(root, "adapter-manifests"),
     generatedTopologyAdapterQualification: async (input: GeneratedTopologyAdapterQualificationCommand) => qualifiedReceipt(input.adapter as GeneratedTopologyAdapter),
-    fitAgent,
+    agentProviderConfiguration: providerConfiguration,
+    agentAttemptRepository: attempts,
+    agentProviderFactory: (configuration: AgentProviderConfiguration): AgentProvider => {
+      expect(configuration).toEqual(providerConfiguration);
+      return provider;
+    },
     topologyWorker: createProvenPythonTopologyWorker({ pythonExecutable }),
   };
   let app = createLocalhostApp(config);
