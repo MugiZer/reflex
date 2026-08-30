@@ -11,7 +11,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
@@ -34,12 +34,13 @@ type WorkItem = Json & {
   gateSessionPath?: string;
   candidatePath?: string;
   reviewReceiptPath: string;
+  reviewReceiptHistory?: string[];
   sessionGeneration?: number;
   transitions?: Array<{ revision: number; phase: WorkItemPhase; recordedAt: string; reason: string }>;
 };
 
 type WorkItemPhase = "DRAFTED" | "SESSION_PREPARED" | "GATE_AUTHORED" | "RED_SEALED" |
-  "GATE_PUBLISHED" | "GATE_REVIEWED" | "IMPLEMENTATION_READY" | "RECOVERY_PREPARED";
+  "GATE_PUBLISHED" | "GATE_REVIEWED" | "GATE_REJECTED" | "IMPLEMENTATION_READY" | "RECOVERY_PREPARED";
 
 // A host may inject a released verifier adapter. The default follows the
 // documented local installation without binding the workflow to one account.
@@ -74,8 +75,10 @@ async function start(options: { repositoryPath: string; ticketPath: string }): P
 
 async function advance(options: { repositoryPath: string; workItemId: string }): Promise<Json> {
   const repositoryPath = repositoryRoot(options.repositoryPath);
-  const workItem = await migrateWorkItem(await findWorkItem(repositoryPath, options.workItemId));
-  return advanceWorkItem(repositoryPath, workItem, true);
+  return withWorkItemLock(repositoryPath, options.workItemId, async () => {
+    const workItem = await migrateWorkItem(await findWorkItem(repositoryPath, options.workItemId));
+    return advanceWorkItem(repositoryPath, workItem, true);
+  });
 }
 
 async function status(options: { repositoryPath: string; workItemId: string }): Promise<Json> {
@@ -130,7 +133,12 @@ async function advanceWorkItem(repositoryPath: string, workItem: WorkItem, reque
     workItem = await transitionWorkItem(repositoryPath, workItem, "GATE_PUBLISHED", "sealed gate commit is reachable from the configured protected ref");
   }
   if (requestAudit && publication.ok && !validateReceipt(repositoryPath, workItem).ok) {
-    await writeAuditReceipt(repositoryPath, workItem, refreshed);
+    const auditDecision = await writeAuditReceipt(repositoryPath, workItem, refreshed);
+    if (auditDecision === "GATE-NOT-READY") {
+      workItem = await transitionWorkItem(repositoryPath, workItem, "GATE_REJECTED", "independent gate audit rejected the sealed red and gate package");
+      const recovered = await prepareFreshSession(repositoryPath, workItem, "the independent gate audit rejected the prior gate; preserve its receipt and author a fresh gate");
+      return blocked(recovered, "AUTHOR_GATE", "the prior gate was independently rejected; author the fresh recovery gate using its durable audit findings");
+    }
   }
   if (validateReceipt(repositoryPath, workItem).ok && workItem.phase === "GATE_PUBLISHED") {
     workItem = await transitionWorkItem(repositoryPath, workItem, "GATE_REVIEWED", "fresh matching GATE-READY receipt was validated");
@@ -204,15 +212,22 @@ async function prepareFreshSession(repositoryPath: string, workItem: WorkItem, r
   if (!path) throw new Error("Gate Session prepare did not return its canonical session path");
   const session = await loadSession(path, workItem);
   const phase = generation > 1 ? "RECOVERY_PREPARED" : "SESSION_PREPARED";
+  const reviewReceiptPath = generation > 1
+    ? join(repositoryPath, ".gate-readiness", "receipts", `${workItem.workItemId}-r${generation}.json`)
+    : workItem.reviewReceiptPath;
   return transitionWorkItem(repositoryPath, workItem, phase, reason, {
     gateId: typeof session.id === "string" ? session.id : gateId,
     gateSessionPath: path,
     candidatePath: stringAt(session, "worktrees", "candidatePath"),
     sessionGeneration: generation,
+    reviewReceiptPath,
+    ...(reviewReceiptPath === workItem.reviewReceiptPath ? {} : {
+      reviewReceiptHistory: [...(workItem.reviewReceiptHistory ?? []), workItem.reviewReceiptPath],
+    }),
   });
 }
 
-async function writeAuditReceipt(repositoryPath: string, workItem: WorkItem, session: Json): Promise<void> {
+async function writeAuditReceipt(repositoryPath: string, workItem: WorkItem, session: Json): Promise<"GATE-READY" | "GATE-NOT-READY" | undefined> {
   const role = await runSemanticRole({
     action: "AUDIT_GATE",
     repositoryPath,
@@ -225,15 +240,18 @@ async function writeAuditReceipt(repositoryPath: string, workItem: WorkItem, ses
     redHash: stringAt(session, "red", "reportHash"),
     gateSessionPath: sessionPath(workItem),
   });
-  if (!role.ok || !role.value) return;
+  if (!role.ok || !role.value) return undefined;
+  const decision = role.value.decision;
+  if (decision !== "GATE-READY" && decision !== "GATE-NOT-READY") return undefined;
   const findings = typeof role.value.findings === "string" ? role.value.findings : undefined;
   const findingsRef = typeof role.value.findingsRef === "string" ? role.value.findingsRef : "findings.md";
-  if (!findings || isAbsolute(findingsRef) || findingsRef.includes("..")) return;
+  if (!findings || isAbsolute(findingsRef) || findingsRef.includes("..")) return undefined;
   const receiptPath = workItem.reviewReceiptPath;
   await mkdir(dirname(receiptPath), { recursive: true });
   await atomicWrite(resolve(dirname(receiptPath), findingsRef), findings);
   const { findings: _, ...receipt } = role.value;
   await atomicWrite(receiptPath, JSON.stringify(receipt, null, 2) + "\n");
+  return decision;
 }
 
 function validateReceipt(repositoryPath: string, workItem: WorkItem): { ok: true } | { ok: false; reason: string } {
@@ -397,7 +415,7 @@ async function transitionWorkItem(
   workItem: WorkItem,
   phase: WorkItemPhase,
   reason: string,
-  facts: Partial<Pick<WorkItem, "gateId" | "gateSessionPath" | "candidatePath" | "sessionGeneration">> = {},
+  facts: Partial<Pick<WorkItem, "gateId" | "gateSessionPath" | "candidatePath" | "sessionGeneration" | "reviewReceiptPath" | "reviewReceiptHistory">> = {},
 ): Promise<WorkItem> {
   const revision = (workItem.recordRevision ?? 0) + 1;
   const next: WorkItem = {
@@ -482,6 +500,24 @@ function repositoryRoot(path: string): string { return resolve(git(resolve(path)
 function repositoryRootFromRecord(workItem: WorkItem): string { return dirname(dirname(dirname(workItem.reviewReceiptPath))); }
 function workItemDirectory(repositoryPath: string): string { return join(repositoryPath, ".gate-readiness", "work-items"); }
 function recordPath(repositoryPath: string, workItemId: string): string { return join(workItemDirectory(repositoryPath), `${workItemId}.json`); }
+async function withWorkItemLock<T>(repositoryPath: string, workItemId: string, operation: () => Promise<T>): Promise<T> {
+  const lockPath = join(repositoryPath, ".gate-readiness", "locks", `${workItemId}.lock`);
+  await mkdir(dirname(lockPath), { recursive: true });
+  let handle;
+  try {
+    handle = await open(lockPath, "wx");
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? (error as { code?: unknown }).code : undefined;
+    if (code === "EEXIST") throw new Error(`work item ${workItemId} is already advancing in another coordinator process`);
+    throw error;
+  }
+  try {
+    return await operation();
+  } finally {
+    await handle.close().catch(() => undefined);
+    await unlink(lockPath).catch(() => undefined);
+  }
+}
 function configuredGateId(workItemId: string): string {
   if (process.env.GATE_READINESS_GATE_ID) return process.env.GATE_READINESS_GATE_ID;
   const protectedGate = process.env.PROTECTED_VERIFIER_GATE;
