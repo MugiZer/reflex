@@ -106,8 +106,16 @@ async function advanceWorkItem(repositoryPath: string, workItem: WorkItem, reque
       continued = runVerifier(["continue", sessionPath(workItem)], repositoryPath);
       continuedValue = parseJson(continued.stdout);
     }
-    if (continuedValue?.action === "REPAIR_SESSION" && recoveryAttempts === 0) {
-      const recovered = await prepareFreshSession(repositoryPath, workItem, "the prior Gate Session cannot safely resume");
+    // A sealed session is immutable.  If its red evidence is later invalidated
+    // (for example by a gate correction), make a separately identified
+    // session and red calibration rather than ever continuing from stale red.
+    // The fresh session deliberately receives an `-rN` gate id, so the gate
+    // author must publish a correspondingly identified package; historical
+    // session and evidence bytes remain intact.
+    if ((continuedValue?.action === "REPAIR_SESSION" || continuedValue?.action === "RECALIBRATE_RED") && recoveryAttempts === 0) {
+      const recovered = await prepareFreshSession(repositoryPath, workItem, continuedValue.action === "RECALIBRATE_RED"
+        ? "the sealed red baseline was invalidated and requires a fresh calibration"
+        : "the prior Gate Session cannot safely resume");
       return advanceWorkItem(repositoryPath, recovered, requestAudit, recoveryAttempts + 1);
     }
     if (!continued.ok || continuedValue?.status !== "READY_FOR_IMPLEMENTATION") {
