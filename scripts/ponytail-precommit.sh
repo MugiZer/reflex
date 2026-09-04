@@ -6,7 +6,7 @@
 #   PONYTAIL_HOOK=0            skip the review entirely
 #   PONYTAIL_HOOK_PATTERNS     pathspec patterns, space-separated (default: *.py)
 #   PONYTAIL_HOOK_MAX_BYTES    max diff bytes sent to the reviewer (default: 120000)
-#   PONYTAIL_HOOK_STRICT=1     block the commit when findings are reported
+#   PONYTAIL_HOOK_STRICT=1     ask whether to continue when findings are reported
 #   PONYTAIL_DIFF_FILE         review this file instead of `git diff --cached` (testing seam)
 #
 # Never blocks on tool failure (missing CLI, no auth, network error) — a
@@ -86,7 +86,20 @@ fi
 if [ "${PONYTAIL_HOOK_STRICT:-0}" = "1" ]; then
   case "$OUT" in
     *"Lean already. Ship."*) exit 0 ;;
-    *) echo "ponytail-review: findings above — commit blocked (PONYTAIL_HOOK_STRICT=1)."; exit 1 ;;
+    *)
+      printf "ponytail-review: findings above. Continue with commit/push? [y/N] " >&2
+      ANSWER=""
+      if [ -r /dev/tty ]; then
+        IFS= read -r ANSWER </dev/tty || ANSWER=""
+      else
+        echo "ponytail-review: no interactive terminal; commit cancelled." >&2
+        exit 1
+      fi
+      case "$ANSWER" in
+        [yY]|[yY][eE][sS]) exit 0 ;;
+        *) echo "ponytail-review: commit cancelled." >&2; exit 1 ;;
+      esac
+      ;;
   esac
 fi
 exit 0
