@@ -1,48 +1,3 @@
-# Python (from main: reflex research tool)
-__pycache__/
-*.py[cod]
-*$py.class
-*.egg-info/
-build/
-*.egg
-
-# Virtual environments
-.venv/
-venv/
-env/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# Temp files
-*.tmp
-*.backup
-*.lock
-
-# Credential/entroly store
-.entroly/
-
-# Agent cache
-.agents/
-
-# Large log files (keep structure, skip content)
-pass2/luna-controller-logs/rejected-output/
-pass2/luna-controller-logs/*.log
-
-# pytest
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Node/Ubakus clone (from agent/initial-ubakus-clone: BIM-to-Physics compiler)
 node_modules/
 dist/
 outputs/
@@ -60,6 +15,7 @@ fixtures/ifc/private/
 *.ifcxml
 *.ifcXML
 .codex/
+.entroly/
 .graph-engineering/
 graphify-out/
 learning/
