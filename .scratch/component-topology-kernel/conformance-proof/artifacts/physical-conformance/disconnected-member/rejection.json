@@ -1,7 +1,0 @@
-{
-  "caseId": "disconnected-member",
-  "category": "invalid",
-  "reason": "Primitive 'fixture.disconnected' emitted invalid local geometry.",
-  "recipeSha256": "4443de0215216774e8ffbb6eb1e9737896117a6c97515482c01290ea2e911be9",
-  "status": "rejected"
-}

@@ -1,7 +1,0 @@
-{
-  "caseId": "out-of-host",
-  "category": "invalid",
-  "reason": "Primitive geometry extends outside the host depth.",
-  "recipeSha256": "799c6238fd0ecf66c8c331a13f037ab7eb883dc306aaf0a545e6543d2035aede",
-  "status": "rejected"
-}

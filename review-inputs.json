@@ -1,9 +1,0 @@
-[
-  {
-    "userInputId": "ui_demo_lambda",
-    "requestedInputId": "ri_demo_lambda",
-    "datapoint": "layer_lambda",
-    "value": 0.04,
-    "unit": "W/mK"
-  }
-]

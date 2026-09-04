@@ -1,8 +1,9 @@
-# Python (from main: reflex research tool)
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.egg-info/
+dist/
 build/
 *.egg
 
@@ -41,28 +42,3 @@ pass2/luna-controller-logs/*.log
 .pytest_cache/
 .coverage
 htmlcov/
-
-# Node/Ubakus clone (from agent/initial-ubakus-clone: BIM-to-Physics compiler)
-node_modules/
-dist/
-outputs/
-storage/
-data/
-# `src/infrastructure/storage` contains source adapters, not local runtime data.
-!src/infrastructure/storage/
-!src/infrastructure/storage/local-files/
-!src/infrastructure/storage/local-files/*.ts
-fixtures/ifc/private/
-
-*.ifc
-*.ifczip
-*.ifcZIP
-*.ifcxml
-*.ifcXML
-.codex/
-.graph-engineering/
-graphify-out/
-learning/
-.tmp-review-diff.txt
-.scratch/**/__pycache__/
-.scratch/production-readiness-checkup/evidence/

@@ -1,7 +1,0 @@
-{
-  "caseId": "point-fixing",
-  "category": "unsupported",
-  "reason": "Discrete point placements require a 3-D topology module.",
-  "recipeSha256": "191d68dcc04be2d1ce4a25e0d9e3c8253e35c72ffc5913f84952e5252ecbc628",
-  "status": "rejected"
-}

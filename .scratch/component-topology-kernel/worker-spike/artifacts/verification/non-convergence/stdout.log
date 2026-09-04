@@ -1,2 +1,0 @@
-{"calculation_id": "spike-c-wall-20260724-001", "event": "started", "pid": 29476, "timestamp": "2026-07-25T20:22:46.068974Z"}
-{"calculation_id": "spike-c-wall-20260724-001", "category": "solver_non_convergence", "event": "failed", "message": "simulated solver convergence limit", "timestamp": "2026-07-25T20:22:46.068974Z"}
