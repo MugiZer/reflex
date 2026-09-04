@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temp files
+*.tmp
+*.backup
+*.lock
+
+# Credential/entroly store
+.entroly/
+
+# Agent cache
+.agents/
+
+# Large log files (keep structure, skip content)
+pass2/luna-controller-logs/rejected-output/
+pass2/luna-controller-logs/*.log
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
