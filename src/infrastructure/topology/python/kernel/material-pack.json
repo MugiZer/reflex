@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "topology-material-pack/v1",
+  "packId": "ticket-04-conformance-materials",
+  "version": "1.0.0",
+  "conductivityUnit": "W/(m*K)",
+  "materials": {
+    "galvanized-steel": {"conductivity": 50.0, "source": "conformance-fixture"},
+    "gypsum": {"conductivity": 0.25, "source": "conformance-fixture"},
+    "mineral-wool": {"conductivity": 0.04, "source": "conformance-fixture"},
+    "sheathing": {"conductivity": 0.13, "source": "conformance-fixture"},
+    "softwood": {"conductivity": 0.12, "source": "conformance-fixture"}
+  }
+}

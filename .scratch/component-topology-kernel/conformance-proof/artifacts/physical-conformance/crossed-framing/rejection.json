@@ -1,0 +1,7 @@
+{
+  "caseId": "crossed-framing",
+  "category": "unsupported",
+  "reason": "Crossed framing is not representable by a continuous parallel-member 2-D representative cell.",
+  "recipeSha256": "5fd61087b57dd61abd10903fbddc9332644f4c82f9a60c3f4a66151516fcd0c0",
+  "status": "rejected"
+}

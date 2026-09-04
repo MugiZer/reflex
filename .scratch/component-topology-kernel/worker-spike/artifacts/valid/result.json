@@ -1,0 +1,51 @@
+{
+  "calculation_id": "spike-c-wall-20260724-001",
+  "completed_at": "2026-07-24T04:21:27.647000Z",
+  "environment": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]"
+  },
+  "refinements": [
+    {
+      "element_count": 1070,
+      "heat_balance_residual": 0.5586583419249948,
+      "heat_flow_w_per_m": 2.1789866307743297,
+      "mesh_size_m": 0.02,
+      "region_areas_m2": {
+        "insulation": 0.119068,
+        "steel": 0.0009320000000000005
+      },
+      "relative_change": null,
+      "runtime_s": 2.0339136999682523,
+      "u_value_w_m2k": 0.18158221923119414
+    },
+    {
+      "element_count": 3166,
+      "heat_balance_residual": 0.3964044760663474,
+      "heat_flow_w_per_m": 2.177756883905634,
+      "mesh_size_m": 0.01,
+      "region_areas_m2": {
+        "insulation": 0.119068,
+        "steel": 0.0009320000000000005
+      },
+      "relative_change": 0.0005643664129588876,
+      "runtime_s": 0.47428810002747923,
+      "u_value_w_m2k": 0.1814797403254695
+    },
+    {
+      "element_count": 11288,
+      "heat_balance_residual": 0.28078417151532437,
+      "heat_flow_w_per_m": 2.1771351649437736,
+      "mesh_size_m": 0.005,
+      "region_areas_m2": {
+        "insulation": 0.119068,
+        "steel": 0.0009320000000000005
+      },
+      "relative_change": 0.0002854859357604605,
+      "runtime_s": 1.6167641999782063,
+      "u_value_w_m2k": 0.18142793041198113
+    }
+  ],
+  "schema_version": "topology-worker-result/v1",
+  "status": "converged"
+}

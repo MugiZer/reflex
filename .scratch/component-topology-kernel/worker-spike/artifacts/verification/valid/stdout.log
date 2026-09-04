@@ -1,0 +1,5 @@
+{"calculation_id": "spike-periodic-c-wall-20260724-002", "event": "started", "pid": 27140, "timestamp": "2026-07-24T05:29:35.904797Z"}
+{"calculation_id": "spike-periodic-c-wall-20260724-002", "element_count": 1096, "event": "refinement_completed", "mesh_size_m": 0.02, "timestamp": "2026-07-24T05:29:37.906475Z"}
+{"calculation_id": "spike-periodic-c-wall-20260724-002", "element_count": 3178, "event": "refinement_completed", "mesh_size_m": 0.01, "timestamp": "2026-07-24T05:29:38.456270Z"}
+{"calculation_id": "spike-periodic-c-wall-20260724-002", "element_count": 11290, "event": "refinement_completed", "mesh_size_m": 0.005, "timestamp": "2026-07-24T05:29:40.086963Z"}
+{"calculation_id": "spike-periodic-c-wall-20260724-002", "event": "completed", "status": "converged", "timestamp": "2026-07-24T05:29:40.381104Z"}

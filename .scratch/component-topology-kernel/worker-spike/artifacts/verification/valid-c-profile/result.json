@@ -1,0 +1,148 @@
+{
+  "calculation_id": "spike-c-wall-20260724-001",
+  "completed_at": "2026-07-25T20:22:43.115636Z",
+  "convergence_threshold": 0.005,
+  "environment": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]"
+  },
+  "refinements": [
+    {
+      "element_count": 8878,
+      "flux_balance_w_per_m": {
+        "cold_out": 2.1778906104207563,
+        "energy_minus_face_mean": 0.0002799218842364226,
+        "hot_cold_imbalance": 0.0003240317480543986,
+        "hot_in": 2.1782146421688107,
+        "periodic_net_out": -0.005661116991724934
+      },
+      "fluxes_w_per_m": {
+        "dirichlet_reaction": {
+          "exterior": -2.17833254818846,
+          "interior": 2.178332548169419
+        },
+        "h1_skeleton_outward": {
+          "exterior": 2.177890610420756,
+          "interior": -2.178214642168811,
+          "periodic-bottom": -0.0028287140002775115,
+          "periodic-top": -0.002832402991447553
+        },
+        "hdiv_recovered_outward": {
+          "exterior": 2.1778906104207563,
+          "interior": -2.1782146421688107,
+          "periodic-bottom": -0.0028287140002774256,
+          "periodic-top": -0.0028324029914475087
+        },
+        "volume_energy_heat_flow": 2.1783325481790197
+      },
+      "free_dof_solver_residual": 8.003408886348885e-12,
+      "heat_flow_w_per_m": 2.1780526262947832,
+      "mesh_size_m": 0.02,
+      "periodic_edge_copy": {
+        "copy": "periodic-top",
+        "same_direction": true,
+        "source": "periodic-bottom"
+      },
+      "region_areas_m2": {
+        "insulation": 0.119068,
+        "steel": 0.0009320000000000005
+      },
+      "relative_change": null,
+      "runtime_s": 7.2988856000010855,
+      "thin_interface_maxh_m": 0.001,
+      "u_value_w_m2k": 0.18150438552456527
+    },
+    {
+      "element_count": 10578,
+      "flux_balance_w_per_m": {
+        "cold_out": 2.1765448552148725,
+        "energy_minus_face_mean": -1.8246279089417783e-05,
+        "hot_cold_imbalance": 3.379967911110171e-05,
+        "hot_in": 2.1765786548939836,
+        "periodic_net_out": -0.002836512119706562
+      },
+      "fluxes_w_per_m": {
+        "dirichlet_reaction": {
+          "exterior": -2.176543508777882,
+          "interior": 2.1765435087728036
+        },
+        "h1_skeleton_outward": {
+          "exterior": 2.1765448552148725,
+          "interior": -2.1765786548939823,
+          "periodic-bottom": -0.0014183527391949057,
+          "periodic-top": -0.0014181593805117252
+        },
+        "hdiv_recovered_outward": {
+          "exterior": 2.1765448552148725,
+          "interior": -2.1765786548939836,
+          "periodic-bottom": -0.0014183527391948227,
+          "periodic-top": -0.0014181593805117395
+        },
+        "volume_energy_heat_flow": 2.176543508775339
+      },
+      "free_dof_solver_residual": 7.861229092392555e-12,
+      "heat_flow_w_per_m": 2.1765617550544283,
+      "mesh_size_m": 0.01,
+      "periodic_edge_copy": {
+        "copy": "periodic-top",
+        "same_direction": true,
+        "source": "periodic-bottom"
+      },
+      "region_areas_m2": {
+        "insulation": 0.119068,
+        "steel": 0.0009320000000000005
+      },
+      "relative_change": 0.0006844973451771796,
+      "runtime_s": 4.0607878000009805,
+      "thin_interface_maxh_m": 0.001,
+      "u_value_w_m2k": 0.1813801462545357
+    },
+    {
+      "element_count": 18422,
+      "flux_balance_w_per_m": {
+        "cold_out": 2.1757339612509985,
+        "energy_minus_face_mean": -2.6206450156607275e-06,
+        "hot_cold_imbalance": 4.984933321683371e-06,
+        "hot_in": 2.17573894618432,
+        "periodic_net_out": -0.0014114221773872857
+      },
+      "fluxes_w_per_m": {
+        "dirichlet_reaction": {
+          "exterior": -2.175733833080879,
+          "interior": 2.1757338330642306
+        },
+        "h1_skeleton_outward": {
+          "exterior": 2.175733961250999,
+          "interior": -2.1757389461843184,
+          "periodic-bottom": -0.0007247202945882897,
+          "periodic-top": -0.0006867018827984534
+        },
+        "hdiv_recovered_outward": {
+          "exterior": 2.1757339612509985,
+          "interior": -2.17573894618432,
+          "periodic-bottom": -0.0007247202945885801,
+          "periodic-top": -0.0006867018827987056
+        },
+        "volume_energy_heat_flow": 2.175733833072644
+      },
+      "free_dof_solver_residual": 7.647859357319968e-12,
+      "heat_flow_w_per_m": 2.1757364537176596,
+      "mesh_size_m": 0.005,
+      "periodic_edge_copy": {
+        "copy": "periodic-top",
+        "same_direction": true,
+        "source": "periodic-bottom"
+      },
+      "region_areas_m2": {
+        "insulation": 0.119068,
+        "steel": 0.0009320000000000005
+      },
+      "relative_change": 0.00037917662333820414,
+      "runtime_s": 4.584871699975338,
+      "thin_interface_maxh_m": 0.001,
+      "u_value_w_m2k": 0.1813113711431383
+    }
+  ],
+  "schema_version": "topology-worker-result/v1",
+  "status": "converged"
+}

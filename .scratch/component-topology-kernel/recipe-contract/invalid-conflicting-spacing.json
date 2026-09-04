@@ -1,0 +1,4 @@
+{
+  "expect": {"category": "conflicting", "outcome": "blocked", "reason": "IFC-derived and user-entered spacing disagree without an authoritative review resolution."},
+  "recipe": {"fixtureBase":"valid-single-c-row.json","patch":{"periodicity":{"value":null,"authority":{"state":"conflicting","sourceRefs":["IfcProfileDef:spacing=0.6","review:spacing=0.4"],"reason":"Conflicting credible sources"}}}}
+}

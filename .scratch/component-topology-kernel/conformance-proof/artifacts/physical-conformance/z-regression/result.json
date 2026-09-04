@@ -1,0 +1,399 @@
+{
+  "caseId": "z-regression",
+  "doubleCell": {
+    "element_count": 219394,
+    "evidence_gates": {
+      "cold_out_w_per_m": 14.398899770007986,
+      "hot_cold_relative_imbalance": 1.02395057973335e-13,
+      "hot_in_w_per_m": 14.398899770006512,
+      "periodic_net_out_w_per_m": 8.996797591656288e-13,
+      "periodic_relative_imbalance": 6.248253502254429e-14
+    },
+    "flux_balance_w_per_m": {
+      "cold_out": 14.399193967599476,
+      "energy_minus_face_mean": -0.0003078046410571744,
+      "hot_cold_imbalance": 2.7214099276307024e-05,
+      "hot_in": 14.399221181698753,
+      "periodic_net_out": 8.996797591656288e-13
+    },
+    "fluxes_w_per_m": {
+      "dirichlet_reaction": {
+        "exterior": -14.398899770007986,
+        "interior": 14.398899770006512
+      },
+      "h1_skeleton_outward": {
+        "exterior": 14.399193967599473,
+        "interior": -14.399221181698765,
+        "periodic-left": 4.600615573623299e-06,
+        "periodic-right": -4.600614673365455e-06
+      },
+      "hdiv_recovered_outward": {
+        "exterior": 14.399193967599476,
+        "interior": -14.399221181698753,
+        "periodic-left": 4.6006155734009745e-06,
+        "periodic-right": -4.600614673721215e-06
+      },
+      "volume_energy_heat_flow": 14.398899770008057
+    },
+    "free_dof_solver_residual": 4.7273846956857e-12,
+    "hdiv_face_mean_heat_flow_w_per_m": 14.399207574649115,
+    "heat_flow_basis": "volume-energy-with-dirichlet-reaction-check",
+    "heat_flow_w_per_m": 14.398899770008057,
+    "mesh_size_m": 0.0025,
+    "region_areas_m2": {
+      "galvanized-steel": 0.0009255000000000217,
+      "mineral-wool": 0.5990745000000002
+    },
+    "u_value_w_m2k": 0.2399816628334676
+  },
+  "gates": {
+    "hot_cold_balance": true,
+    "mesh_convergence": true,
+    "periodic_balance": true,
+    "repeat_cell_stability": true,
+    "solver_residual": true,
+    "topology_audit": true
+  },
+  "hashes": {
+    "doubleCellSha256": "13f0949e17b14a0f5d355533c9a715c657de45bf4e2451f2b84bfd44a403144d",
+    "materialPackSha256": "0063b56fe7238789d666682944abfd2f8a866b700879b953bca9fe51065b4f7b",
+    "recipeSha256": "91e8f9783d9ac959963847752121df0a0fd3671644b03f2b8c5f7d7cd7de1c31",
+    "registrySha256": "57ded551a481b60a023712026251afb0e0b1f6e9aa49dcec6e3d6894cbfba0fd",
+    "singleCellSha256": "3880e92dcec3ca1a85a52196f65d4d39afe708cfd80276abc853bee2242d277e",
+    "sourceManifestSha256": "ce2329bd4ccbac71729addcd11f328ef4b35478767e3089d10bd290d772a3718",
+    "stableResultSha256": "8692a787fbb816b9ebcea3b9730300f3c6a7b3a03e501501e22a14c81ff17d40",
+    "validationPackSha256": "2b580ba2d66e03ea06f3a0d2165bcb557fa188e40580a571ca0b26d85bce808c"
+  },
+  "oneTwoCellRelativeDifference": 1.6584444578566482e-05,
+  "refinements": [
+    {
+      "element_count": 2175,
+      "evidence_gates": {
+        "cold_out_w_per_m": 7.221350668627064,
+        "hot_cold_relative_imbalance": 1.2877408231482957e-13,
+        "hot_in_w_per_m": 7.221350668626134,
+        "periodic_net_out_w_per_m": -2.2563164473346195e-07,
+        "periodic_relative_imbalance": 3.124507520645849e-08
+      },
+      "flux_balance_w_per_m": {
+        "cold_out": 7.231098948646445,
+        "energy_minus_face_mean": -0.0026766228750405574,
+        "hot_cold_imbalance": -0.014143314290752329,
+        "hot_in": 7.216955634355693,
+        "periodic_net_out": -2.2563164473346195e-07
+      },
+      "fluxes_w_per_m": {
+        "dirichlet_reaction": {
+          "exterior": -7.221350668627064,
+          "interior": 7.221350668626134
+        },
+        "h1_skeleton_outward": {
+          "exterior": 7.231098948646445,
+          "interior": -7.216955634355694,
+          "periodic-left": 4.757939265789446e-06,
+          "periodic-right": -4.983570910735579e-06
+        },
+        "hdiv_recovered_outward": {
+          "exterior": 7.231098948646445,
+          "interior": -7.216955634355693,
+          "periodic-left": 4.757939266031661e-06,
+          "periodic-right": -4.983570910765123e-06
+        },
+        "volume_energy_heat_flow": 7.2213506686260285
+      },
+      "free_dof_solver_residual": 3.5790553123767974e-12,
+      "hdiv_face_mean_heat_flow_w_per_m": 7.224027291501069,
+      "heat_flow_basis": "volume-energy-with-dirichlet-reaction-check",
+      "heat_flow_w_per_m": 7.2213506686260285,
+      "mesh_size_m": 0.02,
+      "region_areas_m2": {
+        "galvanized-steel": 0.0004627500000000102,
+        "mineral-wool": 0.29953725000000003
+      },
+      "relative_change": null,
+      "u_value_w_m2k": 0.24071168895420095
+    },
+    {
+      "element_count": 7296,
+      "evidence_gates": {
+        "cold_out_w_per_m": 7.209988758885337,
+        "hot_cold_relative_imbalance": 4.4840145467967795e-14,
+        "hot_in_w_per_m": 7.20998875888566,
+        "periodic_net_out_w_per_m": -4.561600862613658e-09,
+        "periodic_relative_imbalance": 6.326779437751407e-10
+      },
+      "flux_balance_w_per_m": {
+        "cold_out": 7.201758279513273,
+        "energy_minus_face_mean": 0.006208253524479623,
+        "hot_cold_imbalance": 0.00404445169444223,
+        "hot_in": 7.205802731207715,
+        "periodic_net_out": -4.561600862613658e-09
+      },
+      "fluxes_w_per_m": {
+        "dirichlet_reaction": {
+          "exterior": -7.209988758885337,
+          "interior": 7.20998875888566
+        },
+        "h1_skeleton_outward": {
+          "exterior": 7.201758279513273,
+          "interior": -7.205802731207715,
+          "periodic-left": 4.680614465745237e-06,
+          "periodic-right": -4.685176066545439e-06
+        },
+        "hdiv_recovered_outward": {
+          "exterior": 7.201758279513273,
+          "interior": -7.205802731207715,
+          "periodic-left": 4.680614465842874e-06,
+          "periodic-right": -4.685176066705488e-06
+        },
+        "volume_energy_heat_flow": 7.209988758884974
+      },
+      "free_dof_solver_residual": 3.846404798748074e-12,
+      "hdiv_face_mean_heat_flow_w_per_m": 7.203780505360494,
+      "heat_flow_basis": "volume-energy-with-dirichlet-reaction-check",
+      "heat_flow_w_per_m": 7.209988758884974,
+      "mesh_size_m": 0.01,
+      "region_areas_m2": {
+        "galvanized-steel": 0.0004627500000000102,
+        "mineral-wool": 0.29953725000000003
+      },
+      "relative_change": 0.0015733773725208416,
+      "u_value_w_m2k": 0.24033295862949913
+    },
+    {
+      "element_count": 28434,
+      "evidence_gates": {
+        "cold_out_w_per_m": 7.2021222314231315,
+        "hot_cold_relative_imbalance": 7.094701095515184e-13,
+        "hot_in_w_per_m": 7.202122231428241,
+        "periodic_net_out_w_per_m": 3.950166483315463e-09,
+        "periodic_relative_imbalance": 5.484725691099681e-10
+      },
+      "flux_balance_w_per_m": {
+        "cold_out": 7.201572586662997,
+        "energy_minus_face_mean": 0.0039059915742862827,
+        "hot_cold_imbalance": -0.006712693624147725,
+        "hot_in": 7.194859893038849,
+        "periodic_net_out": 3.950166483315463e-09
+      },
+      "fluxes_w_per_m": {
+        "dirichlet_reaction": {
+          "exterior": -7.2021222314231315,
+          "interior": 7.202122231428241
+        },
+        "h1_skeleton_outward": {
+          "exterior": 7.201572586662998,
+          "interior": -7.194859893038851,
+          "periodic-left": 4.6170364646101815e-06,
+          "periodic-right": -4.6130862979287815e-06
+        },
+        "hdiv_recovered_outward": {
+          "exterior": 7.201572586662997,
+          "interior": -7.194859893038849,
+          "periodic-left": 4.617036464873948e-06,
+          "periodic-right": -4.613086298390633e-06
+        },
+        "volume_energy_heat_flow": 7.20212223142521
+      },
+      "free_dof_solver_residual": 3.858843155304167e-12,
+      "hdiv_face_mean_heat_flow_w_per_m": 7.1982162398509235,
+      "heat_flow_basis": "volume-energy-with-dirichlet-reaction-check",
+      "heat_flow_w_per_m": 7.20212223142521,
+      "mesh_size_m": 0.005,
+      "region_areas_m2": {
+        "galvanized-steel": 0.0004627500000000102,
+        "mineral-wool": 0.29953725000000003
+      },
+      "relative_change": 0.0010910596011775842,
+      "u_value_w_m2k": 0.240070741047507
+    },
+    {
+      "element_count": 109768,
+      "evidence_gates": {
+        "cold_out_w_per_m": 7.19956928586133,
+        "hot_cold_relative_imbalance": 2.0318296819763176e-13,
+        "hot_in_w_per_m": 7.199569285862792,
+        "periodic_net_out_w_per_m": -6.663466201123428e-10,
+        "periodic_relative_imbalance": 9.255367837362068e-11
+      },
+      "flux_balance_w_per_m": {
+        "cold_out": 7.198875813321957,
+        "energy_minus_face_mean": -0.0005855031726511584,
+        "hot_cold_imbalance": 0.0025579514250688717,
+        "hot_in": 7.2014337647470255,
+        "periodic_net_out": -6.663466201123428e-10
+      },
+      "fluxes_w_per_m": {
+        "dirichlet_reaction": {
+          "exterior": -7.19956928586133,
+          "interior": 7.199569285862792
+        },
+        "h1_skeleton_outward": {
+          "exterior": 7.198875813321954,
+          "interior": -7.201433764747034,
+          "periodic-left": 4.599630582612947e-06,
+          "periodic-right": -4.600296930027215e-06
+        },
+        "hdiv_recovered_outward": {
+          "exterior": 7.198875813321957,
+          "interior": -7.2014337647470255,
+          "periodic-left": 4.599630582732507e-06,
+          "periodic-right": -4.600296929352619e-06
+        },
+        "volume_energy_heat_flow": 7.199569285861839
+      },
+      "free_dof_solver_residual": 3.674464989319901e-12,
+      "hdiv_face_mean_heat_flow_w_per_m": 7.200154789034491,
+      "heat_flow_basis": "volume-energy-with-dirichlet-reaction-check",
+      "heat_flow_w_per_m": 7.199569285861839,
+      "mesh_size_m": 0.0025,
+      "region_areas_m2": {
+        "galvanized-steel": 0.0004627500000000102,
+        "mineral-wool": 0.29953725000000003
+      },
+      "relative_change": 0.0003544712907303118,
+      "u_value_w_m2k": 0.2399856428620613
+    }
+  ],
+  "runtimeEvidence": {
+    "doubleCellSeconds": 25.560620000120252,
+    "singleCellRefinementSeconds": [
+      0.7125171001534909,
+      1.4514101999811828,
+      4.104892000090331,
+      12.594891599845141
+    ]
+  },
+  "sourceManifest": {
+    "files": {
+      ".scratch/component-topology-kernel/conformance-proof/compiler.py": "4aa773a24ae9578dee6d8484337f5dee072f18d12b0aa4e3e201da31526172b3",
+      ".scratch/component-topology-kernel/conformance-proof/material-pack.json": "0063b56fe7238789d666682944abfd2f8a866b700879b953bca9fe51065b4f7b",
+      ".scratch/component-topology-kernel/conformance-proof/numerical_solver.py": "0e2a09b9e48c4fb89d20513ddb2b7226e6ab7a928fa75c1637724560b8789917",
+      ".scratch/component-topology-kernel/conformance-proof/primitive_plugins.py": "33e694ed060bb3b13f6127ea6f7d44429cbce6f792cee7c6f7f3ddcfabf819b2",
+      ".scratch/component-topology-kernel/conformance-proof/verify_physical.py": "90ad34670a123ca96bfb7bf86ef61ea466cf2fdbc2f1f5f6fff41824e7713e0c",
+      ".scratch/component-topology-kernel/recipe-contract/recipe.schema.json": "bfca1475153d79579e94d12d3f679bd36940bd685039b0e0b04b0a17d7b68d72",
+      ".scratch/component-topology-kernel/worker-spike/numerical_utils.py": "a6b1555a550edd37c3ce187adac5fbe41d4616742535153c93799397bef3d6b3",
+      ".scratch/component-topology-kernel/worker-spike/requirements.txt": "66325fc5d019f70bee2d37155e0e4f741472c8801d3e49d4d42e82cb17f53619"
+    },
+    "materialPack": {
+      "conductivityUnit": "W/(m*K)",
+      "packId": "ticket-04-conformance-materials",
+      "sha256": "0063b56fe7238789d666682944abfd2f8a866b700879b953bca9fe51065b4f7b",
+      "version": "1.0.0"
+    },
+    "primitiveRegistry": {
+      "registrations": [
+        {
+          "capabilities": {
+            "dimension": "2d-cross-section",
+            "supportsPeriodicTranslation": true
+          },
+          "implementationSha256": "89ed884f2925e24184534752e2b6dae1ea1c16e24ac4ff26f9bd96bbc0d82b50",
+          "kind": "standard.c",
+          "parameterNames": [
+            "depth",
+            "flangeWidth",
+            "gauge",
+            "lipWidth"
+          ],
+          "version": "1.0.0"
+        },
+        {
+          "capabilities": {
+            "dimension": "2d-cross-section",
+            "supportsPeriodicTranslation": true
+          },
+          "implementationSha256": "a2563e9d85c1aff570430710c817d917734461dcc85b7537d5eeb3a3edf93493",
+          "kind": "standard.hat",
+          "parameterNames": [
+            "depth",
+            "topFlangeWidth",
+            "baseFlangeWidth",
+            "gauge"
+          ],
+          "version": "1.0.0"
+        },
+        {
+          "capabilities": {
+            "dimension": "2d-cross-section",
+            "supportsPeriodicTranslation": true
+          },
+          "implementationSha256": "f95bd38a5ea6eba8e350ab9348c1c14bab9fa7a94332d5341bff8b748b9fce17",
+          "kind": "standard.rectangle",
+          "parameterNames": [
+            "width",
+            "depth"
+          ],
+          "version": "1.0.0"
+        },
+        {
+          "capabilities": {
+            "dimension": "2d-cross-section",
+            "supportsPeriodicTranslation": true
+          },
+          "implementationSha256": "ea179be362bf2e1be2b4156fe86e5e3f8103b29d2c9d433e8910f5b6babd509b",
+          "kind": "standard.z",
+          "parameterNames": [
+            "depth",
+            "flangeWidth",
+            "gauge",
+            "lipWidth"
+          ],
+          "version": "1.0.0"
+        }
+      ],
+      "registrySnapshot": "standard-primitives-1.0.0-draft"
+    },
+    "runtime": {
+      "ngsolve": "6.2.2506",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+      "shapely": "2.1.2"
+    },
+    "schemaVersion": "conformance-source-manifest/v1",
+    "validationPack": {
+      "boundaryConditions": {
+        "exteriorTemperatureC": 0.0,
+        "interiorTemperatureC": 20.0,
+        "orientation": "exterior-to-interior",
+        "surfaceResistanceModel": "none-dirichlet-benchmark"
+      },
+      "meshSizesM": [
+        0.02,
+        0.01,
+        0.005,
+        0.0025
+      ],
+      "packId": "ticket-04-numerical-generality",
+      "requiredRecipeBoundaryProfiles": {
+        "exterior": "external-wall",
+        "interior": "internal",
+        "left": "periodic",
+        "right": "periodic"
+      },
+      "thresholds": {
+        "hot_cold_balance": 0.005,
+        "mesh_relative_change": 0.005,
+        "periodic_balance": 0.001,
+        "repeat_cell_stability": 0.005,
+        "solver_residual": 1e-08
+      },
+      "version": "1.0.0"
+    }
+  },
+  "status": "passed",
+  "topologyAudit": {
+    "area_residual_m2": 0.0,
+    "cell_area_m2": 0.30000000000000004,
+    "cell_phase_shift_m": 0.75,
+    "declared_contact_length_m": 0.6200000000000002,
+    "gap_area_m2": 0.0,
+    "interface_count": 1,
+    "material_area_m2": 0.30000000000000004,
+    "out_of_host_area_m2": 0.0,
+    "overlap_area_m2": 0.0,
+    "periodic_pair_count": 1,
+    "region_count": 2,
+    "sliver_count": 0
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "caseId": "unknown-primitive",
+  "category": "unsupported",
+  "reason": "standard.omega is absent from the pinned registry snapshot.",
+  "recipeSha256": "4d4dfeaf2da4d2c1ed5f5185bc7b6af44921a2e8e6171100f3bce573af040ff5",
+  "status": "rejected"
+}

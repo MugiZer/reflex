@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://conformity.local/schemas/declarative-construction-recipe/1.0.0-draft",
+  "title": "Declarative Construction Recipe",
+  "type": "object",
+  "required": ["schemaVersion", "topologyModule", "periodicity", "layers", "rows", "boundaries", "projectedArea"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {"const": "1.0.0-draft"},
+    "topologyModule": {"type": "object", "required": ["id", "version"], "additionalProperties": false, "properties": {"id": {"const": "repeating-parallel-profile-wall-2d"}, "version": {"type": "string"}}},
+    "periodicity": {"$ref": "#/$defs/authoredNumber"},
+    "projectedArea": {"$ref": "#/$defs/authoredNumber"},
+    "layers": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["id", "thickness", "material"], "additionalProperties": false, "properties": {"id": {"type": "string"}, "thickness": {"$ref": "#/$defs/authoredNumber"}, "material": {"$ref": "#/$defs/authoredString"}}}},
+    "rows": {"type": "array", "minItems": 1, "maxItems": 2, "items": {"type": "object", "required": ["id", "offsetX", "originY", "member"], "additionalProperties": false, "properties": {"id": {"type": "string"}, "offsetX": {"$ref": "#/$defs/authoredNumber"}, "originY": {"$ref": "#/$defs/authoredNumber"}, "member": {"type": "object", "required": ["primitive", "material"], "additionalProperties": false, "properties": {"primitive": {"type": "object", "required": ["kind", "version", "parameters"], "additionalProperties": false, "properties": {"kind": {"type": "string", "pattern": "^[a-z0-9]+(\\.[a-z0-9-]+)+$"}, "version": {"type": "string"}, "parameters": {"type": "object"}}}, "material": {"$ref": "#/$defs/authoredString"}}}}}},
+    "cavities": {"type": "array", "items": {"type": "object"}},
+    "thermalBreaks": {"type": "array", "items": {"type": "object"}},
+    "boundaries": {"type": "object", "required": ["exterior", "interior", "left", "right"], "additionalProperties": false, "properties": {"exterior": {"$ref": "#/$defs/authoredString"}, "interior": {"$ref": "#/$defs/authoredString"}, "left": {"const": "periodic"}, "right": {"const": "periodic"}}}
+  },
+  "$defs": {
+    "authority": {"type": "object", "required": ["state", "sourceRefs"], "additionalProperties": false, "properties": {"state": {"enum": ["ifc-derived", "user-confirmed", "validated-default", "preliminary-estimate", "conflicting", "missing"]}, "sourceRefs": {"type": "array", "items": {"type": "string"}}, "reason": {"type": "string"}}},
+    "authoredNumber": {"type": "object", "required": ["value", "authority"], "additionalProperties": false, "properties": {"value": {"type": ["number", "null"]}, "authority": {"$ref": "#/$defs/authority"}}},
+    "authoredString": {"type": "object", "required": ["value", "authority"], "additionalProperties": false, "properties": {"value": {"type": ["string", "null"]}, "authority": {"$ref": "#/$defs/authority"}}}
+  }
+}

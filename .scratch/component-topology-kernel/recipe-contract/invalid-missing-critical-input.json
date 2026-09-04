@@ -1,0 +1,4 @@
+{
+  "expect": {"category": "incomplete", "outcome": "blocked", "reason": "Member depth is missing and cannot be compiled."},
+  "recipe": {"fixtureBase":"valid-single-c-row.json","patch":{"rows[0].member.primitive.parameters.depth":null,"rows[0].originY.authority":{"state":"missing","sourceRefs":[],"reason":"IFC profile evidence did not give depth"}}}
+}

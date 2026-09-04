@@ -1,0 +1,25 @@
+{
+  "oracleId": "repeating-c-profile-pinned-python-v1",
+  "frozenAt": "2026-08-02T00:00:00.000Z",
+  "reviewBoundary": "Direct conformance compiler plus numerical solver; no HTTP application, SQLite projection, or aggregate implementation.",
+  "environment": {
+    "worker": ".scratch/component-topology-kernel/conformance-proof/.venv/Scripts/python.exe",
+    "meshSizesM": [0.005, 0.0025],
+    "exteriorTemperatureC": 0,
+    "interiorTemperatureC": 20
+  },
+  "fixedRecipeScalars": {
+    "hostThicknessM": 0.15,
+    "hostMaterial": "softwood",
+    "periodicityM": 0.6,
+    "flangeWidthM": 0.05,
+    "gaugeM": 0.0015,
+    "lipWidthM": 0.012
+  },
+  "absoluteToleranceWPerM2K": 1e-8,
+  "scenarios": [
+    { "memberDepthM": 0.041, "expectedUValueWPerM2K": 0.8424804269783203, "previousMeshUValueWPerM2K": 0.8425891920440857, "relativeMeshChange": 0.00012910100019237914 },
+    { "memberDepthM": 0.075, "expectedUValueWPerM2K": 0.9136190712232274, "previousMeshUValueWPerM2K": 0.9137905343401433, "relativeMeshChange": 0.00018767462536261527 },
+    { "memberDepthM": 0.1, "expectedUValueWPerM2K": 0.9955419279501067, "previousMeshUValueWPerM2K": 0.9958219318712621, "relativeMeshChange": 0.00028125778864181725 }
+  ]
+}

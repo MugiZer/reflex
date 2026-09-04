@@ -1,0 +1,4 @@
+{
+  "expect": {"category": "outside-validation-envelope", "outcome": "preliminary-unsafe", "reason": "The module understands and compiles the hat member, but this primitive/parameter combination has no approved reference case."},
+  "recipe": {"fixtureBase":"valid-single-c-row.json","patch":{"rows[0].member.primitive":{"kind":"standard.hat","version":"1.0.0","parameters":{"depth":0.04,"topFlangeWidth":0.05,"baseFlangeWidth":0.07,"gauge":0.0015}}}}
+}

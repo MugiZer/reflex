@@ -1,0 +1,116 @@
+{
+  "boundaries": {
+    "exterior": {
+      "authority": {
+        "sourceRefs": [
+          "surface-profile:external-wall"
+        ],
+        "state": "validated-default"
+      },
+      "value": "external-wall"
+    },
+    "interior": {
+      "authority": {
+        "sourceRefs": [
+          "surface-profile:external-wall"
+        ],
+        "state": "validated-default"
+      },
+      "value": "internal"
+    },
+    "left": "periodic",
+    "right": "periodic"
+  },
+  "cavities": [],
+  "layers": [
+    {
+      "id": "insulation-zone",
+      "material": {
+        "authority": {
+          "sourceRefs": [
+            "IfcMaterialLayer[0].Material.Name"
+          ],
+          "state": "ifc-derived"
+        },
+        "value": "mineral-wool"
+      },
+      "thickness": {
+        "authority": {
+          "sourceRefs": [
+            "IfcMaterialLayer[0].LayerThickness"
+          ],
+          "state": "ifc-derived"
+        },
+        "value": 0.15
+      }
+    }
+  ],
+  "periodicity": {
+    "authority": {
+      "sourceRefs": [
+        "review:c-spacing"
+      ],
+      "state": "user-confirmed"
+    },
+    "value": 0.6
+  },
+  "projectedArea": {
+    "authority": {
+      "sourceRefs": [
+        "contract:unit-out-of-plane-length"
+      ],
+      "state": "validated-default"
+    },
+    "value": 0.6
+  },
+  "rows": [
+    {
+      "id": "c-row",
+      "member": {
+        "material": {
+          "authority": {
+            "sourceRefs": [
+              "review:c-material"
+            ],
+            "state": "user-confirmed"
+          },
+          "value": "galvanized-steel"
+        },
+        "primitive": {
+          "kind": "standard.c",
+          "parameters": {
+            "depth": 0.15,
+            "flangeWidth": 0.05,
+            "gauge": 0.0015,
+            "lipWidth": 0.012
+          },
+          "version": "1.0.0"
+        }
+      },
+      "offsetX": {
+        "authority": {
+          "sourceRefs": [
+            "review:c-offset"
+          ],
+          "state": "user-confirmed"
+        },
+        "value": 0
+      },
+      "originY": {
+        "authority": {
+          "sourceRefs": [
+            "review:c-depth"
+          ],
+          "state": "user-confirmed"
+        },
+        "value": 0
+      }
+    }
+  ],
+  "schemaVersion": "1.0.0-draft",
+  "thermalBreaks": [],
+  "topologyModule": {
+    "id": "repeating-parallel-profile-wall-2d",
+    "version": "1.0.0-draft"
+  }
+}

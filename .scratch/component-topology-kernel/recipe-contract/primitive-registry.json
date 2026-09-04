@@ -1,0 +1,9 @@
+{
+  "registrySnapshot": "standard-primitives-1.0.0-draft",
+  "registrations": [
+    {"kind": "standard.rectangle", "version": "1.0.0", "parameters": ["width", "depth"], "supportsThermalBreak": true},
+    {"kind": "standard.c", "version": "1.0.0", "parameters": ["depth", "flangeWidth", "gauge", "lipWidth"], "supportsThermalBreak": true},
+    {"kind": "standard.z", "version": "1.0.0", "parameters": ["depth", "flangeWidth", "gauge", "lipWidth"], "supportsThermalBreak": true},
+    {"kind": "standard.hat", "version": "1.0.0", "parameters": ["depth", "topFlangeWidth", "baseFlangeWidth", "gauge"], "supportsThermalBreak": true}
+  ]
+}
