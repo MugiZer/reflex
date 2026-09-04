@@ -1251,3 +1251,7 @@
 {"paper_id": "p-2", "worker": "a-01", "outcome": "success", "started_at": "2026-09-04T16:26:21.245146+00:00", "ended_at": "2026-09-04T16:26:21.245146+00:00", "elapsed_seconds": 0.0, "reason": ""}
 {"paper_id": "p-1", "worker": "a-01", "outcome": "failure", "started_at": "2026-09-04T17:04:03.844607+00:00", "ended_at": "2026-09-04T17:04:03.844607+00:00", "elapsed_seconds": 0.0, "reason": "returned paper_id does not match the selected row"}
 {"paper_id": "p-2", "worker": "a-01", "outcome": "success", "started_at": "2026-09-04T17:04:03.844607+00:00", "ended_at": "2026-09-04T17:04:03.844607+00:00", "elapsed_seconds": 0.0, "reason": ""}
+{"paper_id": "p-1", "worker": "a-01", "outcome": "failure", "started_at": "2026-09-04T18:24:31.704428+00:00", "ended_at": "2026-09-04T18:24:31.704428+00:00", "elapsed_seconds": 0.0, "reason": "returned paper_id does not match the selected row"}
+{"paper_id": "p-2", "worker": "a-01", "outcome": "success", "started_at": "2026-09-04T18:24:31.704428+00:00", "ended_at": "2026-09-04T18:24:31.704428+00:00", "elapsed_seconds": 0.0, "reason": ""}
+{"paper_id": "p-1", "worker": "a-01", "outcome": "failure", "started_at": "2026-09-04T18:42:31.709232+00:00", "ended_at": "2026-09-04T18:42:31.709232+00:00", "elapsed_seconds": 0.0, "reason": "returned paper_id does not match the selected row"}
+{"paper_id": "p-2", "worker": "a-01", "outcome": "success", "started_at": "2026-09-04T18:42:31.709232+00:00", "ended_at": "2026-09-04T18:42:31.709232+00:00", "elapsed_seconds": 0.0, "reason": ""}
