@@ -1,7 +1,0 @@
-{
-  "caseId": "missing-critical-input",
-  "category": "incomplete",
-  "reason": "Member depth is missing and cannot be compiled.",
-  "recipeSha256": "5f6b2e8acc03b09a9ed3d950ef0807ca818d025186f8727c1b7e26b9c33ad0db",
-  "status": "blocked"
-}

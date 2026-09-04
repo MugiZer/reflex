@@ -1,8 +1,0 @@
-{
-  "schemaVersion":"1.0.0-draft","topologyModule":{"id":"repeating-parallel-profile-wall-2d","version":"1.0.0-draft"},
-  "periodicity":{"value":0.6,"authority":{"state":"user-confirmed","sourceRefs":["review:timber-spacing"]}},
-  "projectedArea":{"value":0.6,"authority":{"state":"validated-default","sourceRefs":["contract:unit-out-of-plane-length"]}},
-  "layers":[{"id":"outer-board","thickness":{"value":0.0125,"authority":{"state":"ifc-derived","sourceRefs":["IfcMaterialLayer[0].LayerThickness"]}},"material":{"value":"gypsum","authority":{"state":"ifc-derived","sourceRefs":["IfcMaterialLayer[0].Material.Name"]}}},{"id":"stud-zone","thickness":{"value":0.14,"authority":{"state":"user-confirmed","sourceRefs":["review:stud-depth"]}},"material":{"value":"mineral-wool","authority":{"state":"ifc-derived","sourceRefs":["IfcMaterialLayer[1].Material.Name"]}}}],
-  "rows":[{"id":"timber-row","offsetX":{"value":0,"authority":{"state":"validated-default","sourceRefs":["pack:timber-600"]}},"originY":{"value":0.0125,"authority":{"state":"validated-default","sourceRefs":["pack:timber-600"]}},"member":{"primitive":{"kind":"standard.rectangle","version":"1.0.0","parameters":{"width":0.045,"depth":0.14}},"material":{"value":"softwood","authority":{"state":"user-confirmed","sourceRefs":["review:timber-material"]}}}}],
-  "cavities":[],"thermalBreaks":[],"boundaries":{"exterior":{"value":"external-wall","authority":{"state":"validated-default","sourceRefs":["surface-profile:external-wall"]}},"interior":{"value":"internal","authority":{"state":"validated-default","sourceRefs":["surface-profile:external-wall"]}},"left":"periodic","right":"periodic"}
-}

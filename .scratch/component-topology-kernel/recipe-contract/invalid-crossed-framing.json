@@ -1,4 +1,0 @@
-{
-  "expect": {"category": "unsupported", "outcome": "rejected", "reason": "Crossed framing is not representable by a continuous parallel-member 2-D representative cell."},
-  "recipe": {"fixtureBase":"valid-timber-framing.json","patch":{"rows[0].member.orientation":"orthogonal-to-section"}}
-}

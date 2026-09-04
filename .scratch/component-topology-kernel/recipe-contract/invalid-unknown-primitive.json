@@ -1,4 +1,0 @@
-{
-  "expect": {"category": "unsupported", "outcome": "rejected", "reason": "standard.omega is absent from the pinned registry snapshot."},
-  "recipe": {"fixtureBase":"valid-single-c-row.json","patch":{"rows[0].member.primitive.kind":"standard.omega"}}
-}
