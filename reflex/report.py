@@ -149,8 +149,13 @@ def run_case(seed: int, profile: str, workdir: str | Path, n_kernels: int = 8,
         rec = _mem.record_from_ledger(ledger, iid, view)
         store.save(rec)
     wall_s = time.monotonic() - t0
+    subs = bundle.get("l3_pc") or []  # provenance passthrough: flags read off
+    # the ingested bundle artifacts (absent hardware fails closed to unknown,
+    # absent stubs fail closed to synthetic) for the ticket-19 borrow consult.
     out = {"ledger_path": str(workdir / f"case_{profile}_{seed}.jsonl"),
             "incident_id": iid, "seed": seed, "profile": profile,
+            "hardware": bundle.get("hardware", "unknown"),
+            "synthetic": bool(all(p.get("synthetic", True) for p in subs) if subs else True),
             "case_ctx": case_ctx,
             "regression": diag["regression"],
             "ranking": [[s, float(z), float(d)] for s, z, d in diag["ranking"]],
