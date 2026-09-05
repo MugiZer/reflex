@@ -471,3 +471,45 @@ def test_vendor_kineto_trace_parses_exactly():
     assert rec["name"] == "aten::linear"
     assert rec["args"]["Input Dims"] == [[32, 1024], [1024, 1024], [1024]]
     assert rec["args"]["Input Strides"] == [[1024, 1], [1024, 1], [1]]
+
+
+def _flaky_device_factory():
+    attempts = {}
+
+    def device(fault, seed):
+        attempts[(fault, seed)] = attempts.get((fault, seed), 0) + 1
+        if attempts[(fault, seed)] < 2:
+            raise RuntimeError("preempted")
+        return _device(fault, seed)
+
+    return device
+
+
+def test_pipeline_resumes_then_closes_gaps(tmp_path):
+    root, ds = tmp_path / "runs", tmp_path / "dataset.jsonl"
+    target = [("stalls", "unknown", "collect-v1")]
+    dev = _flaky_device_factory()  # shared: attempt 1 dies, attempt 2 lands
+    first = C.run_pipeline(root, ds, target, ("stalls",), (7,),
+                           device=dev, backup_dir=tmp_path / "backup")
+    assert list(first["collected"]["failed"]) == ["stalls:7"]  # recorded, not raised
+    assert first["remaining"] == [["stalls", 7]]
+    assert first["gaps"] == [["stalls", "unknown", "collect-v1"]]
+    assert first["backup"]["copied"] > 0  # partial run still backed up
+    second = C.run_pipeline(root, ds, target, ("stalls",), (7,),
+                            device=dev, backup_dir=tmp_path / "backup")
+    assert second["collected"]["done"] == [["stalls", 7]]
+    assert second["remaining"] == [] and second["gaps"] == []
+    assert second["ingested"]["accepted"] == ["stalls:7"]
+    assert second["backup"]["copied"] >= 0
+    assert set(second) == {"collected", "remaining", "ingested", "records",
+                           "gaps", "backup"}  # report shape pinned
+
+
+def test_pipeline_reports_corrupt_without_losing(tmp_path):
+    root, ds = tmp_path / "runs", tmp_path / "dataset.jsonl"
+    target = [("bw_pressure", "unknown", "collect-v1")]
+    rep = C.run_pipeline(root, ds, target, ("bw_pressure",), (8,),
+                         device=lambda f, s: {"trace.json": b"not json{{{"})
+    assert list(rep["ingested"]["rejected"]) == ["bw_pressure:8"]
+    assert rep["gaps"] == [["bw_pressure", "unknown", "collect-v1"]]  # still missing
+    assert rep["records"] == 0

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import sqlite3
 import uuid
 from pathlib import Path
@@ -537,6 +538,52 @@ def coverage_gaps(target_matrix, records: list[dict]) -> list[tuple]:
     return sorted(set(map(tuple, target_matrix)) - present)
     # ponytail: dataset-side only; add a root-scanning variant when Colab
     # needs pre-ingest gaps for runs that failed conversion.
+
+
+def backup_runs(root: str | Path, dest: str | Path) -> dict:
+    """Copy the run tree aside (Drive mount, USB, second disk). Whole small
+    files each time, never deltas; skips byte-identical files."""
+    # ponytail: full copy per call, not rsync; runs are KBs. Revisit past ~1GB.
+    root, dest = Path(root), Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    n = 0
+    for src in sorted(root.rglob("*")):
+        if src.is_file():
+            target = dest / src.relative_to(root)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if not target.exists() or _sha256(target) != _sha256(src):
+                target.write_bytes(src.read_bytes())
+                n += 1
+    return {"dest": str(dest), "copied": n}
+
+
+def run_pipeline(root: str | Path, dataset_path: str | Path,
+                 target_matrix, faults: tuple = FAULTS, seeds: tuple = (11,),
+                 device=None, backup_dir: str | Path | None = None,
+                 **meta) -> dict:
+    """One hands-free pass: collect -> verify -> ingest -> gaps -> backup.
+    Device failures are recorded, never raised; a later pass resumes them.
+    target_matrix is explicit (fault, hardware, version) triples — the caller
+    (notebook) knows its card; no guessing here."""
+    collected = collect(root, faults, seeds, device=device, **meta)
+    remaining = scan_todo(root, faults, seeds)
+    ingested = ingest(root, dataset_path)
+    records = []
+    if Path(dataset_path).exists():
+        for line in Path(dataset_path).read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                records.append(json.loads(line))
+    gaps = coverage_gaps(target_matrix, records)
+    backup = backup_runs(root, backup_dir) if backup_dir else {"dest": None,
+                                                               "copied": 0}
+    return {"collected": {"done": [list(t) for t in collected["done"]],
+                          "failed": {f"{k[0]}:{k[1]}": v for k, v in
+                                     collected["failed"].items()}},
+            "remaining": [list(t) for t in remaining],
+            "ingested": ingested,
+            "records": len(records),
+            "gaps": [list(g) for g in gaps],
+            "backup": backup}
 
 
 def pair_corpus(records: list[dict]) -> dict:
