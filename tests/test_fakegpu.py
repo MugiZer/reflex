@@ -97,8 +97,8 @@ def test_kineto_is_valid_chrome_trace_with_flow_links(tmp_path: Path) -> None:
     ends = [e for e in evs if e["ph"] == "f"]
     assert starts and len(starts) == len(ends) == N
     assert {e["id"] for e in starts} == {e["id"] for e in ends} == cids
-    cpu = {e["args"]["correlation_id"] for e in evs if e["ph"] == "X" and e["cat"] == "cuda_api"}
-    gpu = {e["args"]["correlation_id"] for e in evs if e["ph"] == "X" and e["cat"] == "kernel"}
+    cpu = {e["args"]["External id"] for e in evs if e["ph"] == "X" and e["cat"] == "cuda_runtime"}
+    gpu = {e["args"]["External id"] for e in evs if e["ph"] == "X" and e["cat"] == "kernel"}
     assert cpu == gpu == cids  # every CPU launch linked to its GPU kernel
     assert doc["displayTimeUnit"] == "us"  # classic chrome-trace clock, not ns
     assert max(e["ts"] for e in evs) < max(g["start_ns"] for g in bundle["gpu_kernel"])

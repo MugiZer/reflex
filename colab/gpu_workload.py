@@ -6,18 +6,24 @@ with a healthy run at the same seed for the corpus. Profile with:
   nsys profile -t cuda,nvtx -o <out> python gpu_workload.py --fault <name>
   and/or torch.profiler (see --torch-profile flag).
 
-Fault -> knob mapping (all deterministic under --seed):
+Fault -> knob mapping (all deterministic under --seed;
+healthy + 11 fault families mirroring FakeGPU):
   healthy                  steady 512x512 matmuls, async launches
-  cpu_starvation            host-side sleep jitter between launches (host gaps)
+  cpu_starvation            controlled host-submission starvation via sleep
+                           jitter between launches (not real OS contention)
   launch_overhead           many tiny 32x32 kernels (launch-dominated)
+  bw_pressure               streaming pass over a large tensor, minimal
+                           reuse (bandwidth-bound, low arithmetic intensity)
   transfer_heavy            large H2D/D2H copies per iter
   sync_serialization        torch.cuda.synchronize() every iter
   batching_delay            variable batch sizes incl. oversize stalls
   queue_contention          second stream with competing matmuls, no sync
   competing_workload        second stream + periodic synchronize (contended)
-  kernel_regression         2048x2048 matmuls (compute-heavy kernels)
+  kernel_regression         same 512x64 op repeated R times, last kept
+                           (wasted work; identical shapes in/out)
         preprocessing_interference dataloader-style host prepare per iter
-  stalls                    default path (memory-bound narrow matmuls)
+  stalls                    same 512x64 shapes via transposed (strided,
+                           poorly-coalesced) inputs before the matmul
 
 CPU fallback: runs the same structure on CPU (no CUDA trace, validates logic).
 """
@@ -45,13 +51,18 @@ def run_fault(fault: str, n_iters: int, seed: int, device: str) -> dict:
     stream = torch.cuda.Stream(device=dev) if device == "cuda" else None
     for i in range(n_iters):
         if fault == "cpu_starvation":
-            time.sleep(rng.uniform(0.0, 0.005))  # host gaps starve the device
+            # ponytail: sleep-jitter stand-in for host-submission starvation;
+            # upgrade to real OS-burner threads/processes when true contention matters.
+            time.sleep(rng.uniform(0.0, 0.005))  # controlled gaps, not OS contention
             a = torch.randn(512, 512, device=dev)
             a @ a
         elif fault == "launch_overhead":
             a = torch.randn(32, 32, device=dev)
             for _ in range(8):
                 a = a @ a  # many tiny launches
+        elif fault == "bw_pressure":
+            d = torch.randn(2048, 2048, device=dev)
+            d.sum()  # one streaming pass, minimal reuse (bandwidth-bound)
         elif fault == "transfer_heavy":
             h = torch.randn(1024, 1024)
             d = h.to(dev, non_blocking=True)
@@ -78,19 +89,28 @@ def run_fault(fault: str, n_iters: int, seed: int, device: str) -> dict:
                 if fault == "competing_workload" and i % 4 == 0:
                     _sync(device)
         elif fault == "kernel_regression":
-            a = torch.randn(2048, 2048, device=dev)
-            a @ a
+            a = torch.randn(512, 64, device=dev)
+            w = torch.randn(64, 512, device=dev)
+            for _ in range(4):  # same op repeated, last kept (regression, not resize)
+                out = a @ w
         elif fault == "preprocessing_interference":
             h = torch.randn(512, 512)  # host-side prepare per iter
             h = F.layer_norm(h, (512,))
             d = h.to(dev)
             d @ d
-        else:  # healthy + stalls (narrow memory-bound matmuls)
+        elif fault == "stalls":
+            a = torch.randn(64, 512, device=dev).t()  # (512, 64), strided
+            w = torch.randn(512, 64, device=dev).t()  # (64, 512), strided
+            a @ w  # same shapes as healthy, poorly coalesced
+        else:  # healthy (contiguous narrow memory-bound matmuls)
             a = torch.randn(512, 64, device=dev)
             w = torch.randn(64, 512, device=dev)
             a @ w
     _sync(device)
     stats["elapsed_s"] = round(time.monotonic() - t0, 3)
+    if fault == "cpu_starvation":
+        stats["starvation"] = ("controlled host-submission starvation "
+                               "(sleep jitter, not OS contention)")
     return stats
 
 
@@ -98,10 +118,14 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--fault", default="healthy",
                     choices=("healthy", "cpu_starvation", "launch_overhead",
-                             "transfer_heavy", "sync_serialization",
-                             "batching_delay", "queue_contention",
-                             "competing_workload", "kernel_regression",
-                             "preprocessing_interference", "stalls"))
+                             "bw_pressure", "transfer_heavy",
+                             "sync_serialization", "batching_delay",
+                             "queue_contention", "competing_workload",
+                             "kernel_regression",
+                             "preprocessing_interference", "stalls"),
+                    help="healthy + 11 fault families; cpu_starvation is "
+                    "controlled host-submission starvation (sleep jitter, "
+                    "not real OS contention)")
     ap.add_argument("--iters", type=int, default=20)
     ap.add_argument("--seed", type=int, default=11)
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available()
