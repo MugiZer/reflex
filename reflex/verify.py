@@ -29,6 +29,47 @@ _MUTATIONS = {
 INTERVENTIONS = tuple(_MUTATIONS)
 
 
+# ponytail: flat cause->(interventions, expected field directions); grow from
+# verified incidents, not speculation. Causes without an entry (transport,
+# scheduler today) have NO discriminating test: only a mapped intervention
+# observing its predicted directional effect may VERIFY that hypothesis.
+CAUSE_TESTS = {
+    "cpu": (("isolate_submit", {"cpu_gap": "down"}),),
+    "gpu": (("revert_kernel_config", {"dur": "down"}),),
+    "preprocess": (("relax_batching", {"qdepth": "down"}),),
+    "queue": (("remove_competing", {"streams": "down"}),
+              ("relax_batching", {"qdepth": "down"})),
+}
+
+
+def _means(bundle: dict) -> dict:
+    """Bundle means for directional checks (local: corpus.signature is
+    label-quarantined and must never be imported by reflex/ modules)."""
+    starts = [c["start_ns"] for c in bundle["cpu_launch"]]
+    gaps = [j - i for i, j in zip(starts, starts[1:])]
+    n_cpu = max(1, len(bundle["cpu_launch"]))
+    n_gpu = max(1, len(bundle["gpu_kernel"]))
+    n_l1 = max(1, len(bundle["l1"]))
+    return {
+        "cpu_gap": sum(gaps) / max(1, len(gaps)),
+        "cpu_dur": sum(c["end_ns"] - c["start_ns"] for c in bundle["cpu_launch"]) / n_cpu,
+        "dur": sum(g["dur_ns"] for g in bundle["gpu_kernel"]) / n_gpu,
+        "qdepth": sum(r["queue_depth"] for r in bundle["l1"]) / n_l1,
+        "streams": float(max([r["active_streams"] for r in bundle["l1"]] or [0])),
+    }
+
+
+def _effects_hold(faulty: dict, fixed: dict, expected: dict) -> dict:
+    """Per-metric directional check on fixed-vs-faulty means (strict)."""
+    before, after = _means(faulty), _means(fixed)
+    got = {}
+    for metric, direction in expected.items():
+        b, a = before[metric], after[metric]
+        got[metric] = {"before": b, "after": a,
+                       "hold": (a < b) if direction == "down" else (a > b)}
+    return got
+
+
 def _resolve(profile: FaultProfile | str) -> tuple[str, FaultProfile]:
     if isinstance(profile, str):
         return profile, PRESETS[profile]
@@ -96,12 +137,16 @@ def first_divergence(faulty: dict, healthy: dict) -> dict | None:
 
 def run_intervention(ledger, hypothesis_id: str, seed: int, faulty_profile: FaultProfile | str,
                      intervention: str, n_kernels: int = 8,
-                     correlation_id: str = "verify") -> dict:
+                     correlation_id: str = "verify",
+                     expected_effects: dict | None = None) -> dict:
     """Full experiment lifecycle; caller must pass an INFERRED hypothesis.
 
     VERIFIED = rerun measurably improves end-to-end (measured > 0) and
     recovers >= half the predicted gap. Anything else (neutral, negative,
     execution failure) stays TESTED with the outcome recorded.
+    expected_effects maps bundle metric -> "down"/"up" that the fix must
+    observably move (semantic proof the intervention tested THIS cause);
+    when given, every direction must hold or promotion stops at TESTED.
     """
     if n_kernels < 1:
         raise ValueError("n_kernels must be >= 1")
@@ -128,6 +173,11 @@ def run_intervention(ledger, hypothesis_id: str, seed: int, faulty_profile: Faul
                 "status": hypo.status.value, "error": err}
     ledger.set_measured(exp.experiment_id, measured)
     recovery = measured / predicted if abs(predicted) > _EPS else 0.0
+    effects, effects_ok = {}, True
+    if expected_effects:
+        effects = _effects_hold(generate(seed, faulty, n_kernels),
+                                fixed_bundle, expected_effects)
+        effects_ok = all(v["hold"] for v in effects.values())
     ledger.append_evidence(Evidence(
         correlation_id=correlation_id, provenance=PROVENANCE, kind="intervention",
         payload={"experiment_id": exp.experiment_id, "intervention": intervention,
@@ -135,9 +185,10 @@ def run_intervention(ledger, hypothesis_id: str, seed: int, faulty_profile: Faul
                  "recovery": recovery,
                  "context": capture_context(seed, fixed, n_kernels, fixed_bundle)}))
     status = ledger.transition(hypothesis_id, EvidenceLevel.TESTED, exp.experiment_id).status
-    if measured > 0 and recovery >= 0.5:
+    if measured > 0 and recovery >= 0.5 and effects_ok:
         status = ledger.transition(hypothesis_id, EvidenceLevel.VERIFIED, exp.experiment_id).status
     return {"ok": True, "experiment_id": exp.experiment_id, "intervention": intervention,
             "predicted_ms": predicted, "measured_ms": measured, "recovery": recovery,
+            "effects_ok": effects_ok, "effects": effects,
             "status": status.value, "faulty_p99_ms": faulty_p99,
             "fixed_p99_ms": fixed_p99, "healthy_p99_ms": healthy_p99}

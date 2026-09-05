@@ -170,31 +170,48 @@ def generate(seed: int, profile: FaultProfile | str = "healthy", n_kernels: int 
 
 
 def kineto_events(bundle: dict) -> list[dict]:
-    """Chrome-trace events (µs trace clock; bundle stays ns); flow s/f pairs join CPU launch to GPU kernel."""
+    """Chrome-trace events in real Kineto conventions (research brief §3):
+    integer-us ts/dur, real cats, args."External id" linkage (= CUPTI
+    correlationId), pid=device/tid=stream for device events. Flow s/f use
+    decimal-int id + "bp":"e" on f; join rule is group-by-External-id."""
     evs: list[dict] = []
-    for cpu, gpu, tx, sy in zip(bundle["cpu_launch"], bundle["gpu_kernel"],
-                                bundle["transfer"], bundle["sync_edge"]):
+    for i, (cpu, gpu, tx, sy) in enumerate(zip(bundle["cpu_launch"], bundle["gpu_kernel"],
+                                               bundle["transfer"], bundle["sync_edge"])):
         cid = cpu["correlation_id"]
-        evs.append({"name": gpu["kernel_name"] + "[launch]", "cat": "cuda_api", "ph": "X",
-                    "ts": cpu["start_ns"] // 1000, "dur": (cpu["end_ns"] - cpu["start_ns"]) // 1000,
+        # ponytail: ns→integer-us truncation loses sub-us precision (inherent to
+        # integer Chrome trace clocks); harmless at our ms-scale thresholds.
+        cpu_ts = cpu["start_ns"] // 1000
+        cpu_dur = (cpu["end_ns"] - cpu["start_ns"]) // 1000
+        gpu_ts = gpu["start_ns"] // 1000
+        gpu_dur = gpu["dur_ns"] // 1000
+        tx_ts = tx["start_ns"] // 1000
+        tx_dur = tx["dur_ns"] // 1000
+        sy_ts = sy["start_ns"] // 1000
+        sy_dur = (sy["end_ns"] - sy["start_ns"]) // 1000
+        evs.append({"name": cpu["api"], "cat": "cuda_runtime", "ph": "X",
+                    "ts": cpu_ts, "dur": cpu_dur,
                     "pid": 1000, "tid": 1,
-                    "args": {"correlation_id": cid, "stream_id": cpu["stream_id"],
-                             "api": cpu["api"], "synthetic": True}})
-        evs.append({"name": "launch->kernel", "cat": "flow", "ph": "s", "ts": cpu["start_ns"] // 1000,
-                    "pid": 1000, "tid": 1, "id": cid, "args": {"correlation_id": cid}})
+                    "args": {"External id": cid, "stream": cpu["stream_id"],
+                             "api": cpu["api"]}})
+        evs.append({"name": "launch->kernel", "ph": "s", "ts": cpu_ts,
+                    "pid": 1000, "tid": 1, "id": cid, "args": {"External id": cid}})
         evs.append({"name": gpu["kernel_name"], "cat": "kernel", "ph": "X",
-                    "ts": gpu["start_ns"] // 1000, "dur": gpu["dur_ns"] // 1000, "pid": 2000, "tid": gpu["stream_id"],
-                    "args": {"correlation_id": cid, "stream_id": gpu["stream_id"],
-                             "device_id": gpu["device_id"], "synthetic": True}})
-        evs.append({"name": "launch->kernel", "cat": "flow", "ph": "f", "ts": gpu["start_ns"] // 1000,
-                    "pid": 2000, "tid": gpu["stream_id"], "id": cid, "args": {"correlation_id": cid}})
-        evs.append({"name": "memcpy", "cat": "memcpy", "ph": "X", "ts": tx["start_ns"] // 1000,
-                    "dur": tx["dur_ns"] // 1000, "pid": 2000, "tid": tx["stream_id"],
-                    "args": {"correlation_id": cid, "bytes": tx["bytes"], "synthetic": True}})
-        evs.append({"name": "sync", "cat": "sync", "ph": "X",
-                    "ts": sy["start_ns"] // 1000, "dur": (sy["end_ns"] - sy["start_ns"]) // 1000,
+                    "ts": gpu_ts, "dur": gpu_dur, "pid": gpu["device_id"], "tid": gpu["stream_id"],
+                    "args": {"External id": cid, "stream": gpu["stream_id"],
+                             "grid": list(cpu.get("grid", ())) or None,
+                             "block": list(cpu.get("block", ())) or None,
+                             "occupancy_pct": gpu.get("occupancy_pct")}})
+        evs.append({"name": "launch->kernel", "ph": "f", "ts": gpu_ts,
+                    "pid": gpu["device_id"], "tid": gpu["stream_id"], "id": cid, "bp": "e",
+                    "args": {"External id": cid}})
+        evs.append({"name": "Memcpy %s" % tx["kind"], "cat": "gpu_memcpy", "ph": "X",
+                    "ts": tx_ts, "dur": tx_dur, "pid": gpu["device_id"], "tid": tx["stream_id"],
+                    "args": {"External id": cid, "bytes": tx["bytes"], "kind": tx["kind"]}})
+        evs.append({"name": sy["type"], "cat": "cuda_sync", "ph": "X",
+                    "ts": sy_ts, "dur": sy_dur,
                     "pid": 1000, "tid": 1,
-                    "args": {"correlation_id": cid, "serialized": sy["serialized"], "synthetic": True}})
+                    "args": {"External id": cid, "stream": sy["stream_id"],
+                             "serialized": sy["serialized"]}})
     return evs
 
 

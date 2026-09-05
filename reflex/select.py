@@ -61,6 +61,9 @@ PREREQS = {"deep_profile": ("kernel_timeline",),
 # when a measured cost model justifies committing sooner/later.
 COMMIT_P, COMMIT_MARGIN = 0.85, 0.10
 _COST_FLOOR = 1e-6  # ponytail: numerical floor only; faults move costs ~ms.
+# ponytail: judged open-world bar; fit from incident economics when abstention
+# rates are measurable. Above it, Bayesian EIG is untrusted by design.
+_UNKNOWN_ABSTAIN = 0.5
 _FAMILY_CAUSE = {"cpu_starvation": "cpu", "launch_overhead": "scheduler",
                  "bw_pressure": "gpu", "stalls": "gpu",
                  "sync_serialization": "scheduler", "transfer_heavy": "transport",
@@ -256,6 +259,13 @@ def _prereq_ok(action: str, taken) -> tuple[bool, str]:
     return True, ""
 
 
+def _rank_key(r: dict) -> tuple:
+    """One ranking for selector rows everywhere (select + fallback + run):
+    score desc, cost asc, name. A single site so the two can never diverge
+    into catalog-order execution again."""
+    return (-r["score"], r["cost_ms"], r["action"])
+
+
 def _score_row(action: str, belief: dict, models: dict, costs: dict,
                taken) -> dict:
     ok, why = _prereq_ok(action, taken)
@@ -275,12 +285,16 @@ def select(belief: dict, models: dict | None, costs: dict, taken=(),
     outcome models exist and are trusted; transparent cost-aware index
     fallback (confidence value order, reused not duplicated) otherwise."""
     taken = tuple(taken)
+    unk = float((belief or {}).get(UNKNOWN, 0.0) or 0.0)
+    if unk > _UNKNOWN_ABSTAIN:
+        return _index_fallback(costs, taken, table, q,
+                               "open-world mass %.2f exceeds bar: EIG untrusted, exploratory index" % unk)
     if not _has_models(models):
         return _index_fallback(costs, taken, table, q,
                                "cold-start: no outcome models, index fallback")
     rows = [_score_row(a, belief, models, costs, taken) for a in ACTIONS]
     open_rows = [r for r in rows if r["admissible"]]
-    scored = sorted(open_rows, key=lambda r: (-r["score"], r["cost_ms"], r["action"]))
+    scored = sorted(open_rows, key=_rank_key)
     if not scored:
         return {"mode": "eig", "winner": None, "rows": rows,
                 "reason": "no admissible measurement (prerequisites unmet)",
@@ -325,7 +339,7 @@ def _index_fallback(costs: dict, taken, table, q: float, reason: str) -> dict:
                          "cost_ms": effective_cost(costs, a, taken),
                          "score": float(sub.get(v, float("-inf"))),
                          "admissible": True, "reason": ""})
-        rows.sort(key=lambda r: (-r["score"], r["cost_ms"], r["action"]))
+        rows.sort(key=_rank_key)
         best = next(r for r in rows if r["action"] == winner)
         alts = [r for r in rows if r["action"] != winner]
     return {"mode": "index", "winner": best["action"], "rows": rows,
@@ -341,10 +355,13 @@ def update_belief(belief: dict, models: dict, action: str, outcome: str) -> dict
     """Bayes posterior with the empirical likelihoods (single-counted; the
     selector never re-proposes a taken action so repeats cannot double-count)."""
     causes = list(models["causes"])
-    prior = _belief_dist(belief, causes)  # dist already defaults missing causes to 0.0
+    unk = float((belief or {}).get(UNKNOWN, 0.0) or 0.0)
+    prior = _belief_dist({c: float(belief.get(c, 0.0) or 0.0) for c in causes}, causes)
     post = {c: prior[c] * likelihood(models, action, c)[outcome] for c in causes}
     tot = sum(post.values()) or 1.0
-    return {c: v / tot for c, v in post.items()}
+    out = {c: v / tot * (1.0 - unk) for c, v in post.items()}
+    out[UNKNOWN] = unk  # open-world mass is carried, never normalized away
+    return out
 
 
 class ToolRegistry:
@@ -455,7 +472,7 @@ def run(ledger, incident_id: str, belief: dict, models: dict | None,
     steps = 0
     while steps < max_steps:
         sel = select(cur, models, costs, taken, table=table, q=q)
-        cands = [r for r in sel["rows"] if r["admissible"]]  # select() already ranks; filter only
+        cands = sorted([r for r in sel["rows"] if r["admissible"]], key=_rank_key)
         pick, rej = None, "no admissible measurement"
         for r in cands:  # cost-check pass: first guard-admitted candidate wins
             ok, reason = reg.check(r["action"], taken, budget_ms - spent)
@@ -487,14 +504,17 @@ def run(ledger, incident_id: str, belief: dict, models: dict | None,
         trace.append({"state": "update", "outcome": res["outcome"],
                       "belief": {k: round(v, 4) for k, v in cur.items()}})
         steps += 1
-        top = sorted(cur, key=lambda c: (-cur[c], c))
-        margin = cur[top[0]] - (cur[top[1]] if len(top) > 1 else 0.0)
-        if _has_models(models) and cur[top[0]] >= COMMIT_P and margin >= COMMIT_MARGIN:
+        cands = sorted((c for c in cur if c != UNKNOWN), key=lambda c: (-cur[c], c))
+        top = cands[0] if cands else UNKNOWN
+        margin = cur[top] - (cur[cands[1]] if len(cands) > 1 else 0.0)
+        # UNKNOWN is never a commit candidate: committing to it would certify
+        # ignorance as a diagnosis. High-unknown runs abstain via select().
+        if _has_models(models) and top != UNKNOWN and cur[top] >= COMMIT_P and margin >= COMMIT_MARGIN:
             trace.append({"state": "verify", "decision": "commit",
-                          "reason": "posterior %.3f margin %.3f" % (cur[top[0]], margin)})
+                          "reason": "posterior %.3f margin %.3f" % (cur[top], margin)})
             return _finish(ledger, incident_id, trace, taken, spent, cur,
                            "commit", "posterior %.3f margin %.3f" % (
-                               cur[top[0]], margin), corr)
+                               cur[top], margin), corr)
     reason = "step budget exhausted with residual ambiguity"
     trace.append({"state": "verify", "decision": "abstain-and-stop", "reason": reason})
     return _finish(ledger, incident_id, trace, taken, spent, cur,

@@ -150,3 +150,26 @@ def test_intervention_table_resets_its_knob() -> None:
 def test_completion_p99_rejects_empty() -> None:
     with pytest.raises(ValueError):
         completion_p99(generate(SEED, "healthy", 0))
+
+
+def test_verification_needs_semantic_effect(tmp_path: Path) -> None:
+    # relax_batching genuinely fixes batching_delay (measured > 0), but kernel
+    # durations do not move: demanding dur-down must hold promotion at TESTED.
+    ledger, hypo = fresh(tmp_path / "sem.jsonl", cause="preprocess")
+    res = run_intervention(ledger, hypo.hypothesis_id, SEED, "batching_delay",
+                           "relax_batching", N, correlation_id="sem-1",
+                           expected_effects={"dur": "down"})
+    assert res["ok"] and res["measured_ms"] > 0  # the fix worked...
+    assert res["effects_ok"] is False  # ...but not through the demanded mechanism
+    assert res["status"] == "TESTED"  # never promoted on unmet semantics
+    assert ledger.hypotheses[hypo.hypothesis_id].status is EvidenceLevel.TESTED
+
+
+def test_met_effects_still_verify(tmp_path: Path) -> None:
+    # Positive control for the semantic gate: starvation + isolate_submit with
+    # cpu_gap-down met must reach VERIFIED (gate blocks only unmet semantics).
+    ledger, hypo = fresh(tmp_path / "sem2.jsonl", cause="cpu")
+    res = run_intervention(ledger, hypo.hypothesis_id, SEED, "cpu_starvation",
+                           "isolate_submit", N, correlation_id="sem-2",
+                           expected_effects={"cpu_gap": "down"})
+    assert res["effects_ok"] is True and res["status"] == "VERIFIED"
