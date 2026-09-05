@@ -31,6 +31,11 @@ A complete, build-ready spec to hand off for the full Reflex autonomous performa
 - [Active measurement selection and investigation control](tickets/10-measurement-selection-and-control.md) — `reflex/select.py`, shared-signal redundancy + structured linkage, 101 passed, uncommitted
 - [Gate prep: /show-me earning gate](tickets/13-showme-gate-prep.md) — plan + red + M1 executed in slice 14, resolved, uncommitted
 - [/show-me CLI, eval harness, and acceptance demo](tickets/14-showme-cli-and-acceptance.md) — `__main__` + report + eval, full eval 10/11 Top-1 and 2/11 verified, 106 passed, uncommitted
+- [James-Stein shrinkage over per-family voice accuracies](tickets/15-shrinkage-priors.md) — `reflex/shrink.py`, simulation wins proven, real-data holdout negative (not promoted), 118 passed, uncommitted
+- [Collector matrix: hardware/device/version capture + coverage gaps](tickets/16-collector-matrix-coverage.md) — extended `collect.py` in place, unknown-never-pairs, uncommitted
+- [Partial-pooling ranker + MAP prior (silicon-gated promotion)](tickets/17-partial-pooling-map.md) — `reflex/pool.py`, true context-LOO + derived provenance flags, 136 passed, uncommitted
+- [REML/PM + PC-MAP tau with Q-profile CI and prediction intervals](tickets/18-tau-estimators-intervals.md) — extended `pool.py`, PI on REML, ignorance-unbounded CI, 145 passed, uncommitted
+- [Borrow gate upgrade + production wiring](tickets/19-borrow-gate-wiring.md) — four falsifiable checks, explicit uncapped eval policy, audit GO, 152 passed, uncommitted
 
 ## Not yet specified
 
