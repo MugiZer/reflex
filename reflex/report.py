@@ -111,10 +111,14 @@ def run_case(seed: int, profile: str, workdir: str | Path, n_kernels: int = 8,
         hid = ledger.propose_hypothesis(Hypothesis(
             incident_id=iid, provenance=PROVENANCE, cause=top,
             correlation_id=f"report:{seed}")).hypothesis_id
-        for iv in _ver.INTERVENTIONS:
+        # Only mapped interventions may verify this cause: each must observe
+        # its predicted directional effect, or promotion stops at TESTED.
+        # Causes without a map entry have no discriminating test (honest gap).
+        for iv, expected in _ver.CAUSE_TESTS.get(top, ()):
             try:
                 res = _ver.run_intervention(ledger, hid, seed, profile, iv,
-                                            n_kernels, correlation_id=f"report:{seed}")
+                                            n_kernels, correlation_id=f"report:{seed}",
+                                            expected_effects=dict(expected))
             except Exception as exc:  # unexpected failure recorded, loop continues
                 res = {"ok": False, "intervention": iv, "measured_ms": None,
                        "error": f"{type(exc).__name__}: {exc}"}

@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 from reflex import confidence as C
 from reflex import select as S
 from reflex.fakegpu import generate
-from reflex.ledger import Incident, Ledger
+from reflex.ledger import Incident, Ledger, UNKNOWN
 from reflex.runtime import calibrate
 
 SEEDS = (200, 201, 202, 203)
@@ -223,3 +223,52 @@ def test_hygiene_no_frontier_or_label_leak():
         assert bad not in src
     from reflex.corpus import label_importers
     assert label_importers() == []
+
+
+def test_unknown_mass_survives_belief_update(models):
+    bundle = generate(HELD, "cpu_starvation", 8)
+    b = {"cpu": 0.4, "gpu": 0.4, UNKNOWN: 0.2}
+    out = S.outcome_of("timeline", bundle)
+    post = S.update_belief(b, models, "timeline", out)
+    assert post[UNKNOWN] == 0.2  # carried, never normalized away
+    assert abs(sum(v for k, v in post.items() if k != UNKNOWN) - 0.8) < 1e-9
+
+
+def test_high_unknown_falls_back_to_index(models, costs, table):
+    b = {"cpu": 0.2, "gpu": 0.2, UNKNOWN: 0.6}
+    sel = S.select(b, models, costs, (), table=table, q=0.3)
+    assert sel["mode"] == "index" and "open-world" in sel["reason"]
+
+
+def test_below_bar_unknown_stays_bayesian(models, costs):
+    b = {"cpu": 0.3, "gpu": 0.3, UNKNOWN: 0.4}
+    sel = S.select(b, models, costs, ())
+    assert sel["mode"] == "eig"  # 0.4 < 0.5 bar: no fallback, pin the boundary
+
+
+def test_orchestrator_executes_selector_winner(tmp_path):
+    # Hand-built models: counters discriminates perfectly, every other action
+    # is uniform noise. Deterministic (no timing, no fits): counters must win
+    # AND be executed. Old code executed catalog-first timeline instead.
+    causes = ["cpu", "gpu"]
+    counts = {}
+    for a in S.ACTIONS:
+        labels = S.OUTCOMES[a][0]
+        if a == "counters":
+            counts[a] = {"cpu": {labels[0]: 0, labels[1]: 10},
+                         "gpu": {labels[0]: 10, labels[1]: 0}}
+        else:
+            counts[a] = {c: {o: 5 for o in labels} for c in causes}
+    models = {"counts": counts, "causes": causes, "n": 100,
+              "trusted": True, "smoothing": "laplace+1"}
+    costs = {"incremental": {a: 5.0 for a in S.ACTIONS},
+             "setup": {g: 0.0 for g in S.GROUPS},
+             "group": dict(S.GROUP_OF), "floor_ms": 1e-6}
+    led, iid = _ledger(tmp_path)
+    bundle = generate(HELD, "bw_pressure", 8)
+    belief = {"cpu": 0.5, "gpu": 0.5}
+    sel = S.select(dict(belief), models, costs, ())
+    assert sel["winner"] == "counters"  # guard: construction discriminates
+    out = S.run(led, iid, dict(belief), models, costs, bundle,
+                budget_ms=1e6, max_steps=1)
+    assert out["taken"] == ["counters"]  # executed == selected, not catalog order

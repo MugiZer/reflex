@@ -173,7 +173,9 @@ def test_module_hygiene():
         assert bad not in src  # no heavy deps, no corpus refs
     assert "scipy" in src  # ticket 18: chi2 + 1-D optimize adopted
     assert "statistics" in src and "math" in src
-    assert time.time() - T0 < 60  # whole module budget (import-time T0 overestimates)
+    # ponytail: no wall-clock budget assert here — under a shared pytest
+    # process it measures suite position, not module cost, and flakes as the
+    # suite grows. New-test budgets are enforced at review time instead.
 
 
 def test_map_moderate_conflict_partial_borrow():

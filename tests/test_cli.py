@@ -88,3 +88,11 @@ def test_demo_end_to_end(tmp_path):
     case = json.loads((tmp_path / "demo" / "cases" / "case_cpu_starvation_11.json").read_text())
     assert case["verified"] and case["verified"]["measured_ms"] > 0  # measured recovery
     assert resolve_report(demo_md.read_text(), Ledger(str(ledgers[0])))["ok"]
+
+
+def test_unmapped_cause_cannot_verify(tmp_path):
+    # transfer_heavy has no discriminating intervention mapped: even a perfect
+    # fix may not verify the cause. The report must abstain, never promote.
+    case = run_case(31, "transfer_heavy", tmp_path / "cases", 8)
+    assert case["verified"] is None
+    assert case["next_measurement"] is not None
