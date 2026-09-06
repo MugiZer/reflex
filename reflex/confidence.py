@@ -23,7 +23,9 @@ import scipy.optimize as opt
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
 
-from mapie.classification import SplitConformalClassifier
+# ponytail: mapie stays a function-level import (only fit_conformal needs it)
+# so bare environments (Colab smoke: numpy/scipy/sklearn preinstalled, mapie
+# not) can import this module and use everything else.
 
 from . import diagnose, tournament
 from .ledger import Evidence, EvidenceLevel
@@ -150,6 +152,7 @@ def fit_conformal(X, y, Xc=None, yc=None, *, C: float = 0.1, level: float = 0.8)
     """MAPIE split-conformal sets over a prefit LogReg (lac). Conformalize on
     (Xc, yc) when given, else on the train rows (optimistic — same-data
     coverage overstates; pass a held-out fold whenever one exists)."""
+    from mapie.classification import SplitConformalClassifier  # lazy: keeps bare envs importable
     X = np.asarray(X, float)
     y = np.asarray(list(y))
     est = LogisticRegression(max_iter=5000, C=C).fit(X, y)
