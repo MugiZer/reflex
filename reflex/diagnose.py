@@ -296,11 +296,23 @@ def compare_real(incident: dict, baselines: list[dict]) -> dict:
         scale = _REL_TOL * abs(m) if st != "queue" else 0.0
         denom = 1.4826 * d + floor + scale
         z, delta = ((fm - m) / denom, fm - m) if denom else (0.0, fm - m)
+        extra = {}
+        if st == "cpu" and pool[st] and vals:
+            # ponytail: tail-mass probe — fraction of gaps above 1ms. Baseline
+            # p99 is unusable (healthy's own CUDA-init outliers set it to 6ms
+            # and swallow 4-5ms starvation sleeps); 1ms is the host-stall
+            # visibility floor (sub-ms = scheduling noise). Recorded as
+            # evidence for the calibration layer; does NOT enter z yet.
+            thresh = 1.0
+            extra = {"tail_T_ms": thresh,
+                     "tail_frac_base": sum(1 for v in pool[st] if v > thresh) / len(pool[st]),
+                     "tail_frac_incident": sum(1 for v in vals if v > thresh) / len(vals)}
         surfaces[st] = {"unit": unit, "z": z, "delta": delta,
                         "groups": {"pooled": {
                             "base_med": m, "base_mad": d, "fault_med": fm,
                             "delta": delta, "z": z,
-                            "n_base": len(pool[st]), "n_fault": len(vals)}},
+                            "n_base": len(pool[st]), "n_fault": len(vals),
+                            **extra}},
                         "n_baselines": len(baselines)}
     return {"context": {"timing_model_version": ctx["timing_model_version"],
                         "n_ops": ctx["n_ops"], "kernels": list(ctx["kernels"])},
@@ -345,19 +357,70 @@ def regression_real(incident: dict, baselines: list[dict]) -> dict:
             "p99_delta_ms": inc_p99 - _med(b_p99s)}
 
 
+_CAL_ARTIFACT = None
+
+
+def _calibration_artifact() -> dict:
+    """Frozen real-path calibration (reflex/calibration.json, written by
+    scripts/fit_calibration.py); loaded once, then cached."""
+    global _CAL_ARTIFACT
+    if _CAL_ARTIFACT is None:
+        from pathlib import Path as _Path
+
+        from . import calibrate as _cal  # lazy: calibrate imports diagnose at its module level
+        p = _Path(__file__).resolve().parent / "calibration.json"
+        if not p.exists():
+            raise FileNotFoundError(f"{p} missing: run scripts/fit_calibration.py to fit it")
+        _CAL_ARTIFACT = _cal.load_artifact(p)
+    return _CAL_ARTIFACT
+
+
+def _calibrated_ranking(surfaces: dict, calibration) -> tuple[dict, list]:
+    """P(cause) + ranking for the real path.
+
+    calibration=None uses the frozen artifact; a mapping with W/b/T/bias
+    overrides it (eval LOO folds). Ranking entries are (stage, prob, z):
+    calibrated order with raw z kept for traceability."""
+    from . import calibrate as _cal
+
+    if calibration is None:
+        art = _calibration_artifact()
+        W, b, T, bias = art["W"], art["b"], art["T"], art["bias"]
+    else:
+        W, b, T, bias = calibration["W"], calibration["b"], \
+            calibration["T"], calibration["bias"]
+    z, tail = _cal.featurize(surfaces)
+    proba = {st: float(p) for st, p in
+             zip(STAGES, _cal.apply_probs(_cal.base_logits(W, b, z, tail), T, bias))}
+    order = _cal.calibrated_ranking(proba)
+    zmap = {st: float(surfaces[st]["z"]) for st in STAGES}
+    return proba, [(st, proba[st], zmap[st]) for st, _ in order]
+
+
 def diagnose(incident: dict, baselines: list[dict], ledger,
-             provenance: str = PROVENANCE, *, strict: bool = True) -> dict:
+             provenance: str = PROVENANCE, *, strict: bool = True,
+             calibration=None) -> dict:
     """Matched-slice diagnosis. All hypotheses INFERRED; fixes always [].
 
     strict=True (default): exact kernel-set context + positional series, for
     synthetic bundles. strict=False: distributional real-bundle path
     (compare_real/regression_real, timing-model context only) for adapted
-    Kineto bundles with heterogeneous kernel sets. Same ranking, registry,
-    UNKNOWN-mass and evidence shapes on both paths."""
+    Kineto bundles with heterogeneous kernel sets. On the real path the
+    returned ranking is calibrated P(cause) order (stage, prob, z) from the
+    frozen reflex/calibration.json artifact (synthetic-trained base, real
+    T+bias refit); hypotheses/registry/UNKNOWN mass stay raw-z based and
+    raw_ranking is kept for audit. Pass calibration={"W","b","T","bias"} to
+    override the artifact (eval LOO folds), or calibration=False for the
+    legacy raw-z ranking (pre-calibration baseline). The strict path is
+    untouched."""
     if not strict:
         comp = compare_real(incident, baselines)
         reg = regression_real(incident, baselines)
-        ranking = rank(comp["surfaces"])
+        raw_ranking = rank(comp["surfaces"])
+        if calibration is False:
+            proba, ranking = None, raw_ranking
+        else:
+            proba, ranking = _calibrated_ranking(comp["surfaces"], calibration)
         inc = ledger.open_incident(Incident(
             provenance=provenance,
             title="matched slice: %d baselines, span delta %+.2fms" %
@@ -372,7 +435,7 @@ def diagnose(incident: dict, baselines: list[dict], ledger,
                          "delta": s["delta"], "groups": s["groups"],
                          "context": comp["context"]})).record_id
         registry = Registry(ledger, inc.incident_id, provenance)
-        cands = [(st, z) for st, z, _ in ranking if z > _Z_CANDIDATE]
+        cands = [(st, z) for st, z, _ in raw_ranking if z > _Z_CANDIDATE]
         against = [stage_ids[st] for st, s in comp["surfaces"].items()
                    if abs(s["z"]) <= _Z_CANDIDATE]
         hypos = [registry.propose(st, [stage_ids[st]], against, z) for st, z in cands]
@@ -390,17 +453,22 @@ def diagnose(incident: dict, baselines: list[dict], ledger,
                                    "contradict_ids", "score", "suppressed")} for e in hypos],
                 "unknown_mass": registry.unknown_mass,
                 "ranker": "median-mad-matched-delta-v1", "fixes": []}))
-        top, tz, td = ranking[0]
+        top, tprob, tz = ranking[0]
         unit = comp["surfaces"][top]["unit"]
+        if proba is None:
+            topfrag = "top %s z=%.2f delta=%+.4f%s" % (top, tprob, tz, unit)
+        else:
+            topfrag = "top %s p=%.3f (z=%.2f%s)" % (top, tprob, tz, unit)
         return {"incident_id": inc.incident_id, "context": comp["context"],
                 "n_baselines": len(baselines), "regression": reg,
                 "surfaces": comp["surfaces"], "ranking": ranking,
+                "raw_ranking": raw_ranking, "calibrated_proba": proba,
                 "hypotheses": list(registry.entries.values()),
                 "unknown_mass": registry.unknown_mass, "fixes": [],
-                "rationale": "matched %d baselines %s n=%d; top %s z=%.2f delta=%+.4f%s; "
+                "rationale": "matched %d baselines %s n=%d; %s; "
                              "UNKNOWN mass=%.3f; %d INFERRED cause(s), none elevated" % (
                                  len(baselines), comp["context"]["timing_model_version"],
-                                 comp["context"]["n_ops"], top, tz, td, unit,
+                                 comp["context"]["n_ops"], topfrag,
                                  registry.unknown_mass, len(cands)),
                 "registry": registry}
     comp = compare(incident, baselines)
