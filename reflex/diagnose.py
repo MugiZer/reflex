@@ -270,6 +270,30 @@ def _check_context_real(incident: dict, baselines: list[dict]) -> dict:
             "kernels": knames}
 
 
+_LAYOUT_OPS = frozenset({"aten::transpose", "aten::permute", "aten::t"})
+
+
+def layout_signature(incident: dict, baselines: list[dict]) -> dict:
+    """Memory-layout signature rule (Nsight-rule style, real path only).
+
+    Strided/coalescing defects show NO duration excess (same shapes, same or
+    better times) — no magnitude ranker can crown them. The direct evidence
+    is transpose-family construction ops present in the incident and absent
+    in ALL baselines (as_strided alone excluded: allocator internals emit it
+    on healthy paths too). Fires -> {"stage": "gpu", "n_ops": count} else
+    {"stage": None}. Deterministic, zero fitted params, no thresholds."""
+    def count(b: dict) -> int:
+        # ponytail: EXACT op-name match — substring "aten::t" also matches
+        # "aten::to"/"aten::topk"/"aten::tanh" (regression 2026-09-07: fired on
+        # transfer_heavy .to() copies and broke its hold).
+        return sum(1 for c in (b.get("cpu_launch", []) or [])
+                   if (c.get("name") or "") in _LAYOUT_OPS)
+    n_inc = count(incident)
+    if n_inc and not any(count(b) for b in baselines):
+        return {"stage": "gpu", "n_ops": n_inc}
+    return {"stage": None, "n_ops": n_inc}
+
+
 def compare_real(incident: dict, baselines: list[dict]) -> dict:
     """Distributional differential for real bundles (see _flat_vals).
 
@@ -421,6 +445,14 @@ def diagnose(incident: dict, baselines: list[dict], ledger,
             proba, ranking = None, raw_ranking
         else:
             proba, ranking = _calibrated_ranking(comp["surfaces"], calibration)
+        # ponytail: memory-layout signature overrides ranking, not z's. Fires
+        # only on novel transpose-family construction with no duration excess
+        # to rank (stalls class); recorded in rationale + ledger, never silent.
+        layout = layout_signature(incident, baselines)
+        if layout["stage"] is not None:
+            ranking = [("gpu", proba["gpu"] if proba else 0.0,
+                        comp["surfaces"]["gpu"]["z"])] + \
+                [(st, p, z) for st, p, z in ranking if st != "gpu"]
         inc = ledger.open_incident(Incident(
             provenance=provenance,
             title="matched slice: %d baselines, span delta %+.2fms" %
