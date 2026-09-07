@@ -49,7 +49,14 @@ def tail_llr(k_inc: float, n_inc: float, k_base: float, n_base: float) -> float:
 
 
 def featurize(surfaces: dict) -> tuple[np.ndarray, float]:
-    """8 stage z's in STAGES order + cpu tail LLR from compare_real surfaces."""
+    """8 stage z's in STAGES order + cpu tail LLR from compare_real surfaces.
+
+    NOTE (2026-09-07): a 9th gpu parent-conditioned residual feature was tried
+    and reverted — LOO Top-1 16->7/33 with transfer_heavy hold broken. Cause:
+    synthetic single-knob presets never couple parents with gpu, so W learned
+    "residual ~= z always"; on real traces the relationship differs and the
+    weight misfires. Revive ONLY with coupled multi-knob synthetic families
+    mirroring measured real coupling (fakegpu multi-knob presets + labels)."""
     z = np.array([float(surfaces[st]["z"]) for st in STAGES], float)
     tail = 0.0
     try:

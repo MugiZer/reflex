@@ -38,7 +38,15 @@ def main(argv: list[str] | None = None) -> int:
         sh("git", "clone", "--filter=blob:none", REPO_URL, str(repo))
     sh("git", "fetch", "origin", args.ref, cwd=repo)
     sh("git", "checkout", "--force", "FETCH_HEAD", cwd=repo)
-    sh(sys.executable, "-m", "pip", "install", "-q", "torch", "-r", str(repo / "requirements-t4.txt"))
+    # ponytail: requirements file when the ref carries it (loop/toolchain+),
+    # inline pins when testing older refs — the run must never die on install.
+    req = repo / "requirements-t4.txt"
+    if req.exists():
+        sh(sys.executable, "-m", "pip", "install", "-q", "torch", "-r", str(req))
+    else:
+        sh(sys.executable, "-m", "pip", "install", "-q", "torch", "pytest",
+           "mapie==1.5.0", "scikit-learn==1.9.0", "lightgbm==4.7.0",
+           "interpret-core==0.7.8", "numpy==2.3.4", "scipy==1.18.1")
 
     env = dict(os.environ, REFLEX_REF=args.ref, REFLEX_SEEDS=args.seeds,
                REFLEX_ITERS=str(args.iters), REFLEX_OUTPUT_ROOT=str(work / "runs"))
