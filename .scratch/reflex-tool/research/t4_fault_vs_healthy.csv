@@ -1,0 +1,13 @@
+fault,seeds,gpu_kernels_healthy,gpu_kernels_fault,gpu_kernels_delta_pct,gpu_total_ms_healthy,gpu_total_ms_fault,gpu_total_ms_delta_pct,transfers_healthy,transfers_fault,transfer_bytes_healthy,transfer_bytes_fault,trace_span_ms_healthy,trace_span_ms_fault,trace_span_delta_pct,occupancy_healthy_pct,occupancy_fault_pct,occupancy_delta_pct,gpu_cpu_join_rate_fault,kernel_direction,transfer_direction,signature
+batching_delay,"11,17,23",60,73.67,22.78,0.68,1.89,179.34,0,6.33,0,3242.67,136.35,79.73,-41.53,56.67,77.33,36.46,1,+++,+++,transfer activity; higher GPU time
+bw_pressure,"11,17,23",60,40,-33.33,0.68,3.22,377.2,0,20,0,80,136.35,20.57,-84.91,56.67,100,76.46,1,---,+++,transfer activity; fewer kernels; higher GPU time
+competing_workload,"11,17,23",60,80,33.33,0.68,3.1,359.08,0,0,0,0,136.35,7.63,-94.41,56.67,55,-2.95,1,+++,===,higher GPU time
+cpu_starvation,"11,17,23",60,40,-33.33,0.68,1.67,147.27,0,0,0,0,136.35,55.44,-59.34,56.67,55,-2.95,1,---,===,fewer kernels; higher GPU time
+kernel_regression,"11,17,23",60,120,100,0.68,1.15,70.86,0,0,0,0,136.35,6.87,-94.96,56.67,33.33,-41.19,1,+++,===,more kernels; lower occupancy
+launch_overhead,"11,17,23",60,180,200,0.68,1.04,54.49,0,0,0,0,136.35,7.87,-94.22,56.67,1.22,-97.85,1,+++,===,more kernels; lower occupancy
+preprocessing_interference,"11,17,23",60,20,-66.67,0.68,1.11,64.25,0,20,0,20971520,136.35,70.52,-48.28,56.67,10,-82.35,1,---,+++,transfer activity; fewer kernels; lower occupancy
+queue_contention,"11,17,23",60,80,33.33,0.68,3.53,422.93,0,0,0,0,136.35,6.44,-95.27,56.67,55,-2.95,1,+++,===,higher GPU time
+stalls,"11,17,23",60,60,0,0.68,0.42,-37.77,0,0,0,0,136.35,6.01,-95.6,56.67,56.67,0,1,===,===,weak separation in selected features
+sync_serialization,"11,17,23",60,40,-33.33,0.68,1.1,62.93,0,0,0,0,136.35,5.56,-95.92,56.67,55,-2.95,1,---,===,fewer kernels
+transfer_heavy,"11,17,23",60,20,-66.67,0.68,6.65,884.71,0,60,0,167782400,136.35,151.76,11.3,56.67,50,-11.77,1,---,+++,transfer activity; fewer kernels; higher GPU time
+

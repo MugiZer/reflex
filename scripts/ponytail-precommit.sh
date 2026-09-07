@@ -72,7 +72,7 @@ SKILL_EOF
 MSG_FILE="$(mktemp)" || { echo "ponytail-review: cannot create tempfile, skipping."; exit 0; }
 trap 'rm -f "$MSG_FILE"' EXIT INT TERM
 printf '%s\n\n<staged-diff>%s\n%s\n</staged-diff>' "$PROMPT" "$TRUNC_NOTE" "$DIFF" \
-  | codex exec - -s read-only -o "$MSG_FILE" >/dev/null 2>&1
+  | codex exec - -m gpt-5.6-luna -s read-only -o "$MSG_FILE" >/dev/null 2>&1
 CODE=$?
 OUT="$(cat "$MSG_FILE" 2>/dev/null)"
 rm -f "$MSG_FILE"
