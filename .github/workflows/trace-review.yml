@@ -1,0 +1,28 @@
+name: Trace independent review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  trace-review:
+    if: contains(github.event.pull_request.labels.*.name, 'auto-trace')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Independent trace review
+        uses: anomalyco/opencode/github@latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Set the TRACE_REVIEW_MODEL repo variable; do not hardcode a model.
+          model: ${{ vars.TRACE_REVIEW_MODEL }}
+          use_github_token: true
+          prompt: Follow .opencode/prompts/trace-review.md exactly; post the verdict as a PR comment.

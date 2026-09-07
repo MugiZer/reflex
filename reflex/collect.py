@@ -22,6 +22,8 @@ import sqlite3
 import uuid
 from pathlib import Path
 
+from .envelope import stamp as _stamp
+
 PROVENANCE = "collect"
 COLLECTOR_VERSION = "collect-v1"
 # ponytail: fixed workload matrix (faults x seeds); extend when new fault
@@ -81,7 +83,9 @@ def manifest(fault: str, seed: int, workload: str = "infer-microbench",
              nsys_version: str = "unknown", trace_variant: str = "cuda",
              perf_status: str = "unknown", torch_version: str = "unknown",
              software: dict | None = None, stats: dict | None = None,
-             extra: dict | None = None) -> dict:
+             extra: dict | None = None, commit: str = "unknown",
+             timing_model_version: str = "unknown", outcome: str = "unknown",
+             reason: str = "") -> dict:
     """Run identity + comparability context. Written before any artifact.
     identity_provider is a () -> dict callable (Colab: nvidia_smi_identity;
     tests: fake); its device/hardware/driver/cuda/collector_version entries
@@ -117,6 +121,16 @@ def manifest(fault: str, seed: int, workload: str = "infer-microbench",
         workload, ident.get("device", device), ident.get("hardware", "unknown"),
         ident.get("driver", "unknown"), ident.get("cuda", "unknown"),
         ident.get("collector_version", COLLECTOR_VERSION)))
+    # ponytail: commit/env injected (like identity_provider), never computed
+    # here — no git/env/subprocess. GPU-path extras ride along verbatim.
+    envelope = _stamp(commit=commit, fault=fault, seed=seed,
+                      hardware=ident.get("hardware", "unknown"),
+                      collector_version=ident.get("collector_version", COLLECTOR_VERSION),
+                      timing_model_version=timing_model_version,
+                      outcome=outcome, reason=reason,
+                      extra_env={"device": ident.get("device", device),
+                                 "driver": driver_v, "cuda": cuda_v,
+                                 "software": software_out, "stats": stats_out})
     return {"run_id": f"{fault}:{seed}", "fault": fault, "seed": seed,
             "execution_id": uuid.uuid4().hex[:16],  # unique per collection attempt, even on resume
             "context_id": hashlib.sha256(ctx_src.encode()).hexdigest()[:16],  # stable per experimental context
@@ -132,6 +146,7 @@ def manifest(fault: str, seed: int, workload: str = "infer-microbench",
             "software": software_out,
             "stats": stats_out,
             "status": "started",
+            "envelope": envelope,
             "sha256": {}, "extra": dict(extra or {})}
 
 

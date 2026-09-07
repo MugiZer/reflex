@@ -34,6 +34,9 @@ desktop.ini
 # Agent cache
 .agents/
 
+# Autonomous loop run artifacts (downloaded VM results)
+.loop-runs/
+
 # Large log files (keep structure, skip content)
 pass2/luna-controller-logs/rejected-output/
 pass2/luna-controller-logs/*.log
