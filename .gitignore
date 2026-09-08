@@ -37,6 +37,9 @@ desktop.ini
 # Autonomous loop run artifacts (downloaded VM results)
 .loop-runs/
 
+# graphify knowledge graphs (rebuildable)
+graphify-out/
+
 # Large log files (keep structure, skip content)
 pass2/luna-controller-logs/rejected-output/
 pass2/luna-controller-logs/*.log

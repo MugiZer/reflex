@@ -16,7 +16,7 @@ N = 8
 
 
 def test_all_eleven_presets_generate_and_validate(tmp_path: Path) -> None:
-    assert len(FAMILIES) == 11 and set(FAMILIES) | {"healthy"} == set(PRESETS)
+    assert len(FAMILIES) == 11 and set(FAMILIES) | {"healthy"} <= set(PRESETS)  # <= : synthetic-only presets carry no hidden label row
     assert sorted(LABELS.values()) == sorted(FAMILIES)  # table covers each family once
     assert len({s for s, _, _ in SEED_TABLE}) == 11
     ledger = Ledger(tmp_path / "corpus.jsonl")
