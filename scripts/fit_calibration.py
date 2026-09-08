@@ -25,7 +25,8 @@ from reflex import diagnose as D
 from reflex.fakegpu import generate
 
 # eval-side ground-truth map (canonical copy lives in scripts/eval_bars.py).
-FAULT_CAUSE = {"cpu_starvation": "cpu", "launch_overhead": "scheduler",
+FAULT_CAUSE = {"cpu_starvation": "cpu", "cpu_starvation_coupled": "cpu",
+               "cpu_starvation_v2": "cpu", "launch_overhead": "scheduler",
                "bw_pressure": "gpu", "stalls": "gpu",
                "sync_serialization": "scheduler", "transfer_heavy": "transport",
                "batching_delay": "preprocess", "queue_contention": "queue",

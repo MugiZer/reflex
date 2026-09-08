@@ -10,6 +10,7 @@ for silicon). Timing core: roofline t=max(flops/(peak*mfu), bytes/bw)
 from __future__ import annotations
 
 import json
+import math
 import random
 import sqlite3
 from dataclasses import dataclass
@@ -21,6 +22,15 @@ PROVENANCE = "fakegpu"
 PEAK_FLOPS, PEAK_BW, MFU = 100e12, 1.6e12, 0.35
 BASE_CLOCK_NS = 1_000_000_000
 
+# ponytail: fixed asymmetric clock physics for the coupled host-stall
+# mechanism (fast idle-decay tau, slow load-ramp tau, clock floor); fit from
+# T4 nsys clock traces when duration fidelity beyond rank-order matters.
+_CLK_MIN, _TAU_DECAY_US, _TAU_RAMP_US = 0.08, 500.0, 35000.0
+_STALL_SIGMA, _HOST_QUANTUM_US, _STALL_DUR_FRAC = 1.0, 2400.0, 0.25
+# ponytail: fixed driver-submission latency fraction under host contention
+# (same severity, not a second knob); host timestamps never see it, the
+# device arrival does. Fit from T4 launch->start pairing when it matters.
+_SUBMIT_FRAC = 0.1
 # ponytail: fixed 3-kernel prior cycle, not a model registry; add NeuSight
 # priors per kernel when duration fidelity (not just ordering) matters.
 _PRIORS = (  # (kernel_name, flops, bytes, grid, block, shmem_B)
@@ -48,11 +58,20 @@ class FaultProfile:
     cpu_starve_us: float = 0.0
     kernel_slowdown_x: float = 1.0
     batch_delay_us: float = 0.0
+    # Coupled host-stall mechanism (V2, default off): per-op P(stall) and
+    # stall scale. One severity source drives sparse arrival stalls, the
+    # host-duration tax, and (via device idle) DVFS clock droop below.
+    host_stall_prob: float = 0.0
+    host_stall_us: float = 0.0
 
 
 PRESETS: dict[str, FaultProfile] = {
     "healthy": FaultProfile(),
     "cpu_starvation": FaultProfile(cpu_starve_us=120.0),
+    # V1 coupled synthetic: starve + slowdown composed with existing knobs
+    # only (mirrors real starvation coupling: host-side issue gaps plus
+    # downstream kernel inflation). Clock math untouched; label truth = cpu.
+    "cpu_starvation_coupled": FaultProfile(cpu_starve_us=120.0, kernel_slowdown_x=8.0),
     "launch_overhead": FaultProfile(launch_overhead_us=60.0),
     "bw_pressure": FaultProfile(bw_pressure_x=3.0),
     "stalls": FaultProfile(stall_extra_pct=40.0),
@@ -63,6 +82,9 @@ PRESETS: dict[str, FaultProfile] = {
     "competing_workload": FaultProfile(contention_streams=3, overlap_frac=0.9),
     "kernel_regression": FaultProfile(kernel_slowdown_x=2.5),
     "preprocessing_interference": FaultProfile(cpu_starve_us=30.0, batch_delay_us=60.0),
+    # V2 coupled starvation: sparse host stalls + emergent DVFS downstream
+    # (no cpu_starve_us median shift, no kernel_slowdown_x). Label truth = cpu.
+    "cpu_starvation_v2": FaultProfile(host_stall_prob=0.30, host_stall_us=2500.0),
 }
 
 
@@ -82,6 +104,8 @@ def generate(seed: int, profile: FaultProfile | str = "healthy", n_kernels: int 
                "sync_edge": [], "l3_pc": [], "l3_instr": [], "l3_lineage": []}
     t_ns, prev_cpu_end = BASE_CLOCK_NS, BASE_CLOCK_NS
     stream_end: dict[int, int] = {}  # per-stream device clock; overlap emerges, never forced
+    coupled = prof.host_stall_prob > 0.0 and prof.host_stall_us > 0.0
+    clk = 1.0  # DVFS clock factor; evolves only when coupled (old presets: pinned at 1)
     for i in range(n_kernels):
         kname, flops, nbytes, grid, block, shmem = _PRIORS[i % len(_PRIORS)]
         cid = f"{seed:08x}-{i:04d}"
@@ -92,8 +116,14 @@ def generate(seed: int, profile: FaultProfile | str = "healthy", n_kernels: int 
         dur_ns = int(max(flops / (PEAK_FLOPS * MFU), nbytes / bw_eff) * 1e9
                      * prof.kernel_slowdown_x * j_dur)
         want_gap_ns = int((4.0 + prof.launch_overhead_us) * 1000 * j_launch)
-        inter_gap_ns = int((6.0 + prof.cpu_starve_us + prof.batch_delay_us * 0.5) * 1000 * j_inter)
+        stall_ns = 0
+        if coupled and rng.random() < prof.host_stall_prob:
+            stall_ns = int(prof.host_stall_us * 1000 * rng.lognormvariate(0.0, _STALL_SIGMA))
+        inter_gap_ns = int((6.0 + prof.cpu_starve_us + prof.batch_delay_us * 0.5) * 1000 * j_inter) + stall_ns
         cpu_dur_ns = int((3.0 + prof.batch_delay_us * 0.25) * 1000)
+        if coupled:  # same stall process stretches the host op itself: contention duty on every op + tail share on stalled ops
+            cpu_dur_ns = int(cpu_dur_ns * (1.0 + prof.host_stall_prob * prof.host_stall_us / _HOST_QUANTUM_US))
+            cpu_dur_ns += int(stall_ns * _STALL_DUR_FRAC)
         blocked_ns = int((60.0 if prof.force_sync_serialize else 1.0) * 1000 * j())
         spread = rng.random() < prof.overlap_frac  # P(spread launch to least-busy stream)
         host_ready = prev_cpu_end + inter_gap_ns
@@ -103,6 +133,8 @@ def generate(seed: int, profile: FaultProfile | str = "healthy", n_kernels: int 
             cpu_start = host_ready  # host runs ahead; kernels overlap on streams (no t_ns clamp)
         cpu_end = cpu_start + cpu_dur_ns
         earliest = cpu_end + want_gap_ns
+        submit_ns = int(prof.host_stall_us * 1000 * _SUBMIT_FRAC) if coupled else 0
+        arrive = earliest + submit_ns  # driver submission latency under contention: host never sees it, device arrival does
         nstreams = prof.contention_streams
         if nstreams == 1:
             stream_id = 1
@@ -113,7 +145,12 @@ def generate(seed: int, profile: FaultProfile | str = "healthy", n_kernels: int 
         if prof.force_sync_serialize:
             gpu_start = max(earliest, t_ns)
         else:
-            gpu_start = max(earliest, stream_end.get(stream_id, BASE_CLOCK_NS))
+            gpu_start = max(arrive, stream_end.get(stream_id, BASE_CLOCK_NS))
+        if coupled:  # emergent downstream: starved-device idle slams the clock down fast; queued load ramps it back slowly
+            idle_ns = max(0, arrive - stream_end.get(stream_id, BASE_CLOCK_NS))
+            clk = max(_CLK_MIN, clk * math.exp(-idle_ns / (_TAU_DECAY_US * 1000)))
+            dur_ns = int(dur_ns / clk)
+            clk = clk + (1.0 - clk) * (1.0 - math.exp(-dur_ns / (_TAU_RAMP_US * 1000)))
         launch_gap_ns = want_gap_ns  # submission cost only; queue wait is separate below
         gpu_end = gpu_start + dur_ns
         overlap = gpu_start < t_ns  # emergent: another stream is still live
