@@ -1,13 +1,12 @@
-# PROTOTYPE (rough, reactable): SmolVLA lab interface + layout + Colab entry
+# PROTOTYPE (revised after human reaction R1–R4): SmolVLA lab interface
 
-Ticket: #122. Status: sketch for human reaction — nothing here is decided until
-grilled. Real builder + replay module get written under #123 following whatever
-this becomes.
+Ticket: #122. Real builder + replay module get written under #123 following
+whatever this becomes.
 
 ## 1. Repo-committed (frozen, reviewed diffs only)
 
 ```text
-smolvla/
+workloads/smolvla/          # workloads/ parent: OpenVLA/etc. later, same shape
   corpora/
     main-1000.jsonl    # 1,000 frozen frames: {frame_id, episode_idx, frame_idx}
     smoke-250.jsonl    # 250 smoke IDs referencing main frame_ids (no duplication)
@@ -15,8 +14,11 @@ smolvla/
       dataset id+rev, frozen instruction bytes, six preprocessing pins +
       stats hashes, warmup holdout frame list (5 pinned frames)
   replay.py            # device(fault, seed) seam impl (written under #123)
-  build_corpus.py      # deterministic manifest builder/validator + tests (#123)
+  build_corpus.py      # deterministic manifest builder (written under #123)
+  validate_corpus.py   # frozen-manifest validator + tests (written under #123)
 ```
+
+Contract, frozen corpora, and implementation stay adjacent.
 
 ## 2. Colab runtime layout (existing `<root>/<fault>/<seed>` pattern, unchanged)
 
@@ -34,7 +36,9 @@ smolvla/
         freeze.txt           # pip freeze audit
         DONE                 # atomic last, sha-verified (existing semantics)
   smolvla-dataset.jsonl      # ingest output — SEPARATE file from the fault-matrix
-                             # dataset.jsonl (no mixed vocabularies in one pool)
+                             # dataset.jsonl. Natural replay and synthetic fault
+                             # runs have different semantics; separation must not
+                             # depend on key structure alone.
 ```
 
 Seeds 11/17/23 via the existing REFLEX_SEEDS override. Drive backup reuses the
@@ -48,15 +52,33 @@ candidate COMMIT   -> SAME replay -> smolvla-dataset.jsonl @ <COMMIT-cand>/
 ```
 
 - Same notebook, same corpus SHA, same seeds; only the checked-out ref differs.
-- Candidate runs use fault="candidate" (never the suspected cause); pairing falls
-  out of the existing pair_corpus key (workload, seed, hardware) — "candidate"
-  structurally occupies the faulty side against "healthy".
-- No slowdown injection anywhere on this path, by construction (nothing to inject
-  with — the harness has no fault knob).
+- Candidate runs use fault="candidate" = "revision being compared", never a
+  fault label or diagnosis. Pairing healthy baseline ↔ candidate revision
+  matches on workload/corpus, repeat, hardware/context.
+- pair_corpus reuse VERIFIED mechanical (collect.py:740-763: plain dict
+  grouping on (workload, seed, hardware) with "healthy" as the baseline slot —
+  exactly our semantics), with three recorded caveats:
+  1. Output labels say "faulty"/embed the fault name — consumers must not read
+     a diagnosis into the label.
+  2. Version skew is out of the key (collect.py:769-770): two candidate
+     revisions in one cell keep the LAST record silently. One candidate per
+     cell at a time; history across revisions is the regression effort's
+     problem (neutral layer or revision-distinct handling then).
+  3. Downstream voices/outcomes/calibration assume fakegpu vocabulary
+     (collect.py:764-768): pairs feed retrieval/hand comparison only, never
+     calibration, until the real-data semantic adapter exists.
+- Corpus SHA is not in the pair key: a corpus change must bump the workload
+  version (smolvla-replay-v2), never silently re-base v1.
+- No slowdown injection anywhere on this path, by construction.
+
+Core rule: share infrastructure where semantics are identical; separate
+anything whose meaning differs.
 
 ## 4. Colab entry: separate notebook reusing the 7-cell pattern
 
-New `colab/SmolVLA_T4_replay.ipynb` (fault-matrix runner untouched):
+New `colab/SmolVLA_T4_replay.ipynb` — never a mode flag on the synthetic
+fault-matrix runner (no branching risk there). Genuinely shared helpers get
+extracted later from proven duplication, not upfront.
 
 | Cell | Does | Reuses |
 |------|------|--------|
