@@ -1,0 +1,78 @@
+name: SmolVLA T4 replay run
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag, or commit SHA to test
+        required: true
+        default: workloads/smolvla-replay
+      seeds:
+        description: Comma-separated repeat IDs (repeat identity, not RNG)
+        required: true
+        default: "11,17,23"
+      tiers:
+        description: Comma-separated tiers to run
+        required: true
+        default: "smoke,main"
+
+permissions:
+  contents: write
+
+jobs:
+  smolvla:
+    # Same self-hosted Linux T4 runner as t4-run.yml. Set REFLEX_T4_RUNNER to a
+    # JSON label array for a hosted GPU runner. Own env: never install
+    # requirements-t4.txt here (numpy 2.3.4 vs LeRobot numpy<2.3 conflict).
+    runs-on: ${{ fromJSON(vars.REFLEX_T4_RUNNER || '["self-hosted","linux","x64","gpu"]') }}
+    steps:
+      - name: Check out requested ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Install SmolVLA stack
+        run: |
+          sudo apt-get install -y ffmpeg || echo "ffmpeg install failed, torchcodec/pyav fallback may cover decode"
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cu128 torch==2.9.1 torchvision==0.24.1
+          python -m pip install "lerobot==0.6.0[smolvla,dataset,evaluation]" pytest
+
+      - name: Verify CUDA runtime
+        run: |
+          nvidia-smi
+          python -c "import torch; assert torch.cuda.is_available(), 'CUDA is unavailable'; print(torch.cuda.get_device_name(0))"
+
+      - name: Run SmolVLA replay (smoke, then main)
+        continue-on-error: true
+        env:
+          REFLEX_REF: ${{ inputs.ref }}
+          REFLEX_SEEDS: ${{ inputs.seeds }}
+          REFLEX_TIERS: ${{ inputs.tiers }}
+        run: python scripts/smolvla_run.py --seeds "${REFLEX_SEEDS}" --tiers "${REFLEX_TIERS}"
+
+      - name: Upload raw logs and traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reflex-smolvla-${{ github.run_id }}
+          path: /tmp/reflex_runs
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Publish result to GitHub
+        if: always()
+        env:
+          REFLEX_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f /tmp/reflex_runs/run_result.json ]; then
+            python -c "import json; from pathlib import Path; from colab.report_results import publish; p=Path('/tmp/reflex_runs/run_result.json'); publish(json.loads(p.read_text()), p)"
+          else
+            echo "smolvla_run.py did not produce run_result.json"
+          fi
+
+      - name: Fail workflow when the recorded run failed
+        if: always()
+        run: |
+          python -c "import json, pathlib, sys; result=json.loads(pathlib.Path('/tmp/reflex_runs/run_result.json').read_text()); print(result['status']); sys.exit(result['status'] != 'passed')"
