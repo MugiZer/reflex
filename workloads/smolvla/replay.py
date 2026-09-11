@@ -65,6 +65,7 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
         corpus_sha = hashlib.sha256(
             (corpus_dir / "main-1000.jsonl").read_bytes()).hexdigest()
         corpus_kind = "smoke" if frames_file.startswith("smoke") else "main"
+        from lerobot.policies.factory import make_pre_post_processors
         from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
         # ponytail: pyav, not torchcodec — torchcodec's prebuilt ABI needs a
@@ -73,6 +74,17 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
                                               revision=checkpoint_rev)
         policy.to("cuda", dtype=getattr(torch, dtype))
         policy.eval()
+        # Official rename channel (lerobot policies/utils.py): dataset cameras
+        # top/wrist -> policy slots camera1/camera2 (first-listed first).
+        # Partial fill is legal (policy needs at least one); recorded, loud.
+        key_path = "rename top->camera1 wrist->camera2"
+        preprocess, postprocess = make_pre_post_processors(
+            policy.config, checkpoint,
+            preprocessor_overrides={"device_processor": {"device": "cuda"}},
+            rename_map={"observation.images.top":
+                        "observation.images.camera1",
+                        "observation.images.wrist":
+                        "observation.images.camera2"})
         ds = LeRobotDataset(dataset, revision=dataset_rev,
                             video_backend="pyav")
         ep_col = [int(e) for e in ds.hf_dataset["episode_index"]]
@@ -103,24 +115,20 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
                      (corpus_dir / "main-1000.jsonl").read_text(
                          encoding="utf-8").splitlines()[1:] if line.strip()}
             frames = [by_id[fid] for fid in smoke_ids]
-        key_path = "dataset-native"
         input_keys: list[str] = []
         warmup_cpu: list[float] = []
 
         def infer(ep: int, fr: int) -> dict:
-            # Dataset-native frame, passed through with batch dim; the only
-            # contract check is the frozen instruction (mismatch = incompatible
-            # run, never a silent re-base). Key errors fail loudly on smoke.
+            # Real path: official preprocess (rename/batch/task/device/
+            # normalize) -> select_action -> postprocess. The frozen
+            # instruction gates the raw frame (mismatch = incompatible run).
+            # Wall covers preprocess+call (host side); CUDA events cover the
+            # policy call only — never mislabel one as the other.
             sample = ds[gindex(ep, fr)]
             if sample.get("task") != header["instruction"]:
                 raise ValueError(
                     "dataset task drifted from frozen manifest instruction")
-            batch = {}
-            for k, v in sample.items():
-                if hasattr(v, "cuda"):
-                    batch[k] = v.cuda().unsqueeze(0)
-                elif isinstance(v, str):
-                    batch[k] = [v]
+            batch = preprocess(dict(sample))
             if not input_keys:
                 input_keys.extend(sorted(batch))
             start = torch.cuda.Event(enable_timing=True)
@@ -128,7 +136,7 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
             cpu0 = time.perf_counter()
             start.record()
             with torch.inference_mode():
-                action = policy.select_action(batch)
+                action = postprocess(policy.select_action(batch))
             end.record()
             cpu_ms = (time.perf_counter() - cpu0) * 1000.0
             return {"action": action.detach().float().cpu(),
