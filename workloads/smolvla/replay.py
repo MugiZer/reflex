@@ -40,9 +40,15 @@ def _summarize(name: str, xs: list[float]) -> dict:
 
 def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
                 dataset: str, dataset_rev: str, dtype: str = "float32",
-                rng: int = 0, frames_file: str = "main-1000.jsonl"):
-    """Bind pins; return device(fault, seed) -> {artifact_name: bytes}."""
+                rng: int = 0, frames_file: str = "main-1000.jsonl",
+                device: str = "cuda"):
+    """Bind pins; return device(fault, seed) -> {artifact_name: bytes}.
+
+    device="cpu" is an integration fallback (validates logic, never T4
+    evidence): no CUDA events/sync, GPU times stay empty, backend identical.
+    """
     corpus_dir = Path(corpus_dir)
+    want_cuda = device == "cuda"
 
     def device(fault: str, seed: int) -> dict[str, bytes]:
         import random
@@ -54,12 +60,13 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
         random.seed(rng)
         np.random.seed(rng % (2 ** 32))
         torch.manual_seed(rng)
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-        try:
-            torch.use_deterministic_algorithms(True, warn_only=True)
-        except Exception:
-            pass
+        if want_cuda:
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+            try:
+                torch.use_deterministic_algorithms(True, warn_only=True)
+            except Exception:
+                pass
         header = json.loads((corpus_dir / "main-1000.jsonl")
                             .read_text(encoding="utf-8").splitlines()[0])
         corpus_sha = hashlib.sha256(
@@ -72,7 +79,8 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
         # system libavutil the T4 image lacks; revisit if pins change.
         policy = SmolVLAPolicy.from_pretrained(checkpoint,
                                               revision=checkpoint_rev)
-        policy.to("cuda", dtype=getattr(torch, dtype))
+        policy.to(want_cuda and "cuda" or "cpu",
+                  dtype=getattr(torch, dtype))
         policy.eval()
         # Official rename channel (lerobot policies/utils.py): dataset cameras
         # top/wrist -> policy slots camera1/camera2 (first-listed first).
@@ -131,17 +139,20 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
             # here, explicitly, before the official preprocess pipeline.
             renamed = {RENAME.get(k, k): v for k, v in sample.items()}
             batch = preprocess(renamed)
-            batch = {k: (v.cuda() if torch.is_tensor(v) else v)
+            dev = "cuda" if want_cuda else "cpu"
+            batch = {k: (v.to(dev) if torch.is_tensor(v) else v)
                      for k, v in batch.items()}
             if not input_keys:
                 input_keys.extend(sorted(batch))
-            start = torch.cuda.Event(enable_timing=True)
-            end = torch.cuda.Event(enable_timing=True)
+            start = torch.cuda.Event(enable_timing=True) if want_cuda else None
+            end = torch.cuda.Event(enable_timing=True) if want_cuda else None
             cpu0 = time.perf_counter()
-            start.record()
+            if start is not None:
+                start.record()
             with torch.inference_mode():
                 action = postprocess(policy.select_action(batch))
-            end.record()
+            if end is not None:
+                end.record()
             cpu_ms = (time.perf_counter() - cpu0) * 1000.0
             return {"action": action.detach().float().cpu(),
                     "cpu_ms": cpu_ms, "events": (start, end)}
@@ -152,12 +163,14 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
                     c0 = time.perf_counter()
                     infer(h["episode_idx"], h["frame_idx"])
                     warmup_cpu.append((time.perf_counter() - c0) * 1000.0)
-        torch.cuda.synchronize()
+        if want_cuda:
+            torch.cuda.synchronize()
+        acts = [acts["CPU"]] + ([acts["CUDA"]] if want_cuda else [])
         per_req_gpu: list[float] = []
         per_req_cpu: list[float] = []
         fingerprints: list[dict] = []
         measured_start = datetime.now(timezone.utc).isoformat()
-        with profile(activities=[acts["CPU"], acts["CUDA"]],
+        with profile(activities=acts,
                      record_shapes=PROFILE["record_shapes"],
                      profile_memory=PROFILE["profile_memory"],
                      with_stack=PROFILE["with_stack"],
@@ -168,12 +181,14 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
                 out = infer(f["episode_idx"], f["frame_idx"])
                 pending.append((f, out))
                 per_req_cpu.append(out["cpu_ms"])
-            torch.cuda.synchronize()
+            if want_cuda:
+                torch.cuda.synchronize()
             measured_end = datetime.now(timezone.utc).isoformat()
             for f, out in pending:
                 a = out["action"].numpy()
                 s, e = out["events"]
-                per_req_gpu.append(s.elapsed_time(e))
+                if s is not None and e is not None:
+                    per_req_gpu.append(s.elapsed_time(e))
                 fingerprints.append(
                     {"frame_id": f["frame_id"],
                      "shape": list(a.shape), "dtype": str(a.dtype),
@@ -198,6 +213,7 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
             "fault": fault, "seed": seed, "key_path": key_path,
             "corpus_sha256": corpus_sha, "corpus": corpus_kind,
             "frames_file": frames_file, "rng": rng, "dtype": dtype,
+            "device": device, "video_backend": "pyav",
             "device_event_ms": _summarize("device_event_ms", per_req_gpu),
             "host_cpu_ms": _summarize("host_cpu_ms", per_req_cpu),
             "device_event_ms_raw": [round(x, 6) for x in per_req_gpu],
