@@ -78,13 +78,11 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
         # top/wrist -> policy slots camera1/camera2 (first-listed first).
         # Partial fill is legal (policy needs at least one); recorded, loud.
         key_path = "rename top->camera1 wrist->camera2"
+        RENAME = {"observation.images.top": "observation.images.camera1",
+                  "observation.images.wrist": "observation.images.camera2"}
         preprocess, postprocess = make_pre_post_processors(
             policy.config, checkpoint,
-            preprocessor_overrides={"device_processor": {"device": "cuda"}},
-            rename_map={"observation.images.top":
-                        "observation.images.camera1",
-                        "observation.images.wrist":
-                        "observation.images.camera2"})
+            preprocessor_overrides={"device_processor": {"device": "cuda"}})
         ds = LeRobotDataset(dataset, revision=dataset_rev,
                             video_backend="pyav")
         ep_col = [int(e) for e in ds.hf_dataset["episode_index"]]
@@ -128,7 +126,13 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
             if sample.get("task") != header["instruction"]:
                 raise ValueError(
                     "dataset task drifted from frozen manifest instruction")
-            batch = preprocess(dict(sample))
+            # Verified on T4 (r3): factory kwargs do not survive
+            # pretrained-path processor loading, so the frozen rename happens
+            # here, explicitly, before the official preprocess pipeline.
+            renamed = {RENAME.get(k, k): v for k, v in sample.items()}
+            batch = preprocess(renamed)
+            batch = {k: (v.cuda() if torch.is_tensor(v) else v)
+                     for k, v in batch.items()}
             if not input_keys:
                 input_keys.extend(sorted(batch))
             start = torch.cuda.Event(enable_timing=True)
