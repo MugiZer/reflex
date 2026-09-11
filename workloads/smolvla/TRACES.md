@@ -14,6 +14,18 @@ only this index is committed.
   identical — pyav, explicit rename).
 - Seeds 17/23 smoke sets: LOST (VM preempted before download; no backup ran).
 
+## Collected
+
+- `main-20260911-seed11/` + `main-20260911-seed17/` (T4, main tier,
+  1,000 frames each, workload smolvla-replay-v1): trace.json (~945MB each),
+  metrics.json, fingerprints.json. Healthy variance seed11-vs-seed17:
+  outputs bit-identical (1000/1000 same sha, MAD=max=0); timing medians
+  within ~1% (4.14 vs 4.11ms device), p95 within ~5%, p99 ~850ms both
+  (init-dominated, ~2% apart); warmup passes stable (~100ms both).
+  Threshold basis: outputs ~exact-hash, timing median +/-5%, p95 +/-10%,
+  p99 informational.
+- Seed 23 main: running at last check.
+
 ## Discipline (learned 2026-09-11)
 
 1. Download each tier's artifacts to durable storage the moment its DONE
