@@ -90,7 +90,9 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
                   "observation.images.wrist": "observation.images.camera2"}
         preprocess, postprocess = make_pre_post_processors(
             policy.config, checkpoint,
-            preprocessor_overrides={"device_processor": {"device": "cuda"}})
+            preprocessor_overrides={
+                "device_processor": {"device": "cuda" if want_cuda else "cpu"}
+            })
         ds = LeRobotDataset(dataset, revision=dataset_rev,
                             video_backend="pyav")
         ep_col = [int(e) for e in ds.hf_dataset["episode_index"]]
