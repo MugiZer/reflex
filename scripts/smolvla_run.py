@@ -71,7 +71,8 @@ def genesis_or_validate() -> tuple[Path, str]:
 
 def run_tier(output_root: Path, corpus: Path, corpus_sha: str, tier: str,
              workload: str, frames_file: str, seeds: tuple[int, ...],
-             commit: str) -> dict:
+             commit: str, dtype: str = "float32",
+             fault: str = "healthy") -> dict:
     import torch
     import lerobot
 
@@ -83,20 +84,20 @@ def run_tier(output_root: Path, corpus: Path, corpus_sha: str, tier: str,
     if identity["hardware"] == "unknown":
         raise RuntimeError("nvidia-smi did not provide GPU identity")
     device = make_device(corpus, CHECKPOINT, CHECKPOINT_REV, DATASET,
-                         DATASET_REV, frames_file=frames_file)
+                         DATASET_REV, frames_file=frames_file, dtype=dtype)
     root = output_root / commit[:12] / tier
     dataset_out = output_root / commit[:12] / "smolvla-dataset.jsonl"
-    target = [("healthy", identity["hardware"], collector.COLLECTOR_VERSION)]
+    target = [(fault, identity["hardware"], collector.COLLECTOR_VERSION)]
     software = {"torch": torch.__version__, "lerobot": lerobot.__version__,
                 "checkpoint": CHECKPOINT, "checkpoint_rev": CHECKPOINT_REV,
                 "dataset": DATASET, "dataset_rev": DATASET_REV,
                 "corpus_sha256": corpus_sha, "rng": 0,
-                "warmup": "holdout-5x2", "dtype": "float32",
+                "warmup": "holdout-5x2", "dtype": dtype,
                 "video_backend": "pyav",
                 "repeat_is_seed": "manifest seed is repeat identity; "
                                   "model RNG fixed at 0"}
     pipeline = collector.run_pipeline(
-        root, dataset_out, target, faults=("healthy",), seeds=seeds,
+        root, dataset_out, target, faults=(fault,), seeds=seeds,
         device=device, identity_provider=nvidia_smi_identity,
         workload=workload, trace_variant="kineto", perf_status="profiled",
         torch_version=torch.__version__, software=software, commit=commit)
@@ -112,6 +113,10 @@ def main(argv: list[str] | None = None) -> int:
         "REFLEX_SEEDS", "11,17,23"))
     parser.add_argument("--tiers", default=os.environ.get(
         "REFLEX_TIERS", "smoke,main"))
+    parser.add_argument("--dtype", default=os.environ.get(
+        "REFLEX_DTYPE", "float32"))
+    parser.add_argument("--fault", default=os.environ.get(
+        "REFLEX_FAULT", "healthy"))
     args = parser.parse_args(argv)
 
     output_root = Path(args.output_root)
@@ -139,7 +144,8 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             result["tiers"][tier] = run_tier(
                 output_root, corpus, sha, tier, workload, frames_file,
-                parse_seeds(args.seeds), commit)
+                parse_seeds(args.seeds), commit, dtype=args.dtype,
+                fault=args.fault)
             # ponytail: checkpoint per tier, not just at the end — VMs die
             # mid-run and DONE dirs under /tmp die with them. Small JSON
             # survives via download/backup long before the full run ends.
