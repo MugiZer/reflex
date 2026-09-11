@@ -37,7 +37,7 @@ jobs:
           sudo apt-get install -y ffmpeg || echo "ffmpeg install failed, torchcodec/pyav fallback may cover decode"
           python -m pip install --upgrade pip
           python -m pip install --index-url https://download.pytorch.org/whl/cu128 torch==2.9.1 torchvision==0.24.1
-          python -m pip install "lerobot==0.6.0[smolvla,dataset,evaluation]" pytest
+          python -m pip install "lerobot[smolvla,dataset,evaluation]==0.6.0" pytest
 
       - name: Verify CUDA runtime
         run: |
