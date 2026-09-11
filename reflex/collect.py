@@ -334,14 +334,48 @@ def _derive_l1(gpu: list) -> list:
     iv = [(g.get("start_ns", 0), g.get("end_ns", 0)) for g in ks]
     streams = {g.get("stream_id") for g in ks if g.get("stream_id") is not None}
     qdepth = max(1, len(streams))
+    # ponytail: sweep-line, not per-kernel scans — real traces carry 10^4-10^5
+    # kernels and the naive overlap scan is O(n^2) (hung 10+ min on 77k).
+    # Identical semantics: h counts toward queries at time s iff
+    # h.start <= s < h.end, so ends at s leave before starts at s join, and
+    # zero-duration kernels never count (not even toward themselves).
+    by_start: dict[int, list] = {}
+    for pos, (s, e) in enumerate(iv):
+        by_start.setdefault(s, []).append(pos)
+    end_order = sorted(range(len(ks)), key=lambda i: iv[i][1])
+    live = 0
+    live_streams: dict = {}
+    counted = [False] * len(ks)
+    res: list = [None] * len(ks)
+    ei = 0
+    for s in sorted(by_start):
+        while ei < len(end_order) and iv[end_order[ei]][1] <= s:
+            i = end_order[ei]
+            ei += 1
+            if counted[i]:
+                counted[i] = False
+                live -= 1
+                st = ks[i].get("stream_id")
+                if st is not None:
+                    live_streams[st] -= 1
+                    if live_streams[st] <= 0:
+                        del live_streams[st]
+        for pos in by_start[s]:
+            hs, he = iv[pos]
+            if hs < he:
+                counted[pos] = True
+                live += 1
+                st = ks[pos].get("stream_id")
+                if st is not None:
+                    live_streams[st] = live_streams.get(st, 0) + 1
+        snap = (live, max(1, len(live_streams)))
+        for pos in by_start[s]:
+            res[pos] = snap
     out = []
-    for g, (s, e) in zip(ks, iv):
-        ov = [h for h in ks
-              if h.get("start_ns", 0) <= s < h.get("end_ns", 0)]
-        ov_streams = {h.get("stream_id") for h in ov if h.get("stream_id") is not None}
-        out.append({"ts_ns": g.get("end_ns", 0), "queue_depth": qdepth,
-                    "active_kernels": len(ov),
-                    "active_streams": max(1, len(ov_streams))})
+    for pos, (s, e) in enumerate(iv):
+        out.append({"ts_ns": e, "queue_depth": qdepth,
+                    "active_kernels": res[pos][0],
+                    "active_streams": res[pos][1]})
     return out
 
 
