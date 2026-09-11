@@ -133,12 +133,22 @@ def main(argv: list[str] | None = None) -> int:
         result["corpus_sha256"] = sha
         wanted = [t.strip() for t in args.tiers.split(",") if t.strip()]
         result["tiers"] = {}
+        tier_dir = output_root / commit[:12]
         for tier, workload, frames_file in TIERS:
             if tier not in wanted:
                 continue
             result["tiers"][tier] = run_tier(
                 output_root, corpus, sha, tier, workload, frames_file,
                 parse_seeds(args.seeds), commit)
+            # ponytail: checkpoint per tier, not just at the end — VMs die
+            # mid-run and DONE dirs under /tmp die with them. Small JSON
+            # survives via download/backup long before the full run ends.
+            (tier_dir / f"tier-result-{tier}.json").write_text(
+                json.dumps({"tier": tier, "workload": workload,
+                            "corpus_sha256": sha, "commit": commit,
+                            "result": result["tiers"][tier]},
+                           indent=2, default=str), encoding="utf-8")
+            print(f"tier {tier} checkpointed", flush=True)
         pipes = [r["pipeline"] for r in result["tiers"].values()]
         result["status"] = ("passed" if pipes and all(
             not p["collected"]["failed"] and not p["gaps"] for p in pipes)
