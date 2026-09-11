@@ -41,14 +41,16 @@ def _summarize(name: str, xs: list[float]) -> dict:
 def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
                 dataset: str, dataset_rev: str, dtype: str = "float32",
                 rng: int = 0, frames_file: str = "main-1000.jsonl",
-                device: str = "cuda"):
+                device_name: str = "cuda"):
     """Bind pins; return device(fault, seed) -> {artifact_name: bytes}.
 
-    device="cpu" is an integration fallback (validates logic, never T4
+    device_name="cpu" is an integration fallback (validates logic, never T4
     evidence): no CUDA events/sync, GPU times stay empty, backend identical.
+    (The outer pin is device_name because the inner callable is named
+    device — sharing the name stored the function itself in metrics.)
     """
     corpus_dir = Path(corpus_dir)
-    want_cuda = device == "cuda"
+    want_cuda = device_name == "cuda"
 
     def device(fault: str, seed: int) -> dict[str, bytes]:
         import random
@@ -215,7 +217,7 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
             "fault": fault, "seed": seed, "key_path": key_path,
             "corpus_sha256": corpus_sha, "corpus": corpus_kind,
             "frames_file": frames_file, "rng": rng, "dtype": dtype,
-            "device": device, "video_backend": "pyav",
+            "device": device_name, "video_backend": "pyav",
             "device_event_ms": _summarize("device_event_ms", per_req_gpu),
             "host_cpu_ms": _summarize("host_cpu_ms", per_req_cpu),
             "device_event_ms_raw": [round(x, 6) for x in per_req_gpu],
