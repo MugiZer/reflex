@@ -67,11 +67,14 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
         corpus_kind = "smoke" if frames_file.startswith("smoke") else "main"
         from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
+        # ponytail: pyav, not torchcodec — torchcodec's prebuilt ABI needs a
+        # system libavutil the T4 image lacks; revisit if pins change.
         policy = SmolVLAPolicy.from_pretrained(checkpoint,
                                               revision=checkpoint_rev)
         policy.to("cuda", dtype=getattr(torch, dtype))
         policy.eval()
-        ds = LeRobotDataset(dataset, revision=dataset_rev)
+        ds = LeRobotDataset(dataset, revision=dataset_rev,
+                            video_backend="pyav")
         ep_col = [int(e) for e in ds.hf_dataset["episode_index"]]
         starts: dict[int, int] = {}
         for gi, e in enumerate(ep_col):
@@ -200,7 +203,8 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
         }
         stats = {"dropped_records": 0, "correlation_misses": 0,
                  "frames": len(frames), "warmup_inferences": len(warmup_cpu),
-                 "key_path": key_path, "input_keys": input_keys}
+                 "key_path": key_path, "input_keys": input_keys,
+                 "video_backend": "pyav"}
         return {"trace.json": trace,
                 "metrics.json": json.dumps(metrics, sort_keys=True).encode(),
                 "fingerprints.json": json.dumps(

@@ -49,7 +49,7 @@ def genesis_or_validate() -> tuple[Path, str]:
     ds = LeRobotDataset(DATASET, revision=DATASET_REV)
     counts = Counter(int(e) for e in ds.hf_dataset["episode_index"])
     lengths = [counts[e] for e in sorted(counts)]
-    instruction = str(ds.meta.tasks["task"].iloc[0])
+    instruction = str(ds.meta.tasks.index[0])  # task strings are the index
     corpus = REPO_ROOT / "workloads" / "smolvla" / "corpora"
     if not (corpus / "main-1000.jsonl").exists():
         pins = {"resize_pad": [512, 512],
@@ -92,6 +92,7 @@ def run_tier(output_root: Path, corpus: Path, corpus_sha: str, tier: str,
                 "dataset": DATASET, "dataset_rev": DATASET_REV,
                 "corpus_sha256": corpus_sha, "rng": 0,
                 "warmup": "holdout-5x2", "dtype": "float32",
+                "video_backend": "pyav",
                 "repeat_is_seed": "manifest seed is repeat identity; "
                                   "model RNG fixed at 0"}
     pipeline = collector.run_pipeline(
