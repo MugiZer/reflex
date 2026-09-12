@@ -83,8 +83,11 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
         # system libavutil the T4 image lacks; revisit if pins change.
         policy = SmolVLAPolicy.from_pretrained(checkpoint,
                                               revision=checkpoint_rev)
+        # fp16 is autocast around a fp32 master (naive .to(fp16) breaks:
+        # VLM stator weights stay float -> mixed-dtype matmul, fails loud).
+        use_autocast = (dtype == "float16") and want_cuda
         policy.to(want_cuda and "cuda" or "cpu",
-                  dtype=getattr(torch, dtype))
+                  dtype=torch.float32)
         policy.eval()
         if compile:
             policy = torch.compile(policy)
@@ -157,8 +160,12 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
             cpu0 = time.perf_counter()
             if start is not None:
                 start.record()
+            import contextlib
+            amp = (torch.autocast("cuda", torch.float16) if use_autocast
+                   else contextlib.nullcontext())
             with torch.inference_mode():
-                action = postprocess(policy.select_action(batch))
+                with amp:
+                    action = postprocess(policy.select_action(batch))
             if end is not None:
                 end.record()
             cpu_ms = (time.perf_counter() - cpu0) * 1000.0
@@ -241,7 +248,8 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
                  "frames": len(frames), "warmup_inferences": len(warmup_cpu),
                  "key_path": key_path, "input_keys": input_keys,
                  "video_backend": "pyav", "compile": compile,
-                 "cudnn_bench": cudnn_bench}
+                 "cudnn_bench": cudnn_bench,
+                 "autocast": ("fp16" if use_autocast else "off")}
         return {"trace.json": trace,
                 "metrics.json": json.dumps(metrics, sort_keys=True).encode(),
                 "fingerprints.json": json.dumps(
