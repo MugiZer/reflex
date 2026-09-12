@@ -41,7 +41,8 @@ def _summarize(name: str, xs: list[float]) -> dict:
 def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
                 dataset: str, dataset_rev: str, dtype: str = "float32",
                 rng: int = 0, frames_file: str = "main-1000.jsonl",
-                device_name: str = "cuda"):
+                device_name: str = "cuda", compile: bool = False,
+                cudnn_bench: bool = False):
     """Bind pins; return device(fault, seed) -> {artifact_name: bytes}.
 
     device_name="cpu" is an integration fallback (validates logic, never T4
@@ -63,10 +64,11 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
         np.random.seed(rng % (2 ** 32))
         torch.manual_seed(rng)
         if want_cuda:
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.deterministic = not cudnn_bench
+            torch.backends.cudnn.benchmark = cudnn_bench
             try:
-                torch.use_deterministic_algorithms(True, warn_only=True)
+                torch.use_deterministic_algorithms(
+                    not cudnn_bench, warn_only=True)
             except Exception:
                 pass
         header = json.loads((corpus_dir / "main-1000.jsonl")
@@ -84,6 +86,8 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
         policy.to(want_cuda and "cuda" or "cpu",
                   dtype=getattr(torch, dtype))
         policy.eval()
+        if compile:
+            policy = torch.compile(policy)
         # Official rename channel (lerobot policies/utils.py): dataset cameras
         # top/wrist -> policy slots camera1/camera2 (first-listed first).
         # Partial fill is legal (policy needs at least one); recorded, loud.
@@ -236,7 +240,8 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
         stats = {"dropped_records": 0, "correlation_misses": 0,
                  "frames": len(frames), "warmup_inferences": len(warmup_cpu),
                  "key_path": key_path, "input_keys": input_keys,
-                 "video_backend": "pyav"}
+                 "video_backend": "pyav", "compile": compile,
+                 "cudnn_bench": cudnn_bench}
         return {"trace.json": trace,
                 "metrics.json": json.dumps(metrics, sort_keys=True).encode(),
                 "fingerprints.json": json.dumps(

@@ -72,7 +72,8 @@ def genesis_or_validate() -> tuple[Path, str]:
 def run_tier(output_root: Path, corpus: Path, corpus_sha: str, tier: str,
              workload: str, frames_file: str, seeds: tuple[int, ...],
              commit: str, dtype: str = "float32",
-             fault: str = "healthy") -> dict:
+             fault: str = "healthy", compile: bool = False,
+             cudnn_bench: bool = False) -> dict:
     import torch
     import lerobot
 
@@ -84,7 +85,8 @@ def run_tier(output_root: Path, corpus: Path, corpus_sha: str, tier: str,
     if identity["hardware"] == "unknown":
         raise RuntimeError("nvidia-smi did not provide GPU identity")
     device = make_device(corpus, CHECKPOINT, CHECKPOINT_REV, DATASET,
-                         DATASET_REV, frames_file=frames_file, dtype=dtype)
+                         DATASET_REV, frames_file=frames_file, dtype=dtype,
+                         compile=compile, cudnn_bench=cudnn_bench)
     root = output_root / commit[:12] / tier
     dataset_out = output_root / commit[:12] / "smolvla-dataset.jsonl"
     target = [(fault, identity["hardware"], collector.COLLECTOR_VERSION)]
@@ -93,7 +95,8 @@ def run_tier(output_root: Path, corpus: Path, corpus_sha: str, tier: str,
                 "dataset": DATASET, "dataset_rev": DATASET_REV,
                 "corpus_sha256": corpus_sha, "rng": 0,
                 "warmup": "holdout-5x2", "dtype": dtype,
-                "video_backend": "pyav",
+                "video_backend": "pyav", "compile": compile,
+                "cudnn_bench": cudnn_bench,
                 "repeat_is_seed": "manifest seed is repeat identity; "
                                   "model RNG fixed at 0"}
     pipeline = collector.run_pipeline(
@@ -117,6 +120,12 @@ def main(argv: list[str] | None = None) -> int:
         "REFLEX_DTYPE", "float32"))
     parser.add_argument("--fault", default=os.environ.get(
         "REFLEX_FAULT", "healthy"))
+    parser.add_argument("--compile", action="store_true",
+                        default=os.environ.get("REFLEX_COMPILE",
+                                               "") not in ("", "0"))
+    parser.add_argument("--cudnn-bench", action="store_true",
+                        default=os.environ.get("REFLEX_CUDNN_BENCH",
+                                               "") not in ("", "0"))
     args = parser.parse_args(argv)
 
     output_root = Path(args.output_root)
@@ -145,7 +154,8 @@ def main(argv: list[str] | None = None) -> int:
             result["tiers"][tier] = run_tier(
                 output_root, corpus, sha, tier, workload, frames_file,
                 parse_seeds(args.seeds), commit, dtype=args.dtype,
-                fault=args.fault)
+                fault=args.fault, compile=args.compile,
+                cudnn_bench=args.cudnn_bench)
             # ponytail: checkpoint per tier, not just at the end — VMs die
             # mid-run and DONE dirs under /tmp die with them. Small JSON
             # survives via download/backup long before the full run ends.
