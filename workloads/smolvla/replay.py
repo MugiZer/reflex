@@ -42,7 +42,7 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
                 dataset: str, dataset_rev: str, dtype: str = "float32",
                 rng: int = 0, frames_file: str = "main-1000.jsonl",
                 device_name: str = "cuda", compile: bool = False,
-                cudnn_bench: bool = False):
+                cudnn_bench: bool = False, contention_workers: int = 0):
     """Bind pins; return device(fault, seed) -> {artifact_name: bytes}.
 
     device_name="cpu" is an integration fallback (validates logic, never T4
@@ -180,6 +180,23 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
                     warmup_cpu.append((time.perf_counter() - c0) * 1000.0)
         if want_cuda:
             torch.cuda.synchronize()
+        burners: list = []
+        if contention_workers > 0:
+            # Real noisy-neighbor load (numpy releases the GIL): genuine host
+            # contention during measurement only, recorded, never code tampering.
+            import threading
+            stop = threading.Event()
+
+            def _burn() -> None:
+                import numpy as np
+                x = np.random.rand(256, 256)
+                while not stop.is_set():
+                    x = (x @ x) % 1.0
+
+            for _ in range(contention_workers):
+                t = threading.Thread(target=_burn, daemon=True)
+                t.start()
+                burners.append((t, stop))
         acts = [acts["CPU"]] + ([acts["CUDA"]] if want_cuda else [])
         per_req_gpu: list[float] = []
         per_req_cpu: list[float] = []
@@ -198,6 +215,9 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
                 per_req_cpu.append(out["cpu_ms"])
             if want_cuda:
                 torch.cuda.synchronize()
+            for t, stop in burners:
+                stop.set()
+                t.join(timeout=30)
             measured_end = datetime.now(timezone.utc).isoformat()
             for f, out in pending:
                 a = out["action"].numpy()
@@ -251,6 +271,7 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
                  "key_path": key_path, "input_keys": input_keys,
                  "video_backend": "pyav", "compile": compile,
                  "cudnn_bench": cudnn_bench,
+                 "contention_workers": contention_workers,
                  "autocast": ("fp16" if use_autocast else "off")}
         return {"trace.json": trace,
                 "metrics.json": json.dumps(metrics, sort_keys=True).encode(),
