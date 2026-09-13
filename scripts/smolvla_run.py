@@ -140,6 +140,14 @@ def main(argv: list[str] | None = None) -> int:
 
     output_root = Path(args.output_root)
     output_root.mkdir(parents=True, exist_ok=True)
+    log_path = output_root / "run.log"
+
+    def log(msg: str) -> None:
+        line = f"{dt.datetime.now(dt.timezone.utc).isoformat()} {msg}"
+        print(line, flush=True)
+        with log_path.open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+
     commit = git_commit()
     result = {
         "run_id": dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -150,11 +158,17 @@ def main(argv: list[str] | None = None) -> int:
         "started_at": dt.datetime.now(dt.timezone.utc).isoformat(),
     }
     try:
+        log(f"start commit={commit} tiers={args.tiers} seeds={args.seeds} "
+            f"dtype={args.dtype} fault={args.fault} compile={args.compile} "
+            f"cudnn_bench={args.cudnn_bench} contention={args.contention} "
+            f"exp={args.exp!r}")
         result["corpus_tests"] = corpus_tests()
+        log(f"corpus_tests exit={result['corpus_tests']['exit_code']}")
         if result["corpus_tests"]["exit_code"] != 0:
             raise RuntimeError("corpus contract tests failed")
         corpus, sha = genesis_or_validate()
         result["corpus_sha256"] = sha
+        log(f"corpus {sha[:12]} valid")
         wanted = [t.strip() for t in args.tiers.split(",") if t.strip()]
         result["tiers"] = {}
         tier_dir = output_root / commit[:12]
@@ -167,6 +181,9 @@ def main(argv: list[str] | None = None) -> int:
                 fault=args.fault, compile=args.compile,
                 cudnn_bench=args.cudnn_bench, contention=args.contention,
                 exp=args.exp)
+            pipe = result["tiers"][tier]["pipeline"]
+            log(f"tier {tier} done failed={pipe['collected']['failed']} "
+                f"gaps={pipe['gaps']} records={pipe['records']}")
             # ponytail: checkpoint per tier, not just at the end — VMs die
             # mid-run and DONE dirs under /tmp die with them. Small JSON
             # survives via download/backup long before the full run ends.
@@ -186,6 +203,8 @@ def main(argv: list[str] | None = None) -> int:
     result["finished_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
     (output_root / "run_result.json").write_text(
         json.dumps(result, indent=2, default=str), encoding="utf-8")
+    log(f"finish status={result['status']} "
+        f"error={result.get('error', '')}")
     print(json.dumps({k: v for k, v in result.items()
                       if k != "corpus_tests"}, indent=2, default=str))
     return 0 if result["status"] == "passed" else 1

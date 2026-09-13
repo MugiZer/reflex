@@ -39,6 +39,15 @@ only this index is committed.
 - `compile-smoke-20260913-seed11/` (T4, 2026-09-12, seed 11, torch.compile):
   outputs IDENTICAL 250/250 sha vs baseline; timing median +2%, p95 +4%
   (inside thresholds). Verdict: clean, not a regression.
+- `max-risky-colab-20260914-seed11/` (T4, 2026-09-13, seed 11, smoke-250,
+  fp16 + compile + cudnn-bench + 2 burners, run_id 20260913T224150Z-d783b2c1,
+  status passed, gaps empty): outputs DIVERGED 0/250 sha (max mean-diff
+  0.0020); device median 9.94 vs 3.94ms (+152%), p95 23.3 vs 7.07ms (+230%)
+  — far outside the threshold basis. diagnose() vs baseline 2026-09-13
+  (CPU): max z=1.34 transport, all stages <2.0 (no latency trip; kernels
+  80535 vs 77490). Verdict: CATCH on outputs + raw-timing thresholds;
+  MISSED by z-ranking — init-spike p99 tails (~800-1900ms both sides)
+  desensitize stage z to median shifts. Detector blind spot, recorded.
 
 ## Discipline (learned 2026-09-11)
 
