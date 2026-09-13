@@ -22,15 +22,55 @@ PROVENANCE = "fakegpu"
 PEAK_FLOPS, PEAK_BW, MFU = 100e12, 1.6e12, 0.35
 BASE_CLOCK_NS = 1_000_000_000
 
-# ponytail: fixed asymmetric clock physics for the coupled host-stall
-# mechanism (fast idle-decay tau, slow load-ramp tau, clock floor); fit from
-# T4 nsys clock traces when duration fidelity beyond rank-order matters.
+# Phenomenological coupled host-stall mechanism (V2, default off). Every
+# equation below is a PHENOMENOLOGICAL approximation, not silicon physics:
+# no in-repo measurement supports a hardware reading (no T4 nsys clock,
+# launch->start pairing, or contention-duty trace exists in-repo). Each
+# constant is fit to real bundle statistics (matrix-36 cpu_starvation vs
+# healthy), documented with target + residual below. Falsifiers named
+# per-equation; a real measurement replacing any of them deletes the
+# phenomenology label on that equation.
+#
+# (a) Sparse host stalls: with prob host_stall_prob per op, the host issue
+# gap grows by host_stall_us * LogNormal(0, _STALL_SIGMA). Approximates the
+# real gap-tail shape (mostly ~us gaps, rare ~ms sleeps; real p99 ~5ms).
+# Assumption: one lognormal family covers sleep + scheduling stalls.
+# Falsifier: real gap-tail clearly bimodal / heavier than lognormal.
+# _STALL_SIGMA 1.0 -> 0.35: old tail p99 ~21ms vs real ~5ms (4x hot);
+# new p99 ~4.8ms. Median untouched (70% of ops stall-free either way).
+_STALL_SIGMA = 0.35
+# (b) Contention duty on host-op duration: every op's cpu_dur scales by
+# (1 + host_stall_prob * host_stall_us / _HOST_QUANTUM_US). Approximates the
+# real median cpu_dur inflation (~3x: real 13-19us vs base 4-7us).
+# Assumption: contention taxes all ops equally (uniform duty), i.e. no
+# per-op state. Falsifier: real per-op cpu_dur uncorrelated with stall
+# rate (then the tax must be per-stall, not uniform).
+# _HOST_QUANTUM_US 2400 -> 400: old duty factor 1.31x vs real ~3x (2.3x
+# under); new factor 1 + 0.3*2500/400 = 2.88x. Pure scale fit, no silicon
+# derivation before or after.
+_HOST_QUANTUM_US = 400.0
+# (c) Stalled-op tail share: a stalled op's own cpu_dur additionally grows
+# by stall_ns * _STALL_DUR_FRAC. Approximates the real heavy tail in host
+# durations (real p95 58-89us, max ~2.8ms over mixed runtime records).
+# Assumption: the stalled op itself absorbs a fixed fraction of its stall.
+# Falsifier: real stalled-op durations independent of stall length.
+# Retained for SHAPE (without it all cpu_durs are identical, 8.62us), not
+# for median (only 30% of ops stalled; pooled median unaffected).
+# Residual: synth p95 ~1ms vs real ~70us (tail too narrow: lognormal
+# sigma 0.35 spans 3x while real spans 200x); max same order (~1ms).
+_STALL_DUR_FRAC = 0.25
+# (d) Emergent clock droop/ramp ("DVFS"): device idle (arrive - stream_end)
+# decays a clock factor toward _CLK_MIN with time constant _TAU_DECAY_US;
+# each kernel's duration inflates by 1/clk, then clk recovers toward 1 with
+# _TAU_RAMP_US. Approximates real kernel inflation (median ratio 5.6-6.9x,
+# headline synth ~6.1-6.5x). Assumption: idle time is THE state (no thermal
+# / power / frequency telemetry anywhere in-repo). Falsifier (already
+# observed): DVFS-as-physics is false -- a T4 never clocks at 8% (_CLK_MIN
+# 0.08) and the 35ms recovery tau exceeds the trace span ~100x, so the
+# "clock" never equilibrates; it is a one-way inflation ratchet with slow
+# forgetting, not a oscillator. Kept as phenomenology: ablation (clk
+# pinned at 1) collapses kernel inflation to ~1x and fails gates 1-3.
 _CLK_MIN, _TAU_DECAY_US, _TAU_RAMP_US = 0.08, 500.0, 35000.0
-_STALL_SIGMA, _HOST_QUANTUM_US, _STALL_DUR_FRAC = 1.0, 2400.0, 0.25
-# ponytail: fixed driver-submission latency fraction under host contention
-# (same severity, not a second knob); host timestamps never see it, the
-# device arrival does. Fit from T4 launch->start pairing when it matters.
-_SUBMIT_FRAC = 0.1
 # ponytail: fixed 3-kernel prior cycle, not a model registry; add NeuSight
 # priors per kernel when duration fidelity (not just ordering) matters.
 _PRIORS = (  # (kernel_name, flops, bytes, grid, block, shmem_B)
@@ -105,7 +145,7 @@ def generate(seed: int, profile: FaultProfile | str = "healthy", n_kernels: int 
     t_ns, prev_cpu_end = BASE_CLOCK_NS, BASE_CLOCK_NS
     stream_end: dict[int, int] = {}  # per-stream device clock; overlap emerges, never forced
     coupled = prof.host_stall_prob > 0.0 and prof.host_stall_us > 0.0
-    clk = 1.0  # DVFS clock factor; evolves only when coupled (old presets: pinned at 1)
+    clk = 1.0  # phenomenological clock state; evolves only when coupled (old presets: pinned at 1)
     for i in range(n_kernels):
         kname, flops, nbytes, grid, block, shmem = _PRIORS[i % len(_PRIORS)]
         cid = f"{seed:08x}-{i:04d}"
@@ -121,7 +161,7 @@ def generate(seed: int, profile: FaultProfile | str = "healthy", n_kernels: int 
             stall_ns = int(prof.host_stall_us * 1000 * rng.lognormvariate(0.0, _STALL_SIGMA))
         inter_gap_ns = int((6.0 + prof.cpu_starve_us + prof.batch_delay_us * 0.5) * 1000 * j_inter) + stall_ns
         cpu_dur_ns = int((3.0 + prof.batch_delay_us * 0.25) * 1000)
-        if coupled:  # same stall process stretches the host op itself: contention duty on every op + tail share on stalled ops
+        if coupled:  # phenomenology (b)+(c) above: uniform duty + stalled-op tail share
             cpu_dur_ns = int(cpu_dur_ns * (1.0 + prof.host_stall_prob * prof.host_stall_us / _HOST_QUANTUM_US))
             cpu_dur_ns += int(stall_ns * _STALL_DUR_FRAC)
         blocked_ns = int((60.0 if prof.force_sync_serialize else 1.0) * 1000 * j())
@@ -133,8 +173,14 @@ def generate(seed: int, profile: FaultProfile | str = "healthy", n_kernels: int 
             cpu_start = host_ready  # host runs ahead; kernels overlap on streams (no t_ns clamp)
         cpu_end = cpu_start + cpu_dur_ns
         earliest = cpu_end + want_gap_ns
-        submit_ns = int(prof.host_stall_us * 1000 * _SUBMIT_FRAC) if coupled else 0
-        arrive = earliest + submit_ns  # driver submission latency under contention: host never sees it, device arrival does
+        # No driver-submission latency term: device arrival == host earliest.
+        # A _SUBMIT_FRAC=0.1 term (arrival = earliest + 250us under coupling)
+        # existed at HEAD 483c49b; ablation showed its ONLY measurable effect
+        # was shifting the binned-xcorr lag into the old gate-4 band (lag
+        # 0.86ms -> 0.00ms on removal, = real median exactly) with zero
+        # effect on rank-order, dose-response, gap tail, or inflation, so it
+        # was deleted rather than kept as a lag cosmetic.
+        arrive = earliest
         nstreams = prof.contention_streams
         if nstreams == 1:
             stream_id = 1
@@ -146,7 +192,7 @@ def generate(seed: int, profile: FaultProfile | str = "healthy", n_kernels: int 
             gpu_start = max(earliest, t_ns)
         else:
             gpu_start = max(arrive, stream_end.get(stream_id, BASE_CLOCK_NS))
-        if coupled:  # emergent downstream: starved-device idle slams the clock down fast; queued load ramps it back slowly
+        if coupled:  # phenomenology (d) above: idle-droop / load-ramp clock; see falsifier note
             idle_ns = max(0, arrive - stream_end.get(stream_id, BASE_CLOCK_NS))
             clk = max(_CLK_MIN, clk * math.exp(-idle_ns / (_TAU_DECAY_US * 1000)))
             dur_ns = int(dur_ns / clk)

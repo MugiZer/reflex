@@ -5,20 +5,28 @@ matched healthy baselines). Synthetic: cpu_starvation_v2 across seeds
 (n=40 kernels to match real bundle scale). Stdlib+numpy only.
 
 Mechanism under test (reflex/fakegpu.py): sparse host stalls (median gap
-preserved, heavy tail) + contention duty on cpu_dur + emergent DVFS clock
-droop (device idle -> slow kernels -> ramp back). No cpu_starve_us median
-shift, no kernel_slowdown_x.
+preserved, heavy tail) + contention duty on cpu_dur + phenomenological
+clock droop (device idle -> slow kernels -> ramp back). No cpu_starve_us
+median shift, no kernel_slowdown_x, no driver-submission latency term
+(deleted: ablation showed its only effect was cosmetic lag shift).
 
 Gates: (1) Spearman rank-order of mean stage z (PASS rho>=0.7);
 (2) cosine similarity of mean-z centroids (PASS >0.8);
 (3) dose-response slope sign + response-range overlap on the stall-size ray
     (starve_prob, stall_us) = (min(0.30, 0.30d), 2500d) (PASS: kernel sign
     matches real elevation, kernel and queue ranges overlap real);
-(4) host->device lag via binned cross-correlation of cpu/gpu start timelines
-    (PASS: synthetic median lag > 0 and within 1ms of real median lag).
+(4) causal-timeline INVARIANTS across seeds (PASS: all hold) --
+    order violations zero, median paired launch->start delay >= 0 on both
+    sides (direction match; real median is exactly 0.000ms), backlog drift
+    bounded (|slope|<=0.10ms/idx at n=40, <=0.02ms/idx at n=200).
+    The old operating point (synthetic binned-xcorr lag > 0 within 1ms of
+    real) is deleted: the xcorr estimator is unstable seed-to-seed
+    (spread -6.7..+1.8ms without the submit term, 20%-pass lottery with
+    it) while the real baseline lag is exactly 0.000ms -- no operating
+    point exists there, only the direction invariant.
 A FAIL reports the measured gap; that gap is the remaining clock-math spec.
-Extra INFO lines (tail stats, backlog slope, dose table) are diagnostics,
-not gates.
+Extra INFO lines (tail stats, backlog slope, dose table, xcorr spread) are
+diagnostics, not gates.
 """
 from __future__ import annotations
 
@@ -185,23 +193,41 @@ def _xcorr_lag_ms(bundle, nbins=200):
     return lag * w / 1e6
 
 
+def _paired_delay_ms(bundle):
+    ce = {c["correlation_id"]: c for c in bundle["cpu_launch"]}
+    return [(g["start_ns"] - ce[g["correlation_id"]]["end_ns"]) / 1e6
+            for g in bundle["gpu_kernel"]]
+
+
 def gate4(real, synth):
-    lr = [_xcorr_lag_ms(inc) for inc, _ in real]
-    ls = [_xcorr_lag_ms(inc) for inc, _ in synth]
-    mr, ms = _med(lr), _med(ls)
-    ok = ms > 0 and abs(ms - mr) <= 1.0
-    print("GATE4 upstream-lag: %s synth_lag=%+.3fms real_lag=%+.3fms (need synth>0 within 1ms of real)" %
-          ("PASS" if ok else "FAIL", ms, mr))
+    """Causal-timeline invariants (no lag operating point)."""
+    ok_parts = []
+    r_med = _med([_med(_paired_delay_ms(inc)) for inc, _ in real])
+    s_med = _med([_med(_paired_delay_ms(inc)) for inc, _ in synth])
+    dir_ok = s_med >= 0 and r_med >= 0
+    ok_parts.append(("direction(synth_med=%+.4f,real_med=%+.4f)>=0" % (s_med, r_med), dir_ok))
+    viol = sum(1 for inc, _ in synth for d in _paired_delay_ms(inc) if d < 0)
+    viol_ok = viol == 0
+    ok_parts.append(("order_violations=%d==0" % viol, viol_ok))
+    slopes40, slopes200 = [], []
+    for s in SYN_SEEDS:
+        for n, acc in ((40, slopes40), (200, slopes200)):
+            ds = _paired_delay_ms(generate(s, PRESET, n))
+            acc.append(float(np.polyfit(range(len(ds)), ds, 1)[0]))
+    b40 = max(abs(x) for x in slopes40)
+    b200 = max(abs(x) for x in slopes200)
+    # Bounds from the failure mode, not the data: V1 single-stream
+    # serialization accumulated +0.38ms/idx (15ms over n=40); a bounded
+    # backlog must stay an order below that rate short-range and show no
+    # secular drift long-range.
+    slope_ok = b40 <= 0.10 and b200 <= 0.02
+    ok_parts.append(("backlog|slope|<=0.10@40 (%.4f), <=0.02@200 (%.4f)" % (b40, b200), slope_ok))
+    ok = all(p[1] for p in ok_parts)
+    print("GATE4 timeline-invariants: %s %s" %
+          ("PASS" if ok else "FAIL",
+           " ".join("[%s]%s" % ("x" if p[1] else " ", p[0]) for p in ok_parts)))
     if not ok:
-        ce = {c["correlation_id"]: c for c in synth[0][0]["cpu_launch"]}
-        ds = [(g["start_ns"] - ce[g["correlation_id"]]["end_ns"]) / 1e6
-              for g in synth[0][0]["gpu_kernel"]]
-        drift = float(np.polyfit(range(len(ds)), ds, 1)[0])
-        print("  GAP: synthetic host->device delay grows without bound (+%.3fms per kernel "
-              "index, idx0=%.2fms idx%d=%.2fms) while real paired launch->start delay is "
-              "flat ~0.001ms: single-stream serialization accumulates a backlog the T4 "
-              "never shows. V2 clock math must bound the backlog (concurrency/overlap), "
-              "not just inflate durations." % (drift, ds[0], len(ds) - 1, ds[-1]))
+        print("  GAP: %s" % "; ".join(p[0] for p in ok_parts if not p[1]))
     return ok
 
 
@@ -219,7 +245,8 @@ def _tail(xs):
 
 
 def diag_info(real, synth):
-    """INFO diagnostics (not gates): gap tail shape, backlog slope flatness."""
+    """INFO diagnostics (not gates): gap tail shape, backlog slope flatness,
+    binned-xcorr lag spread (estimator-stability record, not gated)."""
     for tag, rows in (("real", [inc for inc, _ in real]),
                       ("synth", [inc for inc, _ in synth])):
         med, p95, p99, mx = _tail([g for b in rows for g in _gaps_ms(b)])
@@ -227,9 +254,12 @@ def diag_info(real, synth):
         ds = [(g["start_ns"] - ce[g["correlation_id"]]["end_ns"]) / 1e6
               for g in rows[0]["gpu_kernel"]]
         drift = float(np.polyfit(range(len(ds)), ds, 1)[0]) if len(ds) > 1 else 0.0
+        lags = [_xcorr_lag_ms(b) for b in rows]
         print("  INFO %s gap tail ms: med=%.4f p95=%.2f p99=%.2f max=%.2f | "
-              "backlog slope=%+.4fms/idx (idx0=%.3fms idx%d=%.3fms)" %
-              (tag, med, p95, p99, mx, drift, ds[0], len(ds) - 1, ds[-1]))
+              "backlog slope=%+.4fms/idx (idx0=%.3fms idx%d=%.3fms) | "
+              "xcorr lag med=%+.3f spread=[%+.3f,%+.3f] (unstable estimator, INFO only)" %
+              (tag, med, p95, p99, mx, drift, ds[0], len(ds) - 1, ds[-1],
+               _med(lags), min(lags), max(lags)))
 
 
 def main() -> int:
