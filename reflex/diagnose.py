@@ -294,26 +294,86 @@ def layout_signature(incident: dict, baselines: list[dict]) -> dict:
     return {"stage": None, "n_ops": n_inc}
 
 
+def _gpu_by_name(bundle: dict) -> dict:
+    """Per-kernel-name gpu durations (ms) for matched comparison."""
+    out: dict[str, list] = defaultdict(list)
+    for g in bundle.get("gpu_kernel", []) or []:
+        out[g.get("kernel_name") or g.get("name") or "UNKNOWN"].append(
+            float(g.get("dur_ns", 0)) / 1e6)
+    return out
+
+
+def _matched_z(base_names: dict, inc_names: dict, floor: float,
+               min_n: int = 5):
+    """Per-kernel-name matched z with the pooled formula.
+
+    Pooling heterogeneous kernels lets cross-kernel spread drown coherent
+    multiplicative shifts (proven: +152% medians -> pooled z 0.91, matched
+    max 4.11 on max-risky vs baseline). Best (z, delta) wins, mirroring
+    compare(). None when no name matches on both sides with min_n samples
+    (caller falls back to pooled); incident-only names are reported, never
+    scored.
+    """
+    groups, best = {}, None
+    for name in sorted(inc_names):
+        if name not in base_names:
+            continue
+        v0, v1 = base_names[name], inc_names[name]
+        if len(v0) < min_n or len(v1) < min_n:
+            continue
+        m = _med(v0)
+        d = _mad(v0, m)
+        fm = _med(v1)
+        denom = 1.4826 * d + floor + _REL_TOL * abs(m)
+        z = (fm - m) / denom if denom else 0.0
+        groups[name] = {"base_med": m, "base_mad": d, "fault_med": fm,
+                        "delta": fm - m, "z": z,
+                        "n_base": len(v0), "n_fault": len(v1)}
+        if best is None or (z, fm - m) > best:
+            best = (z, fm - m)
+    if not groups:
+        return None
+    only = [k for k in inc_names if k not in base_names]
+    extra = {"matched_names": len(groups),
+             "incident_only_names": len(only),
+             "incident_only_records": sum(len(inc_names[k]) for k in only)}
+    return best[0], best[1], groups, extra
+
+
 def compare_real(incident: dict, baselines: list[dict]) -> dict:
     """Distributional differential for real bundles (see _flat_vals).
 
     Same Median/MAD z as compare(); same STAGES/rank() vocabulary, so the
-    ledger/registry tail is shared. Raises ContextMismatch on timing skew."""
+    ledger/registry tail is shared. The gpu stage matches per kernel name
+    (pooled cross-kernel spread hides coherent shifts); other stages stay
+    pooled. Raises ContextMismatch on timing skew."""
     ctx = _check_context_real(incident, baselines)
     pool: dict[str, list] = {st: [] for st in STAGES}
+    base_names: dict[str, list] = defaultdict(list)
     for b in baselines:
         f = _flat_vals(b)
         for st in STAGES:
             pool[st].extend(f[st])
+        for name, vals in _gpu_by_name(b).items():
+            base_names[name].extend(vals)
     base = {}
     for st in STAGES:
         v = pool[st]
         base[st] = (_med(v), _mad(v, _med(v))) if v else (0.0, 0.0)
     fi = _flat_vals(incident)
+    inc_names = _gpu_by_name(incident)
     surfaces = {}
     for st in STAGES:
         unit = _UNITS.get(st, "ms")
         floor = _Z_FLOOR_COUNT if st == "queue" else _Z_FLOOR_MS
+        if st == "gpu":
+            hit = _matched_z(base_names, inc_names, floor)
+            if hit is not None:
+                z, delta, groups, extra = hit
+                surfaces[st] = {"unit": unit, "z": z, "delta": delta,
+                                "groups": groups, "n_baselines": len(baselines),
+                                **extra}
+                continue
         vals = fi[st]
         fm = _med(vals) if vals else 0.0
         m, d = base[st]
