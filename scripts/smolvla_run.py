@@ -73,7 +73,8 @@ def run_tier(output_root: Path, corpus: Path, corpus_sha: str, tier: str,
              workload: str, frames_file: str, seeds: tuple[int, ...],
              commit: str, dtype: str = "float32",
              fault: str = "healthy", compile: bool = False,
-             cudnn_bench: bool = False, contention: int = 0) -> dict:
+             cudnn_bench: bool = False, contention: int = 0,
+             exp: str = "") -> dict:
     import torch
     import lerobot
 
@@ -88,7 +89,7 @@ def run_tier(output_root: Path, corpus: Path, corpus_sha: str, tier: str,
                          DATASET_REV, frames_file=frames_file, dtype=dtype,
                          compile=compile, cudnn_bench=cudnn_bench,
                          contention_workers=contention)
-    root = output_root / commit[:12] / tier
+    root = output_root / commit[:12] / (exp or tier)
     dataset_out = output_root / commit[:12] / "smolvla-dataset.jsonl"
     target = [(fault, identity["hardware"], collector.COLLECTOR_VERSION)]
     software = {"torch": torch.__version__, "lerobot": lerobot.__version__,
@@ -98,6 +99,7 @@ def run_tier(output_root: Path, corpus: Path, corpus_sha: str, tier: str,
                 "warmup": "holdout-5x2", "dtype": dtype,
                 "video_backend": "pyav", "compile": compile,
                 "cudnn_bench": cudnn_bench, "contention_workers": contention,
+                "exp": exp or tier,
                 "repeat_is_seed": "manifest seed is repeat identity; "
                                   "model RNG fixed at 0"}
     pipeline = collector.run_pipeline(
@@ -129,6 +131,9 @@ def main(argv: list[str] | None = None) -> int:
                                                "") not in ("", "0"))
     parser.add_argument("--contention", type=int, default=int(
         os.environ.get("REFLEX_CONTENTION", "0")))
+    parser.add_argument("--exp", default=os.environ.get("REFLEX_EXP", ""),
+                        help="experiment dir suffix; isolates candidates "
+                             "sharing a fault name so resume never no-ops")
     args = parser.parse_args(argv)
 
     output_root = Path(args.output_root)
@@ -158,7 +163,8 @@ def main(argv: list[str] | None = None) -> int:
                 output_root, corpus, sha, tier, workload, frames_file,
                 parse_seeds(args.seeds), commit, dtype=args.dtype,
                 fault=args.fault, compile=args.compile,
-                cudnn_bench=args.cudnn_bench, contention=args.contention)
+                cudnn_bench=args.cudnn_bench, contention=args.contention,
+                exp=args.exp)
             # ponytail: checkpoint per tier, not just at the end — VMs die
             # mid-run and DONE dirs under /tmp die with them. Small JSON
             # survives via download/backup long before the full run ends.
