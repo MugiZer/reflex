@@ -119,18 +119,20 @@ def main(argv: list[str] | None = None) -> int:
         "REFLEX_SEEDS", "11,17,23"))
     parser.add_argument("--tiers", default=os.environ.get(
         "REFLEX_TIERS", "smoke,main"))
+    # max-risky defaults: fp16 + compile + cudnn-bench + 2 burners, labeled
+    # candidate so healthy baselines stay clean; pass --exp per attempt.
     parser.add_argument("--dtype", default=os.environ.get(
-        "REFLEX_DTYPE", "float32"))
+        "REFLEX_DTYPE", "float16"))
     parser.add_argument("--fault", default=os.environ.get(
-        "REFLEX_FAULT", "healthy"))
+        "REFLEX_FAULT", "candidate"))
     parser.add_argument("--compile", action="store_true",
                         default=os.environ.get("REFLEX_COMPILE",
-                                               "") not in ("", "0"))
+                                               "1") not in ("", "0"))
     parser.add_argument("--cudnn-bench", action="store_true",
                         default=os.environ.get("REFLEX_CUDNN_BENCH",
-                                               "") not in ("", "0"))
+                                               "1") not in ("", "0"))
     parser.add_argument("--contention", type=int, default=int(
-        os.environ.get("REFLEX_CONTENTION", "0")))
+        os.environ.get("REFLEX_CONTENTION", "2")))
     parser.add_argument("--exp", default=os.environ.get("REFLEX_EXP", ""),
                         help="experiment dir suffix; isolates candidates "
                              "sharing a fault name so resume never no-ops")

@@ -15,6 +15,30 @@ on:
         description: Comma-separated tiers to run
         required: true
         default: "smoke,main"
+      dtype:
+        description: Model dtype (float32 baseline, float16 = autocast candidate)
+        required: true
+        default: "float16"
+      fault:
+        description: Provenance label for the manifest
+        required: true
+        default: "candidate"
+      compile:
+        description: torch.compile the policy
+        required: true
+        default: "true"
+      cudnn_bench:
+        description: cudnn benchmark (nondeterministic kernel pick)
+        required: true
+        default: "true"
+      contention:
+        description: Host burner threads during measurement
+        required: true
+        default: "2"
+      exp:
+        description: Experiment dir suffix (isolates attempts sharing a fault name)
+        required: true
+        default: "max-risky-smoke-20260914-seed11"
 
 permissions:
   contents: write
@@ -50,7 +74,13 @@ jobs:
           REFLEX_REF: ${{ inputs.ref }}
           REFLEX_SEEDS: ${{ inputs.seeds }}
           REFLEX_TIERS: ${{ inputs.tiers }}
-        run: python scripts/smolvla_run.py --seeds "${REFLEX_SEEDS}" --tiers "${REFLEX_TIERS}"
+          REFLEX_DTYPE: ${{ inputs.dtype }}
+          REFLEX_FAULT: ${{ inputs.fault }}
+          REFLEX_COMPILE: ${{ inputs.compile == 'true' && '1' || '0' }}
+          REFLEX_CUDNN_BENCH: ${{ inputs.cudnn_bench == 'true' && '1' || '0' }}
+          REFLEX_CONTENTION: ${{ inputs.contention }}
+          REFLEX_EXP: ${{ inputs.exp }}
+        run: python scripts/smolvla_run.py --seeds "${REFLEX_SEEDS}" --tiers "${REFLEX_TIERS}" --dtype "${REFLEX_DTYPE}" --fault "${REFLEX_FAULT}" --contention "${REFLEX_CONTENTION}" --exp "${REFLEX_EXP}" $([ "${REFLEX_COMPILE}" = "1" ] && echo "--compile") $([ "${REFLEX_CUDNN_BENCH}" = "1" ] && echo "--cudnn-bench")
 
       - name: Upload raw logs and traces
         if: always()
