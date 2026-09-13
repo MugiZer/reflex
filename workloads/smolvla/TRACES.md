@@ -26,6 +26,20 @@ only this index is committed.
   p99 informational.
 - Seed 23 main: running at last check.
 
+## Collected (candidates, T4)
+
+- `fp16-smoke-20260912-seed11/` + in-dir `fp32-control-*` (T4, 2026-09-12,
+  seed 11, smoke-250, autocast fp16 vs fp32 control): outputs DIVERGED 0/250
+  sha vs control (max mean-diff 0.0024); kernel count +55% (120540 vs 77490);
+  timing medians +2.9% (inside healthy band). diagnose() vs baseline 2026-09-13
+  (CPU): control-vs-baseline sanity all |z|<=0.12 (no false positives);
+  fp16 max z=1.25 transport, all stages <2.0 (no latency trip). Verdict: CATCH
+  on the output-hash criterion (threshold basis above), missed by latency
+  ranking — numerics moved, timing didn't.
+- `compile-smoke-20260913-seed11/` (T4, 2026-09-12, seed 11, torch.compile):
+  outputs IDENTICAL 250/250 sha vs baseline; timing median +2%, p95 +4%
+  (inside thresholds). Verdict: clean, not a regression.
+
 ## Discipline (learned 2026-09-11)
 
 1. Download each tier's artifacts to durable storage the moment its DONE
