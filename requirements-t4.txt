@@ -1,0 +1,13 @@
+# Pinned ML stack for every T4/GPU run path (colab_collect.py, t4-run.yml).
+# Why pinned: unpinned installs drift per machine (sklearn 1.9.0 vs 1.6.1,
+# lightgbm 4.7.0 vs 4.6.0) and fitted-score margins move with them — the
+# 2026-09-07 T4 run failed test_benchmark_beats_slice05 at margin 0.0047 vs a
+# 0.005 bar for exactly this reason. torch floats: platform wheels differ
+# (+cu128 vs +cpu) and torch is workload/profiler only, never the ranker.
+pytest
+mapie==1.5.0
+scikit-learn==1.9.0
+lightgbm==4.7.0
+interpret-core==0.7.8
+numpy==2.3.4
+scipy==1.18.1

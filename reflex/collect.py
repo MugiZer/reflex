@@ -2,7 +2,9 @@
 
 Layout per run: <root>/<fault>/<seed>/{manifest.json, trace.json,
 trace.sqlite?, DONE}. Manifest is written FIRST; DONE is written LAST, only
-after every artifact re-reads with matching sha256. A dead session leaves
+after every artifact re-reads with matching sha256. Sharded runs store
+trace-shard-N.json instead of trace.json (ingest merges them; see
+_merge_shard_bundles). A dead session leaves
 flagless partial runs; the next session resumes by scanning for them.
 Home-side ingest is append-only and idempotent by (run_id, hardware,
 collector_version). Converters turn
@@ -21,6 +23,8 @@ import shutil
 import sqlite3
 import uuid
 from pathlib import Path
+
+from .envelope import stamp as _stamp
 
 PROVENANCE = "collect"
 COLLECTOR_VERSION = "collect-v1"
@@ -81,7 +85,9 @@ def manifest(fault: str, seed: int, workload: str = "infer-microbench",
              nsys_version: str = "unknown", trace_variant: str = "cuda",
              perf_status: str = "unknown", torch_version: str = "unknown",
              software: dict | None = None, stats: dict | None = None,
-             extra: dict | None = None) -> dict:
+             extra: dict | None = None, commit: str = "unknown",
+             timing_model_version: str = "unknown", outcome: str = "unknown",
+             reason: str = "") -> dict:
     """Run identity + comparability context. Written before any artifact.
     identity_provider is a () -> dict callable (Colab: nvidia_smi_identity;
     tests: fake); its device/hardware/driver/cuda/collector_version entries
@@ -117,6 +123,16 @@ def manifest(fault: str, seed: int, workload: str = "infer-microbench",
         workload, ident.get("device", device), ident.get("hardware", "unknown"),
         ident.get("driver", "unknown"), ident.get("cuda", "unknown"),
         ident.get("collector_version", COLLECTOR_VERSION)))
+    # ponytail: commit/env injected (like identity_provider), never computed
+    # here — no git/env/subprocess. GPU-path extras ride along verbatim.
+    envelope = _stamp(commit=commit, fault=fault, seed=seed,
+                      hardware=ident.get("hardware", "unknown"),
+                      collector_version=ident.get("collector_version", COLLECTOR_VERSION),
+                      timing_model_version=timing_model_version,
+                      outcome=outcome, reason=reason,
+                      extra_env={"device": ident.get("device", device),
+                                 "driver": driver_v, "cuda": cuda_v,
+                                 "software": software_out, "stats": stats_out})
     return {"run_id": f"{fault}:{seed}", "fault": fault, "seed": seed,
             "execution_id": uuid.uuid4().hex[:16],  # unique per collection attempt, even on resume
             "context_id": hashlib.sha256(ctx_src.encode()).hexdigest()[:16],  # stable per experimental context
@@ -132,6 +148,7 @@ def manifest(fault: str, seed: int, workload: str = "infer-microbench",
             "software": software_out,
             "stats": stats_out,
             "status": "started",
+            "envelope": envelope,
             "sha256": {}, "extra": dict(extra or {})}
 
 
@@ -242,6 +259,158 @@ _CPU_CATS = {"cpu_op", "cuda_runtime", "cuda_driver"}
 _KERNEL_CATS = {"kernel"}
 _MEMCPY_CATS = {"gpu_memcpy", "gpu_memset"}
 _SYNC_CATS = {"cuda_sync"}
+# ponytail: real Kineto emits host-side waits as cuda_runtime
+# (cudaDeviceSynchronize/cudaStreamSynchronize), never as cuda_sync;
+# route them to sync_edge (blocked attribution), not cpu_launch.
+_SYNC_RUNTIME_SUBSTR = ("synchronize",)
+
+
+def _normalize_kernel_name(name) -> str:
+    """Short stable kernel identity from a raw Kineto `name`.
+
+    Real names are either short (volta_sgemm_128x64_nn) or long C++
+    signatures with the kernel buried in templates/namespaces (incl.
+    `(anonymous namespace)` which defeats naive `::` splits). Honest
+    lossy demangle: first `<name>kernel<name>` identifier (the outermost
+    template), else the short name as-is. Template args/overloads are
+    dropped (documented ceiling); unparseable -> UNKNOWN, never invented."""
+    import re as _re
+    if not name or not isinstance(name, str):
+        return "UNKNOWN"
+    s = name.strip()
+    if not s:
+        return "UNKNOWN"
+    hits = _re.findall(r"[A-Za-z_][A-Za-z0-9_]*kernel[A-Za-z0-9_]*", s)
+    if hits:
+        return hits[0]
+    if "(" in s or " " in s or "::" in s:
+        head = s.split("(", 1)[0].strip()
+        base = head.split("::")[-1].strip()
+        base = base.split()[-1] if base.split() else base
+        base = base.split("<", 1)[0].strip()
+        base = "".join(ch if (ch.isalnum() or ch == "_") else "_" for ch in base).strip("_")
+        return base or "UNKNOWN"
+    return "".join(ch if (ch.isalnum() or ch == "_") else "_" for ch in s).strip("_") or "UNKNOWN"
+
+
+def _manifest_tmv(manifest) -> str:
+    """Bundle-manifest context for diagnose: same card + collector share one
+    timing context (comparable), different cards/collectors never pool."""
+    try:
+        hw = (manifest or {}).get("hardware") or "unknown"
+        cv = (manifest or {}).get("collector_version") or "unknown"
+    except Exception:
+        hw, cv = "unknown", "unknown"
+    return f"kineto-{hw}-{cv}"
+
+
+def _derive_launch_gaps(cpu: list, gpu: list) -> None:
+    """Fill gpu[*][launch_gap_ns] in place from correlated host events.
+
+    Same External-id cudaLaunchKernel end -> kernel start (clamped >= 0);
+    fallback: latest same-id host end before kernel start; last resort 0
+    (no launch observed -> no measurable gap). Mutates gpu recs only."""
+    by_cid: dict[str, list] = {}
+    for c in cpu:
+        by_cid.setdefault(c.get("correlation_id", ""), []).append(c)
+    for g in gpu:
+        if g.get("launch_gap_ns") is not None:
+            continue
+        cands = by_cid.get(g.get("correlation_id", ""), [])
+        launches = [c for c in cands if c.get("name") == "cudaLaunchKernel"]
+        pool = launches or cands
+        ends = [c["end_ns"] for c in pool
+                if isinstance(c.get("end_ns"), int) and c["end_ns"] <= g["start_ns"]]
+        g["launch_gap_ns"] = max(0, g["start_ns"] - max(ends)) if ends else 0
+
+
+def _derive_l1(gpu: list) -> list:
+    """Timeline-derived L1 context, one entry per kernel (sorted by start).
+
+    Silicon counters (sm/mem/tensor) are absent from Kineto JSON by format
+    (coverage.counters False) and are NOT filled. queue_depth is the honest
+    observable analog of bundle concurrency: distinct kernel streams in the
+    trace (1 stream healthy vs 2 queued/contended). active_* are per-kernel
+    overlap counts. Consumers needing silicon counters must check coverage."""
+    ks = sorted(gpu, key=lambda g: (g.get("start_ns", 0), g.get("end_ns", 0)))
+    iv = [(g.get("start_ns", 0), g.get("end_ns", 0)) for g in ks]
+    streams = {g.get("stream_id") for g in ks if g.get("stream_id") is not None}
+    qdepth = max(1, len(streams))
+    # ponytail: sweep-line, not per-kernel scans — real traces carry 10^4-10^5
+    # kernels and the naive overlap scan is O(n^2) (hung 10+ min on 77k).
+    # Identical semantics: h counts toward queries at time s iff
+    # h.start <= s < h.end, so ends at s leave before starts at s join, and
+    # zero-duration kernels never count (not even toward themselves).
+    by_start: dict[int, list] = {}
+    for pos, (s, e) in enumerate(iv):
+        by_start.setdefault(s, []).append(pos)
+    end_order = sorted(range(len(ks)), key=lambda i: iv[i][1])
+    live = 0
+    live_streams: dict = {}
+    counted = [False] * len(ks)
+    res: list = [None] * len(ks)
+    ei = 0
+    for s in sorted(by_start):
+        while ei < len(end_order) and iv[end_order[ei]][1] <= s:
+            i = end_order[ei]
+            ei += 1
+            if counted[i]:
+                counted[i] = False
+                live -= 1
+                st = ks[i].get("stream_id")
+                if st is not None:
+                    live_streams[st] -= 1
+                    if live_streams[st] <= 0:
+                        del live_streams[st]
+        for pos in by_start[s]:
+            hs, he = iv[pos]
+            if hs < he:
+                counted[pos] = True
+                live += 1
+                st = ks[pos].get("stream_id")
+                if st is not None:
+                    live_streams[st] = live_streams.get(st, 0) + 1
+        snap = (live, max(1, len(live_streams)))
+        for pos in by_start[s]:
+            res[pos] = snap
+    out = []
+    for pos, (s, e) in enumerate(iv):
+        out.append({"ts_ns": e, "queue_depth": qdepth,
+                    "active_kernels": res[pos][0],
+                    "active_streams": res[pos][1]})
+    return out
+
+
+def adapt_bundle_for_diagnose(bundle: dict, manifest: dict | None = None) -> dict:
+    """Enrich a converted (or synthetic) bundle for diagnose(), in place.
+
+    Fills kernel_name (normalized `name`), launch_gap_ns (correlated host),
+    blocked_ns (= dur where a wait was observed), l1 timeline context, and
+    manifest-derived timing_model_version — only where missing/unknown, so
+    re-ingested bundles and synthetic bundles (roofline-v1) keep their own
+    honest values. Returns the same dict."""
+    if not isinstance(bundle, dict):
+        raise ValueError("bundle must be a dict")
+    for g in bundle.get("gpu_kernel", []) or []:
+        if not g.get("kernel_name"):
+            g["kernel_name"] = _normalize_kernel_name(g.get("name"))
+    for s in bundle.get("sync_edge", []) or []:
+        if s.get("blocked_ns") is None:
+            dur = s.get("dur_ns")
+            if dur is None and isinstance(s.get("start_ns"), int) \
+                    and isinstance(s.get("end_ns"), int):
+                dur = s["end_ns"] - s["start_ns"]
+            s["blocked_ns"] = dur if isinstance(dur, int) else 0
+    _derive_launch_gaps(bundle.get("cpu_launch", []) or [],
+                        bundle.get("gpu_kernel", []) or [])
+    if not bundle.get("l1"):
+        gpu = bundle.get("gpu_kernel", []) or []
+        if gpu:
+            bundle["l1"] = _derive_l1(gpu)
+    if manifest is not None and bundle.get("timing_model_version", "unknown") \
+            in (None, "", "unknown"):
+        bundle["timing_model_version"] = _manifest_tmv(manifest)
+    return bundle
 
 
 def _us_to_ns(v) -> int:
@@ -254,12 +423,21 @@ def _us_to_ns(v) -> int:
         raise ValueError(f"bad us timestamp {v!r}")
 
 
-def kineto_to_bundle(doc: dict) -> dict:
+def kineto_to_bundle(doc: dict, manifest: dict | None = None) -> dict:
     """Real Kineto Chrome-trace JSON -> bundle dict (cpu_launch, gpu_kernel,
     transfer, sync_edge joined by External-id, flow-id fallback). Accepts
     integer-us or "us.frac"-string ts/dur (brief §3); pid=device/tid=stream
     maps to device_id/stream_id. Missing OPTIONAL fields (dur/args/cat)
-    tolerated; missing REQUIRED (ph/ts/pid/tid/name) raises."""
+    tolerated; missing REQUIRED (ph/ts/pid/tid/name) raises.
+
+    Diagnose-ready extras (all derived, never invented): gpu_kernel carries
+    kernel_name (normalized `name`) + launch_gap_ns (correlated host end ->
+    kernel start, clamped); sync_edge carries blocked_ns (= observed wait);
+    host-side waits named *synchronize* (real Kineto emits them as
+    cuda_runtime) route to sync_edge; l1 carries timeline concurrency per
+    kernel (silicon counters stay absent, see coverage). manifest, when
+    given, supplies timing_model_version context (same card/collector pools;
+    synthetic tmvs are never overwritten by adapt_bundle_for_diagnose)."""
     by_id: dict[str, dict] = {}
     cpu, gpu, tx, sy = [], [], [], []
     for e in doc.get("traceEvents", []):
@@ -277,7 +455,8 @@ def kineto_to_bundle(doc: dict) -> dict:
         cid = "" if ext is None else str(ext)
         if e["ph"] == "X":
             cat = e.get("cat")  # optional: unknown/missing cats ignored, never coerced
-            if cat in _CPU_CATS:
+            if cat in _CPU_CATS and not (
+                    _SYNC_RUNTIME_SUBSTR[0] in str(e.get("name", "")).lower()):
                 rec = {"correlation_id": cid, "start_ns": start_ns,
                        "end_ns": start_ns + dur_ns, "dur_ns": dur_ns,
                        "name": e["name"], "pid": e["pid"], "tid": e["tid"],
@@ -288,6 +467,7 @@ def kineto_to_bundle(doc: dict) -> dict:
                 rec = {"correlation_id": cid, "start_ns": start_ns,
                        "end_ns": start_ns + dur_ns, "dur_ns": dur_ns,
                        "name": e["name"], "pid": e["pid"], "tid": e["tid"],
+                       "kernel_name": _normalize_kernel_name(e["name"]),
                        "device_id": e["pid"], "stream_id": e["tid"],
                        "args": args}
                 gpu.append(rec)
@@ -298,9 +478,11 @@ def kineto_to_bundle(doc: dict) -> dict:
                        "device_id": e["pid"], "stream_id": e["tid"],
                        "args": args}
                 tx.append(rec)
-            elif cat in _SYNC_CATS:
+            elif cat in _SYNC_CATS or (
+                    cat in _CPU_CATS and _SYNC_RUNTIME_SUBSTR[0] in str(e.get("name", "")).lower()):
                 rec = {"correlation_id": cid, "start_ns": start_ns,
                        "end_ns": start_ns + dur_ns, "dur_ns": dur_ns,
+                       "blocked_ns": dur_ns,
                        "name": e["name"], "pid": e["pid"], "tid": e["tid"],
                        "stream_id": args.get("stream", e["tid"]),
                        "args": args}
@@ -314,9 +496,14 @@ def kineto_to_bundle(doc: dict) -> dict:
                 by_id.setdefault(cid, {}).setdefault("events", []).append(e["ph"])
         elif cid:
             by_id.setdefault(cid, {}).setdefault("events", []).append(e["ph"])
+    _derive_launch_gaps(cpu, gpu)
+    tmv = doc.get("timing_model_version", "unknown")
+    if manifest is not None and tmv in (None, "", "unknown"):
+        tmv = _manifest_tmv(manifest)
     return {"cpu_launch": cpu, "gpu_kernel": gpu, "transfer": tx,
             "sync_edge": sy, "flow_ids": sorted(by_id),
-            "timing_model_version": doc.get("timing_model_version", "unknown"),
+            "l1": _derive_l1(gpu) if gpu else [],
+            "timing_model_version": tmv,
             "synthetic": False,
             # ponytail: flow_ids are observed linkage identifiers (External ids
             # + flow s/f ids), not exclusively launch flows: on CUDA traces the
@@ -329,6 +516,31 @@ def kineto_to_bundle(doc: dict) -> dict:
             # must check coverage, not assume fakegpu vocabulary.
             "coverage": {"timeline": True, "counters": False,
                          "stalls": False, "tensors": False}}
+
+
+def _merge_shard_bundles(paths: list, manifest: dict | None = None) -> dict:
+    """Convert trace shards one at a time, concatenating bundle lists.
+
+    A monolithic 1000-frame trace OOMs the T4 at ingest json-parse (-9, 1.1GB
+    in RAM); shards bound peak to one shard. Per-shard conversion means l1
+    concurrency ignores cross-shard overlap at the seams — recorded,
+    negligible at 1000 frames. flow_ids unioned; scalar context from shard 0.
+    """
+    merged: dict = {}
+    for p in paths:
+        part = kineto_to_bundle(
+            json.loads(Path(p).read_text(encoding="utf-8")), manifest)
+        for key, val in part.items():
+            if key == "flow_ids":
+                merged.setdefault(key, set()).update(val)
+            elif isinstance(val, list):
+                merged.setdefault(key, []).extend(val)
+            elif key not in merged:
+                merged[key] = val
+        del part
+    if isinstance(merged.get("flow_ids"), set):
+        merged["flow_ids"] = sorted(merged["flow_ids"])
+    return merged
 
 
 def nsys_subset_to_bundle(path: str | Path) -> dict:
@@ -507,11 +719,14 @@ def ingest(root: str | Path, dataset_path: str | Path) -> dict:
                     continue
                 if (seed_d / "trace.json").exists():
                     trace = json.loads((seed_d / "trace.json").read_text(encoding="utf-8"))
-                    bundle = kineto_to_bundle(trace)
+                    bundle = kineto_to_bundle(trace, man)
+                elif sorted(seed_d.glob("trace-shard-*.json")):
+                    bundle = _merge_shard_bundles(
+                        sorted(seed_d.glob("trace-shard-*.json")), man)
                 elif (seed_d / "subset.db").exists():
                     bundle = nsys_subset_to_bundle(seed_d / "subset.db")
                 else:
-                    raise ValueError("no trace.json or subset.db artifact")
+                    raise ValueError("no trace.json, trace shards, or subset.db artifact")
             except Exception as exc:
                 rejected[rid] = f"{type(exc).__name__}: {exc}"
                 continue

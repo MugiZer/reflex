@@ -513,3 +513,48 @@ def test_pipeline_reports_corrupt_without_losing(tmp_path):
     assert list(rep["ingested"]["rejected"]) == ["bw_pressure:8"]
     assert rep["gaps"] == [["bw_pressure", "unknown", "collect-v1"]]  # still missing
     assert rep["records"] == 0
+
+
+def _brute_l1(gpu):
+    ks = sorted(gpu, key=lambda g: (g.get("start_ns", 0), g.get("end_ns", 0)))
+    streams = {g.get("stream_id") for g in ks
+               if g.get("stream_id") is not None}
+    qdepth = max(1, len(streams))
+    out = []
+    for g in ks:
+        s = g.get("start_ns", 0)
+        ov = [h for h in ks
+              if h.get("start_ns", 0) <= s < h.get("end_ns", 0)]
+        ov_streams = {h.get("stream_id") for h in ov
+                      if h.get("stream_id") is not None}
+        out.append({"ts_ns": g.get("end_ns", 0), "queue_depth": qdepth,
+                    "active_kernels": len(ov),
+                    "active_streams": max(1, len(ov_streams))})
+    return out
+
+
+def test_derive_l1_matches_brute_force():
+    gpu = [
+        {"start_ns": 0, "end_ns": 10, "stream_id": 1},     # spans others
+        {"start_ns": 0, "end_ns": 0, "stream_id": 1},      # zero-dur: never counts
+        {"start_ns": 5, "end_ns": 5, "stream_id": 2},      # zero-dur mid-span
+        {"start_ns": 5, "end_ns": 15, "stream_id": 2},     # tie start, cross end
+        {"start_ns": 10, "end_ns": 20, "stream_id": 1},    # starts at first end
+        {"start_ns": 10, "end_ns": 10, "stream_id": None},  # zero-dur, no stream
+        {"start_ns": 30, "end_ns": 40},                     # isolated, no stream
+    ]
+    assert C._derive_l1(gpu) == _brute_l1(gpu)
+
+
+def test_derive_l1_scales_to_real_traces():
+    import time
+    n = 20000
+    gpu = [{"start_ns": i * 50, "end_ns": i * 50 + 100 + (i % 7),
+            "stream_id": i % 3} for i in range(n)]
+    t0 = time.monotonic()
+    out = C._derive_l1(gpu)
+    dt = time.monotonic() - t0
+    assert len(out) == n and dt < 10, f"{n} kernels took {dt:.1f}s"
+    # Later kernels start after every prefix query time, so they can never
+    # join a prefix overlap set: positional prefix must equal brute force.
+    assert out[:400] == _brute_l1(gpu[:400])

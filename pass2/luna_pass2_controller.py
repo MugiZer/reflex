@@ -481,10 +481,16 @@ def write_if_blank(config: ControllerConfig, paper_id: str, result: list[dict[st
             return True
 
 
-def append_log(config: ControllerConfig, paper_id: str, outcome: str, started: datetime, ended: datetime, elapsed: float, reason: str = "") -> None:
+def append_log(config: ControllerConfig, paper_id: str, outcome: str, started: datetime, ended: datetime, elapsed: float, reason: str = "", commit: str = "unknown", hardware: str = "unknown", collector_version: str = "unknown", timing_model_version: str = "unknown") -> None:
     config.logs.mkdir(parents=True, exist_ok=True)
     path = config.logs / f"program-{config.program.lower()}-operations.jsonl"
-    event = {"paper_id": paper_id, "worker": config.worker, "outcome": outcome, "started_at": started.isoformat(), "ended_at": ended.isoformat(), "elapsed_seconds": round(elapsed, 3), "reason": reason}
+    # ponytail: inline envelope mirrors reflex/envelope.py::stamp; no reflex
+    # import — this isolated process stays dependency-free.
+    event = {"paper_id": paper_id, "worker": config.worker, "outcome": outcome, "started_at": started.isoformat(), "ended_at": ended.isoformat(), "elapsed_seconds": round(elapsed, 3), "reason": reason,
+             "envelope": {"commit": commit, "fault": paper_id, "seed": None,
+                          "env": {"hardware": hardware, "collector_version": collector_version,
+                                  "timing_model_version": timing_model_version},
+                          "failure_signature": {"outcome": outcome, "reason": reason}}}
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(event) + "\n")
 

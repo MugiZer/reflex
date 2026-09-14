@@ -8,6 +8,8 @@ from dataclasses import asdict, dataclass, field, replace
 from enum import Enum
 from pathlib import Path
 
+from . import envelope as _envelope
+
 SCHEMA_VERSION = 1
 UNKNOWN = "UNKNOWN"
 UNMODELED = "UNMODELED"
@@ -232,8 +234,17 @@ class Ledger:
     """Write-ahead JSONL event log; __init__ replays the file, so load order
     == write order and replay reproduces identical state."""
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, *, commit: str = "unknown", fault: str = "unknown",
+                 seed: int | None = None, hardware: str = "unknown",
+                 collector_version: str = "unknown", timing_model_version: str = "unknown",
+                 outcome: str = "unknown", reason: str = "") -> None:
         self._path = Path(path)
+        # ponytail: envelope context injected at construction; _commit stamps
+        # every line. No git/env/subprocess here — callers pass strings in.
+        self._env_args = {"commit": commit, "fault": fault, "seed": seed,
+                          "hardware": hardware, "collector_version": collector_version,
+                          "timing_model_version": timing_model_version,
+                          "outcome": outcome, "reason": reason}
         self.traces: dict[str, Trace] = {}
         self.incidents: dict[str, Incident] = {}
         self.evidence: dict[str, Evidence] = {}
@@ -321,7 +332,8 @@ class Ledger:
         raise LedgerError(f"illegal transition {h.status.value} -> {to.value}")
 
     def _commit(self, etype: str, data: dict):
-        line = json.dumps({"type": etype, "data": data}, sort_keys=True)
+        line = json.dumps({"type": etype, "data": data,
+                           "envelope": _envelope.stamp(**self._env_args)}, sort_keys=True)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with open(self._path, "a", encoding="utf-8") as fh:
             # ponytail: no fsync/lock; single local writer. Upgrade: fsync + file lock for multi-writer/crash safety.

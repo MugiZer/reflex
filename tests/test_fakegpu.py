@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from reflex.fakegpu import PRESETS, generate, write_kineto_json, write_nsys_sqlite, to_ledger
+from reflex.fakegpu import PRESETS, FaultProfile, generate, write_kineto_json, write_nsys_sqlite, to_ledger
 from reflex.ledger import Ledger
 
 SEED, N = 11, 8
@@ -28,6 +28,8 @@ def _cpu_dur(b):
 
 SIGNS = {  # preset -> (metric(bundle), check vs healthy)
     "cpu_starvation": (_cpu_gap, lambda p, h: p > h),
+    "cpu_starvation_coupled": (lambda b: _mean([g["dur_ns"] for g in b["gpu_kernel"]]), lambda p, h: p > h),
+    "cpu_starvation_v2": (lambda b: _mean([g["dur_ns"] for g in b["gpu_kernel"]]), lambda p, h: p > h),
     "launch_overhead": (lambda b: _mean([g["launch_gap_ns"] for g in b["gpu_kernel"]]), lambda p, h: p > h),
     "bw_pressure": (lambda b: _mean([g["dur_ns"] for g in b["gpu_kernel"]]), lambda p, h: p > h),
     "stalls": (lambda b: sum(r["stall_hist"]["long_scoreboard"] for r in b["l3_pc"]), lambda p, h: p > h),
@@ -63,7 +65,7 @@ def test_same_seed_byte_equivalent_diff_seed_diverges(tmp_path: Path) -> None:
 
 
 def test_every_preset_produces_its_signature() -> None:
-    assert set(SIGNS) | {"healthy"} == set(PRESETS)  # all 11 fault families covered
+    assert set(SIGNS) | {"healthy"} == set(PRESETS)  # all 13 fault presets covered
     healthy = generate(SEED, "healthy", N)
     for name, (metric, check) in SIGNS.items():
         assert check(metric(generate(SEED, name, N)), metric(healthy)), name
@@ -174,3 +176,66 @@ def test_sqlite_diverges_and_mirrors_values(tmp_path: Path) -> None:
             assert n == t["bytes"]
     finally:
         con.close()
+
+
+def _gaps_us(b):
+    c = b["cpu_launch"]
+    return sorted((n["start_ns"] - p["end_ns"]) / 1e3 for p, n in zip(c, c[1:]))
+
+
+def _med(xs):
+    s = sorted(xs)
+    return s[len(s) // 2]
+
+
+def test_coupled_v2_tail_shape_not_median_shift() -> None:
+    """Starvation hides in the gap tail: median near healthy, p99 far above."""
+    import statistics
+    h, v2 = generate(SEED, "healthy", 40), generate(SEED, "cpu_starvation_v2", 40)
+    gh, gv = _gaps_us(h), _gaps_us(v2)
+    assert statistics.median(gv) < 2 * statistics.median(gh)  # median preserved
+    assert gv[-1] > 100 * gh[-1]  # sparse large stalls, not a uniform shift
+
+
+def test_coupled_v2_uses_one_severity_not_composed_knobs() -> None:
+    """No cpu_starve_us median shift, no kernel_slowdown_x; cpu_dur moves modestly."""
+    p = PRESETS["cpu_starvation_v2"]
+    assert (p.cpu_starve_us, p.kernel_slowdown_x) == (0.0, 1.0)
+    assert (p.host_stall_prob, p.host_stall_us) == (0.30, 2500.0)
+    h, v2 = generate(SEED, "healthy", 40), generate(SEED, "cpu_starvation_v2", 40)
+    hd = _med([c["end_ns"] - c["start_ns"] for c in h["cpu_launch"]])
+    vd = _med([c["end_ns"] - c["start_ns"] for c in v2["cpu_launch"]])
+    assert hd < vd < 3 * hd  # same stall process stretches host ops modestly
+
+
+def test_coupled_v2_backlog_bounded_and_causal() -> None:
+    """Launch->start delay slope ~flat at n=200 (V1 grew +0.38ms/idx); device never precedes its launch."""
+    import numpy as np
+    b = generate(SEED, "cpu_starvation_v2", 200)
+    ce = {c["correlation_id"]: c for c in b["cpu_launch"]}
+    assert all(g["start_ns"] >= ce[g["correlation_id"]]["end_ns"] for g in b["gpu_kernel"])
+    ds = [(g["start_ns"] - ce[g["correlation_id"]]["end_ns"]) / 1e6 for g in b["gpu_kernel"]]
+    assert abs(float(np.polyfit(range(len(ds)), ds, 1)[0])) < 0.02  # ms/idx, stationary
+    assert max(g["queue_wait_ns"] for g in b["gpu_kernel"]) < 20e6  # ms-bounded, never linear in n
+
+
+def test_coupled_v2_dose_response_monotone_bounded() -> None:
+    """Stronger upstream => stronger downstream; saturates (clock floor), never diverges."""
+    import statistics
+    base = PRESETS["cpu_starvation_v2"]
+
+    def kr(dose):
+        prof = FaultProfile(host_stall_prob=min(0.30, base.host_stall_prob * dose),
+                            host_stall_us=base.host_stall_us * dose)
+        rs = []
+        for s in (301, 302, 303):
+            inc = generate(s, prof, 40)
+            bb = [generate(s + 100, "healthy", 40), generate(s + 200, "healthy", 40)]
+            bmed = statistics.median([g["dur_ns"] for b in bb for g in b["gpu_kernel"]])
+            rs.append(statistics.median([g["dur_ns"] for g in inc["gpu_kernel"]]) / bmed)
+        return statistics.median(rs)
+
+    k025, k1, k2 = kr(0.25), kr(1.0), kr(2.0)
+    assert k025 < k1 <= k2 < 12.5  # monotone, bounded by the clock floor
+    assert 3.0 < k1 < 9.0  # headline severity lands on the real ~6x inflation band
+    assert generate(SEED, "cpu_starvation_v2", 8) == generate(SEED, "cpu_starvation_v2", 8)

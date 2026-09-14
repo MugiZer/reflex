@@ -157,7 +157,7 @@ def test_worker_continues_after_one_failed_paper(tmp_path: Path) -> None:
     write_csv(manifest, ["paper_id", "assigned_agent"], [{"paper_id": "p-1", "assigned_agent": "1"}, {"paper_id": "p-2", "assigned_agent": "1"}])
 
     report = run_controller(
-        ControllerConfig(program="A", worker="a-01", master_path=master, manifest_path=manifest),
+        ControllerConfig(program="A", worker="a-01", master_path=master, manifest_path=manifest, log_dir=tmp_path / "logs"),
         MockAdapter({"p-1": terminal_result("wrong-id", "One"), "p-2": terminal_result("p-2", "Two")}),
     )
 

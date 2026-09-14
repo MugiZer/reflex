@@ -10,9 +10,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from .fakegpu import PRESETS, generate as _generate, to_ledger
-
-FAMILIES: tuple[str, ...] = tuple(n for n in PRESETS if n != "healthy")
+from .fakegpu import generate as _generate, to_ledger
 
 # ponytail: fixed 11-row table, one seed per family; append rows when new fault families land.
 SEED_TABLE: tuple[tuple[int, str, tuple[str, ...]], ...] = (
@@ -29,6 +27,10 @@ SEED_TABLE: tuple[tuple[int, str, tuple[str, ...]], ...] = (
     (111, "preprocessing_interference", ("cpu_gap", "cpu_dur", "qdepth")),
 )
 LABELS: dict[int, str] = {seed: preset for seed, preset, _ in SEED_TABLE}
+# ponytail: families = rows of the hidden label table (not PRESETS keys), so
+# additive synthetic-only presets (no hidden label row) never shift the
+# corpus/eval family set; add a SEED_TABLE row when a family lands for real.
+FAMILIES: tuple[str, ...] = tuple(preset for _, preset, _ in SEED_TABLE)
 EXPECTED_METRIC: dict[str, tuple[str, ...]] = {preset: keys for _, preset, keys in SEED_TABLE}
 
 

@@ -1,0 +1,69 @@
+name: Trace detect
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    outputs:
+      new_issue: ${{ steps.dedup.outputs.new_issue }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: dedup
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh label list --limit 100 --json name --jq '.[].name' | grep -qx 'auto-trace' || gh label create auto-trace --description 'Auto-opened trace signature' --color BFD4F2
+          COMMIT="$(git rev-parse HEAD)"
+          NEW_ISSUE=""
+          for f in pass2/luna-controller-logs/program-a-operations.jsonl pass2/luna-controller-logs/program-b-operations.jsonl; do
+            [ -f "$f" ] || continue
+            # logical producer; key excludes run_id/paper_id/worker/timestamps/elapsed/commit/seed/env
+            src="pass2/$(basename "$f" .jsonl)"
+            while IFS="$(printf '\t')" read -r outcome reason; do
+              [ -n "$reason" ] || continue
+              sig=$(printf '%s\0%s\0%s' "$outcome" "$reason" "$src" | sha256sum | cut -c1-16)
+              count=$(jq --arg r "$reason" -r 'select(.outcome == "failure" and ((.reason // "" | gsub("\\s+"; " ") | sub("^ +"; "") | sub(" +$"; "")) == $r)) | .reason' "$f" | wc -l)
+              hit=$(gh issue list --state open --search "sig:$sig in:body" --json number --jq '.[0].number // empty')
+              if [ -n "$hit" ]; then
+                gh issue comment "$hit" --body "Evidence: trace \`$f@$COMMIT\` source \`$src\` count \`$count\`."
+              else
+                body=$(printf '<!-- sig:%s -->\n\nFailure signature detected by trace-detect.\n\n| Field | Value |\n| --- | --- |\n| Signature | `%s` |\n| Outcome | `%s` |\n| Reason | `%s` |\n| Source | `%s` |\n| Trace | `%s@%s` |\n| Commit | `%s` |\n| Evidence lines | `%s` |\n' "$sig" "$sig" "$outcome" "$reason" "$src" "$f" "$COMMIT" "$COMMIT" "$count")
+                url=$(gh issue create --title "Trace $sig: $outcome in $src" --label auto-trace --body "$body")
+                num="${url##*/}"
+                [ -n "$NEW_ISSUE" ] || NEW_ISSUE="$num"
+              fi
+            done < <(jq -r 'select(.outcome == "failure") | [.outcome, (.reason // "" | gsub("\\s+"; " ") | sub("^ +"; "") | sub(" +$"; ""))] | @tsv' "$f" | sort -u)
+          done
+          echo "new_issue=$NEW_ISSUE" >> "$GITHUB_OUTPUT"
+
+  fix:
+    needs: detect
+    if: needs.detect.outputs.new_issue != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: anomalyco/opencode/github@latest
+        with:
+          # MODEL placeholder: set to a verified provider/model you control (do NOT hardcode an unverified model).
+          model: REPLACE_WITH_VERIFIED_MODEL
+          agent: trace-fixer
+          prompt: >-
+            Read issue #${{ needs.detect.outputs.new_issue }} body
+            (signature_hash, outcome, reason, source, trace_path@commit).
+            Pull that trace at that commit, replay the failure,
+            fix that signature only with a regression test,
+            and open a PR. Never push to main.

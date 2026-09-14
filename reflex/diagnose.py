@@ -209,9 +209,360 @@ class Registry:
             raise ValueError(f"unknown hypothesis_id {hypothesis_id!r}")
 
 
+def _flat_vals(bundle: dict) -> dict:
+    """Per-stage flat value lists for heterogeneous real bundles.
+
+    Same units as _series (ms, queue in count; postprocess/action zeros).
+    Lengths differ across stages by construction (host emits many more
+    records than the device); comparison is distributional (median/MAD),
+    never positional. Missing lists -> [] (scored as no measurable excess,
+    except incident-only presence which scores against a zero baseline)."""
+    tx = bundle.get("transfer", []) or []
+    cpu = bundle.get("cpu_launch", []) or []
+    gpu = bundle.get("gpu_kernel", []) or []
+    sy = bundle.get("sync_edge", []) or []
+    l1 = bundle.get("l1", []) or []
+    transport = [float(t.get("dur_ns", 0)) / 1e6 for t in tx]
+    preprocess = [(float(c.get("end_ns", 0)) - float(c.get("start_ns", 0))) / 1e6
+                  for c in cpu]
+    queue = [float(r.get("queue_depth", 0)) for r in l1]
+    gaps: list[float] = []
+    if len(cpu) >= 2:
+        cs = sorted(cpu, key=lambda c: (c.get("start_ns", 0), c.get("end_ns", 0)))
+        for a, b in zip(cs, cs[1:]):
+            gaps.append(max(0.0, (float(b.get("start_ns", 0))
+                                  - float(a.get("end_ns", 0))) / 1e6))
+    # ponytail: launch gaps (per kernel, correlated) + observed waits
+    # (per sync record) pooled: global barriers carry no per-kernel id, so a
+    # positional zip would drop them; pooling keeps them measurable.
+    sched = [float(g.get("launch_gap_ns", 0)) / 1e6 for g in gpu] + \
+        [float(s.get("blocked_ns", s.get("dur_ns", 0))) / 1e6 for s in sy]
+    gpu_v = [float(g.get("dur_ns", 0)) / 1e6 for g in gpu]
+    n = len(cpu)
+    return {"transport": transport, "preprocess": preprocess, "queue": queue,
+            "cpu": gaps, "scheduler": sched, "gpu": gpu_v,
+            "postprocess": [0.0] * n, "action": [0.0] * n}
+
+
+def _check_context_real(incident: dict, baselines: list[dict]) -> dict:
+    """Real-bundle context: shared timing model only.
+
+    Silicon kernel sets differ across fault modes by construction (the fault
+    changes what runs), so exact-tuple matching would refuse every real
+    comparison. Same timing_model_version (manifest-derived card/collector
+    context) is required; anything else raises, never pools."""
+    try:
+        want = incident.get("timing_model_version", "unknown")
+        knames = [(g.get("kernel_name") or g.get("name") or "UNKNOWN")
+                  for g in (incident.get("gpu_kernel", []) or [])]
+    except Exception:
+        raise ContextMismatch("bundle lacks timing_model_version/gpu_kernel context")
+    if not baselines:
+        raise ContextMismatch("no baselines: refusing global-median comparison")
+    for i, b in enumerate(baselines):
+        try:
+            got = b.get("timing_model_version", "unknown")
+        except Exception:
+            raise ContextMismatch(f"baseline {i} lacks timing context")
+        if got != want:
+            raise ContextMismatch(f"baseline {i} timing {got} != incident {want}")
+    return {"timing_model_version": want, "n_ops": len(knames),
+            "kernels": knames}
+
+
+_LAYOUT_OPS = frozenset({"aten::transpose", "aten::permute", "aten::t"})
+
+
+def layout_signature(incident: dict, baselines: list[dict]) -> dict:
+    """Memory-layout signature rule (Nsight-rule style, real path only).
+
+    Strided/coalescing defects show NO duration excess (same shapes, same or
+    better times) — no magnitude ranker can crown them. The direct evidence
+    is transpose-family construction ops present in the incident and absent
+    in ALL baselines (as_strided alone excluded: allocator internals emit it
+    on healthy paths too). Fires -> {"stage": "gpu", "n_ops": count} else
+    {"stage": None}. Deterministic, zero fitted params, no thresholds."""
+    def count(b: dict) -> int:
+        # ponytail: EXACT op-name match — substring "aten::t" also matches
+        # "aten::to"/"aten::topk"/"aten::tanh" (regression 2026-09-07: fired on
+        # transfer_heavy .to() copies and broke its hold).
+        return sum(1 for c in (b.get("cpu_launch", []) or [])
+                   if (c.get("name") or "") in _LAYOUT_OPS)
+    n_inc = count(incident)
+    if n_inc and not any(count(b) for b in baselines):
+        return {"stage": "gpu", "n_ops": n_inc}
+    return {"stage": None, "n_ops": n_inc}
+
+
+def _gpu_by_name(bundle: dict) -> dict:
+    """Per-kernel-name gpu durations (ms) for matched comparison."""
+    out: dict[str, list] = defaultdict(list)
+    for g in bundle.get("gpu_kernel", []) or []:
+        out[g.get("kernel_name") or g.get("name") or "UNKNOWN"].append(
+            float(g.get("dur_ns", 0)) / 1e6)
+    return out
+
+
+def _matched_z(base_names: dict, inc_names: dict, floor: float,
+               min_n: int = 5):
+    """Per-kernel-name matched z with the pooled formula.
+
+    Pooling heterogeneous kernels lets cross-kernel spread drown coherent
+    multiplicative shifts (proven: +152% medians -> pooled z 0.91, matched
+    max 4.11 on max-risky vs baseline). Best (z, delta) wins, mirroring
+    compare(). None when no name matches on both sides with min_n samples
+    (caller falls back to pooled); incident-only names are reported, never
+    scored.
+    """
+    groups, best = {}, None
+    for name in sorted(inc_names):
+        if name not in base_names:
+            continue
+        v0, v1 = base_names[name], inc_names[name]
+        if len(v0) < min_n or len(v1) < min_n:
+            continue
+        m = _med(v0)
+        d = _mad(v0, m)
+        fm = _med(v1)
+        denom = 1.4826 * d + floor + _REL_TOL * abs(m)
+        z = (fm - m) / denom if denom else 0.0
+        groups[name] = {"base_med": m, "base_mad": d, "fault_med": fm,
+                        "delta": fm - m, "z": z,
+                        "n_base": len(v0), "n_fault": len(v1)}
+        if best is None or (z, fm - m) > best:
+            best = (z, fm - m)
+    if not groups:
+        return None
+    only = [k for k in inc_names if k not in base_names]
+    extra = {"matched_names": len(groups),
+             "incident_only_names": len(only),
+             "incident_only_records": sum(len(inc_names[k]) for k in only)}
+    return best[0], best[1], groups, extra
+
+
+def compare_real(incident: dict, baselines: list[dict]) -> dict:
+    """Distributional differential for real bundles (see _flat_vals).
+
+    Same Median/MAD z as compare(); same STAGES/rank() vocabulary, so the
+    ledger/registry tail is shared. The gpu stage matches per kernel name
+    (pooled cross-kernel spread hides coherent shifts); other stages stay
+    pooled. Raises ContextMismatch on timing skew."""
+    ctx = _check_context_real(incident, baselines)
+    pool: dict[str, list] = {st: [] for st in STAGES}
+    base_names: dict[str, list] = defaultdict(list)
+    for b in baselines:
+        f = _flat_vals(b)
+        for st in STAGES:
+            pool[st].extend(f[st])
+        for name, vals in _gpu_by_name(b).items():
+            base_names[name].extend(vals)
+    base = {}
+    for st in STAGES:
+        v = pool[st]
+        base[st] = (_med(v), _mad(v, _med(v))) if v else (0.0, 0.0)
+    fi = _flat_vals(incident)
+    inc_names = _gpu_by_name(incident)
+    surfaces = {}
+    for st in STAGES:
+        unit = _UNITS.get(st, "ms")
+        floor = _Z_FLOOR_COUNT if st == "queue" else _Z_FLOOR_MS
+        if st == "gpu":
+            hit = _matched_z(base_names, inc_names, floor)
+            if hit is not None:
+                z, delta, groups, extra = hit
+                surfaces[st] = {"unit": unit, "z": z, "delta": delta,
+                                "groups": groups, "n_baselines": len(baselines),
+                                **extra}
+                continue
+        vals = fi[st]
+        fm = _med(vals) if vals else 0.0
+        m, d = base[st]
+        scale = _REL_TOL * abs(m) if st != "queue" else 0.0
+        denom = 1.4826 * d + floor + scale
+        z, delta = ((fm - m) / denom, fm - m) if denom else (0.0, fm - m)
+        extra = {}
+        if st == "cpu" and pool[st] and vals:
+            # ponytail: tail-mass probe — fraction of gaps above 1ms. Baseline
+            # p99 is unusable (healthy's own CUDA-init outliers set it to 6ms
+            # and swallow 4-5ms starvation sleeps); 1ms is the host-stall
+            # visibility floor (sub-ms = scheduling noise). Recorded as
+            # evidence for the calibration layer; does NOT enter z yet.
+            thresh = 1.0
+            extra = {"tail_T_ms": thresh,
+                     "tail_frac_base": sum(1 for v in pool[st] if v > thresh) / len(pool[st]),
+                     "tail_frac_incident": sum(1 for v in vals if v > thresh) / len(vals)}
+        surfaces[st] = {"unit": unit, "z": z, "delta": delta,
+                        "groups": {"pooled": {
+                            "base_med": m, "base_mad": d, "fault_med": fm,
+                            "delta": delta, "z": z,
+                            "n_base": len(pool[st]), "n_fault": len(vals),
+                            **extra}},
+                        "n_baselines": len(baselines)}
+    return {"context": {"timing_model_version": ctx["timing_model_version"],
+                        "n_ops": ctx["n_ops"], "kernels": list(ctx["kernels"])},
+            "surfaces": surfaces}
+
+
+def _span_ms_real(bundle: dict) -> float:
+    starts, ends = [], []
+    for k in ("cpu_launch", "gpu_kernel", "transfer", "sync_edge"):
+        for r in bundle.get(k, []) or []:
+            if isinstance(r.get("start_ns"), int):
+                starts.append(r["start_ns"])
+            if isinstance(r.get("end_ns"), int):
+                ends.append(r["end_ns"])
+    if not starts or not ends:
+        return 0.0
+    return (max(ends) - min(starts)) / 1e6
+
+
+def _p99_safe(xs: list) -> float:
+    if not xs:
+        return 0.0
+    return _p99(sorted(xs))
+
+
+def regression_real(incident: dict, baselines: list[dict]) -> dict:
+    """Span + kernel-duration p99 regression for real bundles.
+
+    Op-latency pairing needs per-id host/device joins that global barriers
+    lack; kernel p99 is the honest device-latency analog on this path."""
+    _check_context_real(incident, baselines)
+    inc_span = _span_ms_real(incident)
+    inc_p99 = _p99_safe([float(g.get("dur_ns", 0)) / 1e6
+                         for g in (incident.get("gpu_kernel", []) or [])])
+    b_spans = [_span_ms_real(b) for b in baselines]
+    b_p99s = [_p99_safe([float(g.get("dur_ns", 0)) / 1e6
+                         for g in (b.get("gpu_kernel", []) or [])])
+              for b in baselines]
+    return {"incident_span_ms": inc_span, "baseline_span_med_ms": _med(b_spans),
+            "span_delta_ms": inc_span - _med(b_spans),
+            "incident_p99_ms": inc_p99, "baseline_p99_med_ms": _med(b_p99s),
+            "p99_delta_ms": inc_p99 - _med(b_p99s)}
+
+
+_CAL_ARTIFACT = None
+
+
+def _calibration_artifact() -> dict:
+    """Frozen real-path calibration (reflex/calibration.json, written by
+    scripts/fit_calibration.py); loaded once, then cached."""
+    global _CAL_ARTIFACT
+    if _CAL_ARTIFACT is None:
+        from pathlib import Path as _Path
+
+        from . import calibrate as _cal  # lazy: calibrate imports diagnose at its module level
+        p = _Path(__file__).resolve().parent / "calibration.json"
+        if not p.exists():
+            raise FileNotFoundError(f"{p} missing: run scripts/fit_calibration.py to fit it")
+        _CAL_ARTIFACT = _cal.load_artifact(p)
+    return _CAL_ARTIFACT
+
+
+def _calibrated_ranking(surfaces: dict, calibration) -> tuple[dict, list]:
+    """P(cause) + ranking for the real path.
+
+    calibration=None uses the frozen artifact; a mapping with W/b/T/bias
+    overrides it (eval LOO folds). Ranking entries are (stage, prob, z):
+    calibrated order with raw z kept for traceability."""
+    from . import calibrate as _cal
+
+    if calibration is None:
+        art = _calibration_artifact()
+        W, b, T, bias = art["W"], art["b"], art["T"], art["bias"]
+    else:
+        W, b, T, bias = calibration["W"], calibration["b"], \
+            calibration["T"], calibration["bias"]
+    z, tail = _cal.featurize(surfaces)
+    proba = {st: float(p) for st, p in
+             zip(STAGES, _cal.apply_probs(_cal.base_logits(W, b, z, tail), T, bias))}
+    order = _cal.calibrated_ranking(proba)
+    zmap = {st: float(surfaces[st]["z"]) for st in STAGES}
+    return proba, [(st, proba[st], zmap[st]) for st, _ in order]
+
+
 def diagnose(incident: dict, baselines: list[dict], ledger,
-             provenance: str = PROVENANCE) -> dict:
-    """Matched-slice diagnosis. All hypotheses INFERRED; fixes always []."""
+             provenance: str = PROVENANCE, *, strict: bool = True,
+             calibration=None) -> dict:
+    """Matched-slice diagnosis. All hypotheses INFERRED; fixes always [].
+
+    strict=True (default): exact kernel-set context + positional series, for
+    synthetic bundles. strict=False: distributional real-bundle path
+    (compare_real/regression_real, timing-model context only) for adapted
+    Kineto bundles with heterogeneous kernel sets. On the real path the
+    returned ranking is calibrated P(cause) order (stage, prob, z) from the
+    frozen reflex/calibration.json artifact (synthetic-trained base, real
+    T+bias refit); hypotheses/registry/UNKNOWN mass stay raw-z based and
+    raw_ranking is kept for audit. Pass calibration={"W","b","T","bias"} to
+    override the artifact (eval LOO folds), or calibration=False for the
+    legacy raw-z ranking (pre-calibration baseline). The strict path is
+    untouched."""
+    if not strict:
+        comp = compare_real(incident, baselines)
+        reg = regression_real(incident, baselines)
+        raw_ranking = rank(comp["surfaces"])
+        if calibration is False:
+            proba, ranking = None, raw_ranking
+        else:
+            proba, ranking = _calibrated_ranking(comp["surfaces"], calibration)
+        # ponytail: memory-layout signature overrides ranking, not z's. Fires
+        # only on novel transpose-family construction with no duration excess
+        # to rank (stalls class); recorded in rationale + ledger, never silent.
+        layout = layout_signature(incident, baselines)
+        if layout["stage"] is not None:
+            ranking = [("gpu", proba["gpu"] if proba else 0.0,
+                        comp["surfaces"]["gpu"]["z"])] + \
+                [(st, p, z) for st, p, z in ranking if st != "gpu"]
+        inc = ledger.open_incident(Incident(
+            provenance=provenance,
+            title="matched slice: %d baselines, span delta %+.2fms" %
+                  (len(baselines), reg["span_delta_ms"])))
+        corr = f"diagnose:{inc.incident_id[:8]}"
+        stage_ids = {}
+        for stage, s in comp["surfaces"].items():
+            stage_ids[stage] = ledger.append_evidence(Evidence(
+                correlation_id=corr, provenance=provenance, level=EvidenceLevel.INFERRED,
+                kind="stage_delta", incident_id=inc.incident_id,
+                payload={"stage": stage, "unit": s["unit"], "z": s["z"],
+                         "delta": s["delta"], "groups": s["groups"],
+                         "context": comp["context"]})).record_id
+        registry = Registry(ledger, inc.incident_id, provenance)
+        cands = [(st, z) for st, z, _ in raw_ranking if z > _Z_CANDIDATE]
+        against = [stage_ids[st] for st, s in comp["surfaces"].items()
+                   if abs(s["z"]) <= _Z_CANDIDATE]
+        hypos = [registry.propose(st, [stage_ids[st]], against, z) for st, z in cands]
+        # ponytail: UNKNOWN mass = 1/(1+candidate-grade evidence), not a fitted
+        # prior; sub-threshold noise never spends it down. Refit from incident
+        # volume when a measured noise floor exists.
+        registry.unknown_mass = 1.0 / (1.0 + sum(max(0.0, s["z"] - _Z_CANDIDATE)
+                                                 for s in comp["surfaces"].values()))
+        hypos.append(registry.propose(UNKNOWN, [], list(stage_ids.values()), 0.0))
+        ledger.append_evidence(Evidence(
+            correlation_id=corr, provenance=provenance, level=EvidenceLevel.INFERRED,
+            kind="hypothesis_set", incident_id=inc.incident_id,
+            payload={"hypotheses": [
+                {k: e[k] for k in ("hypothesis_id", "cause", "support_ids",
+                                   "contradict_ids", "score", "suppressed")} for e in hypos],
+                "unknown_mass": registry.unknown_mass,
+                "ranker": "median-mad-matched-delta-v1", "fixes": []}))
+        top, tprob, tz = ranking[0]
+        unit = comp["surfaces"][top]["unit"]
+        if proba is None:
+            topfrag = "top %s z=%.2f delta=%+.4f%s" % (top, tprob, tz, unit)
+        else:
+            topfrag = "top %s p=%.3f (z=%.2f%s)" % (top, tprob, tz, unit)
+        return {"incident_id": inc.incident_id, "context": comp["context"],
+                "n_baselines": len(baselines), "regression": reg,
+                "surfaces": comp["surfaces"], "ranking": ranking,
+                "raw_ranking": raw_ranking, "calibrated_proba": proba,
+                "hypotheses": list(registry.entries.values()),
+                "unknown_mass": registry.unknown_mass, "fixes": [],
+                "rationale": "matched %d baselines %s n=%d; %s; "
+                             "UNKNOWN mass=%.3f; %d INFERRED cause(s), none elevated" % (
+                                 len(baselines), comp["context"]["timing_model_version"],
+                                 comp["context"]["n_ops"], topfrag,
+                                 registry.unknown_mass, len(cands)),
+                "registry": registry}
     comp = compare(incident, baselines)
     reg = regression(incident, baselines)
     ranking = rank(comp["surfaces"])

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Audit Proof Gaps"
+  short_description: "Find false greens at the real boundary"
+  default_prompt: "Use $audit-proof-gaps to run one end-to-end tracer proof, stop on a decisive false green, and create a root-cause ticket if needed."
