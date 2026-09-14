@@ -72,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
            "https://download.pytorch.org/whl/cu128",
            "torch==2.9.1", "torchvision==0.24.1")
         sh(sys.executable, "-m", "pip", "install", "-q",
-           "lerobot==0.6.0[smolvla,dataset,evaluation]", "pytest")
+           "lerobot[smolvla,dataset,evaluation]==0.6.0", "pytest")
         cmd = [sys.executable, "scripts/smolvla_run.py",
                "--seeds", args.seeds, "--tiers", args.tiers,
                "--dtype", args.dtype, "--fault", args.fault,
