@@ -35,6 +35,18 @@ on:
         description: Host burner threads during measurement
         required: true
         default: "2"
+      compile_mode:
+        description: torch.compile mode
+        required: true
+        default: "default"
+      tf32:
+        description: Allow TF32 tensor-core path
+        required: true
+        default: "true"
+      shards:
+        description: Profile shards per run (main-tier OOM guard)
+        required: true
+        default: "1"
       exp:
         description: Experiment dir suffix (isolates attempts sharing a fault name)
         required: true
@@ -79,8 +91,11 @@ jobs:
           REFLEX_COMPILE: ${{ inputs.compile == 'true' && '1' || '0' }}
           REFLEX_CUDNN_BENCH: ${{ inputs.cudnn_bench == 'true' && '1' || '0' }}
           REFLEX_CONTENTION: ${{ inputs.contention }}
+          REFLEX_COMPILE_MODE: ${{ inputs.compile_mode }}
+          REFLEX_TF32: ${{ inputs.tf32 == 'true' && '1' || '0' }}
+          REFLEX_SHARDS: ${{ inputs.shards }}
           REFLEX_EXP: ${{ inputs.exp }}
-        run: python scripts/smolvla_run.py --seeds "${REFLEX_SEEDS}" --tiers "${REFLEX_TIERS}" --dtype "${REFLEX_DTYPE}" --fault "${REFLEX_FAULT}" --contention "${REFLEX_CONTENTION}" --exp "${REFLEX_EXP}" $([ "${REFLEX_COMPILE}" = "1" ] && echo "--compile") $([ "${REFLEX_CUDNN_BENCH}" = "1" ] && echo "--cudnn-bench")
+        run: python scripts/smolvla_run.py --seeds "${REFLEX_SEEDS}" --tiers "${REFLEX_TIERS}" --dtype "${REFLEX_DTYPE}" --fault "${REFLEX_FAULT}" --contention "${REFLEX_CONTENTION}" --compile-mode "${REFLEX_COMPILE_MODE}" --shards "${REFLEX_SHARDS}" --exp "${REFLEX_EXP}" $([ "${REFLEX_COMPILE}" = "1" ] && echo "--compile") $([ "${REFLEX_CUDNN_BENCH}" = "1" ] && echo "--cudnn-bench") $([ "${REFLEX_TF32}" = "1" ] || echo "--no-tf32")
 
       - name: Upload raw logs and traces
         if: always()

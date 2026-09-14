@@ -73,8 +73,9 @@ def run_tier(output_root: Path, corpus: Path, corpus_sha: str, tier: str,
              workload: str, frames_file: str, seeds: tuple[int, ...],
              commit: str, dtype: str = "float32",
              fault: str = "healthy", compile: bool = False,
-             cudnn_bench: bool = False, contention: int = 0,
-             exp: str = "") -> dict:
+             compile_mode: str = "default",
+              cudnn_bench: bool = False, contention: int = 0,
+              tf32: bool = True, shards: int = 1, exp: str = "") -> dict:
     import torch
     import lerobot
 
@@ -87,8 +88,9 @@ def run_tier(output_root: Path, corpus: Path, corpus_sha: str, tier: str,
         raise RuntimeError("nvidia-smi did not provide GPU identity")
     device = make_device(corpus, CHECKPOINT, CHECKPOINT_REV, DATASET,
                          DATASET_REV, frames_file=frames_file, dtype=dtype,
-                         compile=compile, cudnn_bench=cudnn_bench,
-                         contention_workers=contention)
+                         compile=compile, compile_mode=compile_mode,
+                         cudnn_bench=cudnn_bench, tf32=tf32,
+                         contention_workers=contention, shards=shards)
     root = output_root / commit[:12] / (exp or tier)
     dataset_out = output_root / commit[:12] / "smolvla-dataset.jsonl"
     target = [(fault, identity["hardware"], collector.COLLECTOR_VERSION)]
@@ -99,6 +101,7 @@ def run_tier(output_root: Path, corpus: Path, corpus_sha: str, tier: str,
                 "warmup": "holdout-5x2", "dtype": dtype,
                 "video_backend": "pyav", "compile": compile,
                 "cudnn_bench": cudnn_bench, "contention_workers": contention,
+                "shards": shards,
                 "exp": exp or tier,
                 "repeat_is_seed": "manifest seed is repeat identity; "
                                   "model RNG fixed at 0"}
@@ -133,10 +136,20 @@ def main(argv: list[str] | None = None) -> int:
                                                "1") not in ("", "0"))
     parser.add_argument("--contention", type=int, default=int(
         os.environ.get("REFLEX_CONTENTION", "2")))
+    parser.add_argument("--compile-mode", default=os.environ.get(
+        "REFLEX_COMPILE_MODE", "default"))
+    _tf32_env = os.environ.get("REFLEX_TF32", "1") not in ("", "0")
+    parser.add_argument("--tf32", action="store_true", default=None)
+    parser.add_argument("--no-tf32", action="store_false", dest="tf32",
+                        default=None)
+    parser.add_argument("--shards", type=int, default=int(
+        os.environ.get("REFLEX_SHARDS", "1")))
     parser.add_argument("--exp", default=os.environ.get("REFLEX_EXP", ""),
                         help="experiment dir suffix; isolates candidates "
                              "sharing a fault name so resume never no-ops")
     args = parser.parse_args(argv)
+    if args.tf32 is None:
+        args.tf32 = _tf32_env
 
     output_root = Path(args.output_root)
     output_root.mkdir(parents=True, exist_ok=True)
@@ -160,7 +173,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         log(f"start commit={commit} tiers={args.tiers} seeds={args.seeds} "
             f"dtype={args.dtype} fault={args.fault} compile={args.compile} "
-            f"cudnn_bench={args.cudnn_bench} contention={args.contention} "
+            f"compile_mode={args.compile_mode} "
+            f"cudnn_bench={args.cudnn_bench} tf32={args.tf32} "
+            f"contention={args.contention} shards={args.shards} "
             f"exp={args.exp!r}")
         result["corpus_tests"] = corpus_tests()
         log(f"corpus_tests exit={result['corpus_tests']['exit_code']}")
@@ -179,8 +194,9 @@ def main(argv: list[str] | None = None) -> int:
                 output_root, corpus, sha, tier, workload, frames_file,
                 parse_seeds(args.seeds), commit, dtype=args.dtype,
                 fault=args.fault, compile=args.compile,
+                compile_mode=args.compile_mode,
                 cudnn_bench=args.cudnn_bench, contention=args.contention,
-                exp=args.exp)
+                tf32=args.tf32, shards=args.shards, exp=args.exp)
             pipe = result["tiers"][tier]["pipeline"]
             log(f"tier {tier} done failed={pipe['collected']['failed']} "
                 f"gaps={pipe['gaps']} records={pipe['records']}")

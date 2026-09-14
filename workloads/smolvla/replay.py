@@ -38,11 +38,23 @@ def _summarize(name: str, xs: list[float]) -> dict:
             "p99_ms": round(_pct(xs, 99), 6)}
 
 
+def _chunks(items: list, n: int) -> list:
+    """Contiguous split into n (near-)equal parts; n=1 returns [items]."""
+    if n < 1:
+        raise ValueError(f"shards must be >= 1, got {n}")
+    if n == 1:
+        return [items]
+    size = (len(items) + n - 1) // n
+    return [items[i:i + size] for i in range(0, len(items), size)]
+
+
 def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
                 dataset: str, dataset_rev: str, dtype: str = "float32",
                 rng: int = 0, frames_file: str = "main-1000.jsonl",
                 device_name: str = "cuda", compile: bool = False,
-                cudnn_bench: bool = False, contention_workers: int = 0):
+                compile_mode: str = "default",
+                cudnn_bench: bool = False, contention_workers: int = 0,
+                tf32: bool = True, shards: int = 1):
     """Bind pins; return device(fault, seed) -> {artifact_name: bytes}.
 
     device_name="cpu" is an integration fallback (validates logic, never T4
@@ -66,6 +78,10 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
         if want_cuda:
             torch.backends.cudnn.deterministic = not cudnn_bench
             torch.backends.cudnn.benchmark = cudnn_bench
+            # TF32 is the T4 tensor-core fast path for fp32 matmuls; turning
+            # it off is a real deployment change (numerics + timing move).
+            torch.backends.cuda.matmul.allow_tf32 = tf32
+            torch.backends.cudnn.allow_tf32 = tf32
             try:
                 torch.use_deterministic_algorithms(
                     not cudnn_bench, warn_only=True)
@@ -90,7 +106,7 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
                   dtype=torch.float32)
         policy.eval()
         if compile:
-            policy = torch.compile(policy)
+            policy = torch.compile(policy, mode=compile_mode)
         # Official rename channel (lerobot policies/utils.py): dataset cameras
         # top/wrist -> policy slots camera1/camera2 (first-listed first).
         # Partial fill is legal (policy needs at least one); recorded, loud.
@@ -200,43 +216,49 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
         acts = [acts["CPU"]] + ([acts["CUDA"]] if want_cuda else [])
         per_req_gpu: list[float] = []
         per_req_cpu: list[float] = []
+        pending: list = []
         fingerprints: list[dict] = []
+        shard_traces: list[bytes] = []
         measured_start = datetime.now(timezone.utc).isoformat()
-        with profile(activities=acts,
-                     record_shapes=PROFILE["record_shapes"],
-                     profile_memory=PROFILE["profile_memory"],
-                     with_stack=PROFILE["with_stack"],
-                     with_flops=PROFILE["with_flops"],
-                     with_modules=PROFILE["with_modules"]) as prof:
-            pending = []
-            for f in frames:
-                out = infer(f["episode_idx"], f["frame_idx"])
-                pending.append((f, out))
-                per_req_cpu.append(out["cpu_ms"])
-            if want_cuda:
-                torch.cuda.synchronize()
-            for t, stop in burners:
-                stop.set()
-                t.join(timeout=30)
-            measured_end = datetime.now(timezone.utc).isoformat()
-            for f, out in pending:
-                a = out["action"].numpy()
-                s, e = out["events"]
-                if s is not None and e is not None:
-                    per_req_gpu.append(s.elapsed_time(e))
-                fingerprints.append(
-                    {"frame_id": f["frame_id"],
-                     "shape": list(a.shape), "dtype": str(a.dtype),
-                     "chunk_size": int(a.size),
-                     "mean": float(a.mean()), "std": float(a.std()),
-                     "sha256": hashlib.sha256(a.tobytes()).hexdigest()})
+        # ponytail: one profile context per shard, not per run — a 1000-frame
+        # context OOMs the T4 after export (-9, 1.1GB in RAM); shards keep
+        # peak near the smoke tier. Metrics/fingerprints merge across shards;
+        # traces stay sharded (merge locally for diagnosis).
+        for chunk in _chunks(frames, shards):
+            with profile(activities=acts,
+                         record_shapes=PROFILE["record_shapes"],
+                         profile_memory=PROFILE["profile_memory"],
+                         with_stack=PROFILE["with_stack"],
+                         with_flops=PROFILE["with_flops"],
+                         with_modules=PROFILE["with_modules"]) as prof:
+                for f in chunk:
+                    out = infer(f["episode_idx"], f["frame_idx"])
+                    pending.append((f, out))
+                    per_req_cpu.append(out["cpu_ms"])
+                if want_cuda:
+                    torch.cuda.synchronize()
+            with tempfile.NamedTemporaryFile(suffix=".json",
+                                             delete=False) as handle:
+                trace_path = handle.name
+            prof.export_chrome_trace(trace_path)
+            shard_traces.append(Path(trace_path).read_bytes())
+            Path(trace_path).unlink(missing_ok=True)
+        for t, stop in burners:
+            stop.set()
+            t.join(timeout=30)
+        measured_end = datetime.now(timezone.utc).isoformat()
+        for f, out in pending:
+            a = out["action"].numpy()
+            s, e = out["events"]
+            if s is not None and e is not None:
+                per_req_gpu.append(s.elapsed_time(e))
+            fingerprints.append(
+                {"frame_id": f["frame_id"],
+                 "shape": list(a.shape), "dtype": str(a.dtype),
+                 "chunk_size": int(a.size),
+                 "mean": float(a.mean()), "std": float(a.std()),
+                 "sha256": hashlib.sha256(a.tobytes()).hexdigest()})
         wall_s = round(time.time() - t0, 6)
-        with tempfile.NamedTemporaryFile(suffix=".json",
-                                         delete=False) as handle:
-            trace_path = handle.name
-        prof.export_chrome_trace(trace_path)
-        trace = Path(trace_path).read_bytes()
-        Path(trace_path).unlink(missing_ok=True)
         try:
             freeze = subprocess.run(
                 ["pip", "freeze"], capture_output=True, text=True,
@@ -249,7 +271,9 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
             "corpus_sha256": corpus_sha, "corpus": corpus_kind,
             "frames_file": frames_file, "rng": rng, "dtype": dtype,
             "device": device_name, "video_backend": "pyav",
-            "compile": compile, "cudnn_bench": cudnn_bench,
+            "compile": compile, "compile_mode": compile_mode,
+            "cudnn_bench": cudnn_bench, "tf32": tf32,
+            "shards": shards,
             "autocast": ("fp16" if use_autocast else "off"),
             "device_event_ms": _summarize("device_event_ms", per_req_gpu),
             "host_cpu_ms": _summarize("host_cpu_ms", per_req_cpu),
@@ -269,11 +293,16 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
         stats = {"dropped_records": 0, "correlation_misses": 0,
                  "frames": len(frames), "warmup_inferences": len(warmup_cpu),
                  "key_path": key_path, "input_keys": input_keys,
-                 "video_backend": "pyav", "compile": compile,
-                 "cudnn_bench": cudnn_bench,
+                 "shards": shards,
+            "video_backend": "pyav", "compile": compile,
+            "compile_mode": compile_mode, "cudnn_bench": cudnn_bench,
+            "tf32": tf32,
                  "contention_workers": contention_workers,
                  "autocast": ("fp16" if use_autocast else "off")}
-        return {"trace.json": trace,
+        traces = {"trace.json": shard_traces[0]} if shards == 1 else \
+            {f"trace-shard-{i}.json": blob
+             for i, blob in enumerate(shard_traces)}
+        return {**traces,
                 "metrics.json": json.dumps(metrics, sort_keys=True).encode(),
                 "fingerprints.json": json.dumps(
                     {"frames": fingerprints}, sort_keys=True).encode(),
