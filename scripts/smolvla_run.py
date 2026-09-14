@@ -129,9 +129,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seeds", default=os.environ.get(
         "REFLEX_SEEDS", "11,17,23"))
     parser.add_argument("--tiers", default=os.environ.get(
-        "REFLEX_TIERS", "smoke,main"))
-    # max-risky defaults: fp16 + compile + cudnn-bench + 2 burners, labeled
-    # candidate so healthy baselines stay clean; pass --exp per attempt.
+        "REFLEX_TIERS", "smoke"))
+    # all-on defaults: every run stacks all 10 knobs (regression harvesting).
+    # Survival guardrails only: smoke-only (streams>1 OOMs main) + shards=4.
+    # Pass explicit flags for one-factor isolation.
     parser.add_argument("--dtype", default=os.environ.get(
         "REFLEX_DTYPE", "float16"))
     parser.add_argument("--fault", default=os.environ.get(
@@ -145,21 +146,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--contention", type=int, default=int(
         os.environ.get("REFLEX_CONTENTION", "2")))
     parser.add_argument("--compile-mode", default=os.environ.get(
-        "REFLEX_COMPILE_MODE", "default"))
-    _tf32_env = os.environ.get("REFLEX_TF32", "1") not in ("", "0")
+        "REFLEX_COMPILE_MODE", "max-autotune"))
+    _tf32_env = os.environ.get("REFLEX_TF32", "0") not in ("", "0")
     parser.add_argument("--tf32", action="store_true", default=None)
     parser.add_argument("--no-tf32", action="store_false", dest="tf32",
                         default=None)
     parser.add_argument("--shards", type=int, default=int(
-        os.environ.get("REFLEX_SHARDS", "1")))
+        os.environ.get("REFLEX_SHARDS", "4")))
     parser.add_argument("--streams", type=int, default=int(
-        os.environ.get("REFLEX_STREAMS", "1")))
+        os.environ.get("REFLEX_STREAMS", "2")))
     parser.add_argument("--threads", type=int, default=int(
-        os.environ.get("REFLEX_THREADS", "0")))
+        os.environ.get("REFLEX_THREADS", "1")))
     parser.add_argument("--frame-fault", default=os.environ.get(
-        "REFLEX_FRAME_FAULT", "none"))
+        "REFLEX_FRAME_FAULT", "corrupt"))
     parser.add_argument("--instruction-fault", default=os.environ.get(
-        "REFLEX_INSTRUCTION_FAULT", "none"))
+        "REFLEX_INSTRUCTION_FAULT", "hostile"))
     parser.add_argument("--exp", default=os.environ.get("REFLEX_EXP", ""),
                         help="experiment dir suffix; isolates candidates "
                              "sharing a fault name so resume never no-ops; "
