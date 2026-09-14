@@ -2,7 +2,9 @@
 
 Layout per run: <root>/<fault>/<seed>/{manifest.json, trace.json,
 trace.sqlite?, DONE}. Manifest is written FIRST; DONE is written LAST, only
-after every artifact re-reads with matching sha256. A dead session leaves
+after every artifact re-reads with matching sha256. Sharded runs store
+trace-shard-N.json instead of trace.json (ingest merges them; see
+_merge_shard_bundles). A dead session leaves
 flagless partial runs; the next session resumes by scanning for them.
 Home-side ingest is append-only and idempotent by (run_id, hardware,
 collector_version). Converters turn
@@ -516,6 +518,31 @@ def kineto_to_bundle(doc: dict, manifest: dict | None = None) -> dict:
                          "stalls": False, "tensors": False}}
 
 
+def _merge_shard_bundles(paths: list, manifest: dict | None = None) -> dict:
+    """Convert trace shards one at a time, concatenating bundle lists.
+
+    A monolithic 1000-frame trace OOMs the T4 at ingest json-parse (-9, 1.1GB
+    in RAM); shards bound peak to one shard. Per-shard conversion means l1
+    concurrency ignores cross-shard overlap at the seams — recorded,
+    negligible at 1000 frames. flow_ids unioned; scalar context from shard 0.
+    """
+    merged: dict = {}
+    for p in paths:
+        part = kineto_to_bundle(
+            json.loads(Path(p).read_text(encoding="utf-8")), manifest)
+        for key, val in part.items():
+            if key == "flow_ids":
+                merged.setdefault(key, set()).update(val)
+            elif isinstance(val, list):
+                merged.setdefault(key, []).extend(val)
+            elif key not in merged:
+                merged[key] = val
+        del part
+    if isinstance(merged.get("flow_ids"), set):
+        merged["flow_ids"] = sorted(merged["flow_ids"])
+    return merged
+
+
 def nsys_subset_to_bundle(path: str | Path) -> dict:
     """Mirrored snake subset OR real nsys camelCase export -> bundle dict.
     Schema-detected (brief §2): real path when StringIds/RUNTIME present or
@@ -693,10 +720,13 @@ def ingest(root: str | Path, dataset_path: str | Path) -> dict:
                 if (seed_d / "trace.json").exists():
                     trace = json.loads((seed_d / "trace.json").read_text(encoding="utf-8"))
                     bundle = kineto_to_bundle(trace, man)
+                elif sorted(seed_d.glob("trace-shard-*.json")):
+                    bundle = _merge_shard_bundles(
+                        sorted(seed_d.glob("trace-shard-*.json")), man)
                 elif (seed_d / "subset.db").exists():
                     bundle = nsys_subset_to_bundle(seed_d / "subset.db")
                 else:
-                    raise ValueError("no trace.json or subset.db artifact")
+                    raise ValueError("no trace.json, trace shards, or subset.db artifact")
             except Exception as exc:
                 rejected[rid] = f"{type(exc).__name__}: {exc}"
                 continue

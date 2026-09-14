@@ -75,7 +75,10 @@ def run_tier(output_root: Path, corpus: Path, corpus_sha: str, tier: str,
              fault: str = "healthy", compile: bool = False,
              compile_mode: str = "default",
               cudnn_bench: bool = False, contention: int = 0,
-              tf32: bool = True, shards: int = 1, exp: str = "") -> dict:
+              tf32: bool = True, shards: int = 1, exp: str = "",
+              streams: int = 1, threads: int = 0,
+              frame_fault: str = "none",
+              instruction_fault: str = "none") -> dict:
     import torch
     import lerobot
 
@@ -90,7 +93,10 @@ def run_tier(output_root: Path, corpus: Path, corpus_sha: str, tier: str,
                          DATASET_REV, frames_file=frames_file, dtype=dtype,
                          compile=compile, compile_mode=compile_mode,
                          cudnn_bench=cudnn_bench, tf32=tf32,
-                         contention_workers=contention, shards=shards)
+                         contention_workers=contention, shards=shards,
+                         streams=streams, threads=threads,
+                         frame_fault=frame_fault,
+                         instruction_fault=instruction_fault)
     root = output_root / commit[:12] / (exp or tier)
     dataset_out = output_root / commit[:12] / "smolvla-dataset.jsonl"
     target = [(fault, identity["hardware"], collector.COLLECTOR_VERSION)]
@@ -101,7 +107,9 @@ def run_tier(output_root: Path, corpus: Path, corpus_sha: str, tier: str,
                 "warmup": "holdout-5x2", "dtype": dtype,
                 "video_backend": "pyav", "compile": compile,
                 "cudnn_bench": cudnn_bench, "contention_workers": contention,
-                "shards": shards,
+                "shards": shards, "streams": streams, "threads": threads,
+                "frame_fault": frame_fault,
+                "instruction_fault": instruction_fault,
                 "exp": exp or tier,
                 "repeat_is_seed": "manifest seed is repeat identity; "
                                   "model RNG fixed at 0"}
@@ -144,9 +152,18 @@ def main(argv: list[str] | None = None) -> int:
                         default=None)
     parser.add_argument("--shards", type=int, default=int(
         os.environ.get("REFLEX_SHARDS", "1")))
+    parser.add_argument("--streams", type=int, default=int(
+        os.environ.get("REFLEX_STREAMS", "1")))
+    parser.add_argument("--threads", type=int, default=int(
+        os.environ.get("REFLEX_THREADS", "0")))
+    parser.add_argument("--frame-fault", default=os.environ.get(
+        "REFLEX_FRAME_FAULT", "none"))
+    parser.add_argument("--instruction-fault", default=os.environ.get(
+        "REFLEX_INSTRUCTION_FAULT", "none"))
     parser.add_argument("--exp", default=os.environ.get("REFLEX_EXP", ""),
                         help="experiment dir suffix; isolates candidates "
-                             "sharing a fault name so resume never no-ops")
+                             "sharing a fault name so resume never no-ops; "
+                             "use exp=all10 for the stacked combo")
     args = parser.parse_args(argv)
     if args.tf32 is None:
         args.tf32 = _tf32_env
@@ -176,7 +193,13 @@ def main(argv: list[str] | None = None) -> int:
             f"compile_mode={args.compile_mode} "
             f"cudnn_bench={args.cudnn_bench} tf32={args.tf32} "
             f"contention={args.contention} shards={args.shards} "
+            f"streams={args.streams} threads={args.threads} "
+            f"frame_fault={args.frame_fault} "
+            f"instruction_fault={args.instruction_fault} "
             f"exp={args.exp!r}")
+        if args.streams == 2 and "smoke" not in args.tiers:
+            log("streams=2 forces smoke-only (OOM guard)")
+            args.tiers = "smoke"
         result["corpus_tests"] = corpus_tests()
         log(f"corpus_tests exit={result['corpus_tests']['exit_code']}")
         if result["corpus_tests"]["exit_code"] != 0:
@@ -196,7 +219,10 @@ def main(argv: list[str] | None = None) -> int:
                 fault=args.fault, compile=args.compile,
                 compile_mode=args.compile_mode,
                 cudnn_bench=args.cudnn_bench, contention=args.contention,
-                tf32=args.tf32, shards=args.shards, exp=args.exp)
+                tf32=args.tf32, shards=args.shards, exp=args.exp,
+                streams=args.streams, threads=args.threads,
+                frame_fault=args.frame_fault,
+                instruction_fault=args.instruction_fault)
             pipe = result["tiers"][tier]["pipeline"]
             log(f"tier {tier} done failed={pipe['collected']['failed']} "
                 f"gaps={pipe['gaps']} records={pipe['records']}")

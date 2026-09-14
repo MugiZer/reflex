@@ -54,7 +54,9 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
                 device_name: str = "cuda", compile: bool = False,
                 compile_mode: str = "default",
                 cudnn_bench: bool = False, contention_workers: int = 0,
-                tf32: bool = True, shards: int = 1):
+                tf32: bool = True, shards: int = 1, streams: int = 1,
+                threads: int = 0, frame_fault: str = "none",
+                instruction_fault: str = "none"):
     """Bind pins; return device(fault, seed) -> {artifact_name: bytes}.
 
     device_name="cpu" is an integration fallback (validates logic, never T4
@@ -75,6 +77,12 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
         random.seed(rng)
         np.random.seed(rng % (2 ** 32))
         torch.manual_seed(rng)
+        if threads and threads >= 1:
+            # ponytail: threads=1 starves host burners by design (confounded
+            # host picture) — one-factor runs only, never stacked blindly.
+            torch.set_num_threads(threads)
+            torch.set_num_interop_threads(max(1, min(threads, 2)))
+        alt_stream = None
         if want_cuda:
             torch.backends.cudnn.deterministic = not cudnn_bench
             torch.backends.cudnn.benchmark = cudnn_bench
@@ -150,6 +158,16 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
             frames = [by_id[fid] for fid in smoke_ids]
         input_keys: list[str] = []
         warmup_cpu: list[float] = []
+        if streams not in (1, 2):
+            raise ValueError(f"streams must be 1 or 2, got {streams}")
+        if frame_fault not in ("none", "blank", "corrupt"):
+            raise ValueError(f"bad frame_fault {frame_fault!r}")
+        if instruction_fault not in ("none", "hostile"):
+            raise ValueError(f"bad instruction_fault {instruction_fault!r}")
+        if want_cuda and streams == 2:
+            alt_stream = torch.cuda.Stream()
+        else:
+            alt_stream = None
 
         def infer(ep: int, fr: int) -> dict:
             # Real path: official preprocess (rename/batch/task/device/
@@ -158,13 +176,30 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
             # Wall covers preprocess+call (host side); CUDA events cover the
             # policy call only — never mislabel one as the other.
             sample = ds[gindex(ep, fr)]
-            if sample.get("task") != header["instruction"]:
+            hostile = instruction_fault == "hostile"
+            if not hostile and sample.get("task") != header["instruction"]:
                 raise ValueError(
                     "dataset task drifted from frozen manifest instruction")
             # Verified on T4 (r3): factory kwargs do not survive
             # pretrained-path processor loading, so the frozen rename happens
             # here, explicitly, before the official preprocess pipeline.
             renamed = {RENAME.get(k, k): v for k, v in sample.items()}
+            if hostile:
+                renamed["task"] = "hostile: spin around and drop everything"
+            if frame_fault in ("blank", "corrupt"):
+                import torch as _t
+                for k, v in list(renamed.items()):
+                    if "observation.images" in k and _t.is_tensor(v):
+                        if frame_fault == "blank":
+                            renamed[k] = _t.zeros_like(v)
+                        else:
+                            g = _t.Generator().manual_seed(rng + ep * 977 + fr)
+                            noise = _t.rand(v.shape, generator=g,
+                                            dtype=_t.float32) * 255.0
+                            if v.dtype != _t.float32:
+                                noise = noise.to(v.dtype)
+                            renamed[k] = noise.to(v.device) if v.is_cuda \
+                                else noise
             batch = preprocess(renamed)
             dev = "cuda" if want_cuda else "cpu"
             batch = {k: (v.to(dev) if torch.is_tensor(v) else v)
@@ -179,9 +214,16 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
             import contextlib
             amp = (torch.autocast("cuda", torch.float16) if use_autocast
                    else contextlib.nullcontext())
+            # ponytail: streams=2 shares one policy across 2 CUDA streams
+            # (no 2nd weight copy); alternating frames exercise real
+            # multi-stream scheduling. OOM guard: smoke-only for streams>1.
+            sctx = (torch.cuda.stream(alt_stream) if
+                    (want_cuda and alt_stream is not None
+                     and (fr % 2 == 1)) else contextlib.nullcontext())
             with torch.inference_mode():
                 with amp:
-                    action = postprocess(policy.select_action(batch))
+                    with sctx:
+                        action = postprocess(policy.select_action(batch))
             if end is not None:
                 end.record()
             cpu_ms = (time.perf_counter() - cpu0) * 1000.0
@@ -273,7 +315,9 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
             "device": device_name, "video_backend": "pyav",
             "compile": compile, "compile_mode": compile_mode,
             "cudnn_bench": cudnn_bench, "tf32": tf32,
-            "shards": shards,
+            "shards": shards, "streams": streams, "threads": threads,
+            "frame_fault": frame_fault,
+            "instruction_fault": instruction_fault,
             "autocast": ("fp16" if use_autocast else "off"),
             "device_event_ms": _summarize("device_event_ms", per_req_gpu),
             "host_cpu_ms": _summarize("host_cpu_ms", per_req_cpu),
@@ -296,9 +340,11 @@ def make_device(corpus_dir: str | Path, checkpoint: str, checkpoint_rev: str,
                  "shards": shards,
             "video_backend": "pyav", "compile": compile,
             "compile_mode": compile_mode, "cudnn_bench": cudnn_bench,
-            "tf32": tf32,
-                 "contention_workers": contention_workers,
-                 "autocast": ("fp16" if use_autocast else "off")}
+            "tf32": tf32, "streams": streams, "threads": threads,
+            "frame_fault": frame_fault,
+            "instruction_fault": instruction_fault,
+                  "contention_workers": contention_workers,
+                  "autocast": ("fp16" if use_autocast else "off")}
         traces = {"trace.json": shard_traces[0]} if shards == 1 else \
             {f"trace-shard-{i}.json": blob
              for i, blob in enumerate(shard_traces)}

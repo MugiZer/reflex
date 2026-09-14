@@ -47,6 +47,22 @@ on:
         description: Profile shards per run (main-tier OOM guard)
         required: true
         default: "1"
+      streams:
+        description: CUDA streams (1 baseline, 2 = shared-policy dual stream)
+        required: true
+        default: "1"
+      threads:
+        description: Torch threads (0 = untouched, 1 = starved host)
+        required: true
+        default: "0"
+      frame_fault:
+        description: Semantic frame fault (none, blank, corrupt)
+        required: true
+        default: "none"
+      instruction_fault:
+        description: Semantic instruction fault (none, hostile)
+        required: true
+        default: "none"
       exp:
         description: Experiment dir suffix (isolates attempts sharing a fault name)
         required: true
@@ -94,8 +110,12 @@ jobs:
           REFLEX_COMPILE_MODE: ${{ inputs.compile_mode }}
           REFLEX_TF32: ${{ inputs.tf32 == 'true' && '1' || '0' }}
           REFLEX_SHARDS: ${{ inputs.shards }}
+          REFLEX_STREAMS: ${{ inputs.streams }}
+          REFLEX_THREADS: ${{ inputs.threads }}
+          REFLEX_FRAME_FAULT: ${{ inputs.frame_fault }}
+          REFLEX_INSTRUCTION_FAULT: ${{ inputs.instruction_fault }}
           REFLEX_EXP: ${{ inputs.exp }}
-        run: python scripts/smolvla_run.py --seeds "${REFLEX_SEEDS}" --tiers "${REFLEX_TIERS}" --dtype "${REFLEX_DTYPE}" --fault "${REFLEX_FAULT}" --contention "${REFLEX_CONTENTION}" --compile-mode "${REFLEX_COMPILE_MODE}" --shards "${REFLEX_SHARDS}" --exp "${REFLEX_EXP}" $([ "${REFLEX_COMPILE}" = "1" ] && echo "--compile") $([ "${REFLEX_CUDNN_BENCH}" = "1" ] && echo "--cudnn-bench") $([ "${REFLEX_TF32}" = "1" ] || echo "--no-tf32")
+        run: python scripts/smolvla_run.py --seeds "${REFLEX_SEEDS}" --tiers "${REFLEX_TIERS}" --dtype "${REFLEX_DTYPE}" --fault "${REFLEX_FAULT}" --contention "${REFLEX_CONTENTION}" --compile-mode "${REFLEX_COMPILE_MODE}" --shards "${REFLEX_SHARDS}" --streams "${REFLEX_STREAMS}" --threads "${REFLEX_THREADS}" --frame-fault "${REFLEX_FRAME_FAULT}" --instruction-fault "${REFLEX_INSTRUCTION_FAULT}" --exp "${REFLEX_EXP}" $([ "${REFLEX_COMPILE}" = "1" ] && echo "--compile") $([ "${REFLEX_CUDNN_BENCH}" = "1" ] && echo "--cudnn-bench") $([ "${REFLEX_TF32}" = "1" ] || echo "--no-tf32")
 
       - name: Upload raw logs and traces
         if: always()
