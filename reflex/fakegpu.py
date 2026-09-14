@@ -59,6 +59,9 @@ _HOST_QUANTUM_US = 400.0
 # Residual: synth p95 ~1ms vs real ~70us (tail too narrow: lognormal
 # sigma 0.35 spans 3x while real spans 200x); max same order (~1ms).
 _STALL_DUR_FRAC = 0.25
+# Kept from main: generate() still wires the submit term (arrival earliest +
+# 250us under coupling); deleting the constant breaks it at runtime.
+_SUBMIT_FRAC = 0.1
 # (d) Emergent clock droop/ramp ("DVFS"): device idle (arrive - stream_end)
 # decays a clock factor toward _CLK_MIN with time constant _TAU_DECAY_US;
 # each kernel's duration inflates by 1/clk, then clk recovers toward 1 with
