@@ -52,6 +52,16 @@ only this index is committed.
   synthetic GATE2 (cos 0.78 -> 0.996): matched gpu restored the
   gpu-dominated centroid. Detector blind spot, closed.
 
+## Collected (semantic faults, T4)
+
+- `blank-smoke-seed11/` (T4, 2026-09-14, commit fc91157, seed 11, smoke-250,
+  float32 clean baseline + `--frame-fault blank`, run_id 20260914T175748Z-c3edc084,
+  status passed, gaps empty): 250 frames, 250 unique sha (no collapse —
+  proprioception still varies); timing median 3.93ms ~= healthy 3.94ms
+  (latency blind, as predicted). Output-divergence verdict PENDING healthy
+  control on same commit (fingerprints + metrics retrieved; trace.json
+  still on VM).
+
 ## Discipline (learned 2026-09-11)
 
 1. Download each tier's artifacts to durable storage the moment its DONE
