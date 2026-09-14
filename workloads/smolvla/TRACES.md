@@ -54,6 +54,14 @@ only this index is committed.
 
 ## Collected (semantic faults, T4)
 
+- `all10-smoke-seed11/` (T4, 2026-09-14, commit 1652225, seed 11, smoke-250,
+  all 10 knobs: fp16 + compile(max-autotune) + cudnn-bench + 2 burners +
+  tf32-off + streams2 + threads1 + corrupt frames + hostile instruction,
+  shards 4, run_id 20260914T184423Z-f3ef11be, status passed, gaps empty):
+  device median 12.11 vs ~3.94ms healthy (+207%), p95 26.6 vs 7.1ms (+275%)
+  — far outside threshold basis. Verdict: CATCH on raw-timing thresholds;
+  output divergence vs healthy control still to score (250 unique sha in
+  hand). Survived: no OOM (shards 4 + smoke-only guardrails held).
 - `blank-smoke-seed11/` (T4, 2026-09-14, commit fc91157, seed 11, smoke-250,
   float32 clean baseline + `--frame-fault blank`, run_id 20260914T175748Z-c3edc084,
   status passed, gaps empty): 250 frames, 250 unique sha (no collapse —
