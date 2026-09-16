@@ -26,7 +26,7 @@ function New-GpuSession([string]$name) {
     for ($i = 1; $i -le 6; $i++) {
         $out = colab new -s $name --gpu T4 2>&1 | Out-String
         if ($LASTEXITCODE -eq 0) { return $true }
-        if ($out -notmatch "TooManyAssignments|Precondition Failed") { throw "GPU session failed: $out" }
+        if ($out -notmatch "TooManyAssignments|Precondition Failed|Service Unavailable") { throw "GPU session failed: $out" }
         Start-Sleep -Seconds (60 * $i)
     }
     return $false
