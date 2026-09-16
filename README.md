@@ -9,21 +9,26 @@ Reflex investigates the regression instead of only producing profiler output. It
 ## How it works
 
 ```mermaid
-flowchart LR
-    A[Inference regression] --> B[Compare with healthy runs]
-    B --> C[Find where latency changed]
-    C --> D[Reconstruct CPU → GPU execution]
-    D --> E[Combine diagnosis methods]
-    E --> F[Rank possible causes]
-    F --> G{Clear enough?}
-    G -- No --> H[Choose next measurement\nExpected information gain / cost]
-    H --> I[Update diagnosis]
-    I --> G
-    G -- Yes --> J[Test suspected cause]
-    J --> K{Predicted mechanism moves\nand latency recovers?}
+flowchart TD
+    A[Inference regression] --> B[Match healthy execution<br/>context + hardware + software identity]
+    B --> C[Differential analysis<br/>median / MAD · tail behavior · per-kernel matching]
+    C --> D[CPU ↔ CUDA ↔ GPU execution graph<br/>dependencies · synchronization · critical path]
+    D --> E[Competing cause hypotheses<br/>statistical evidence fusion · calibrated beliefs · UNKNOWN]
+
+    E --> F{Enough evidence<br/>to test a cause?}
+    F -- No --> G[Active measurement selection<br/>Expected Information Gain / effective incremental cost]
+    G --> H[Collect selected evidence<br/>observer overhead · redundancy · prerequisites]
+    H --> I[Bayesian belief update]
+    I --> F
+
+    F -- Yes --> J[Controlled intervention<br/>predict mechanism change before test]
+    J --> K{Expected mechanism changed<br/>and latency recovered?}
     K -- Yes --> L[VERIFIED]
-    K -- No --> M[Keep investigating / abstain]
+    K -- No --> M[Revise hypotheses / ABSTAIN]
+    M --> F
 ```
+
+The loop is deliberately selective: **compare → localize → reason → choose evidence → update → test → verify**. Expensive profiling is collected when it is expected to resolve diagnostic uncertainty, not by default.
 
 ### Core mechanisms
 
