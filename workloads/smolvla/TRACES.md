@@ -54,6 +54,16 @@ only this index is committed.
 
 ## Collected (semantic faults, T4)
 
+- `all10-smoke-20260916-seed11/` (T4, 2026-09-16, commit 917d558, seed 11, smoke-250,
+  same 10 knobs via scripts/smolvla_run_all10.py pinned config, run_id
+  20260916T030107Z-f4b99bbf, status passed, gaps empty): device median 10.92
+  vs ~3.94ms healthy (+177%), p95 24.2 vs 7.1ms (+241%) — far outside
+  threshold basis. 250 frames, 250 unique sha. Verdict: CATCH on raw-timing
+  thresholds; output divergence vs healthy control still to score.
+  Full artifacts local (4 trace shards ~262MB + metrics/fingerprints/stats/
+  manifest/DONE). Prior r1 attempt same night passed but VM was stopped
+  before download — traces lost; discipline held this time (downloaded
+  before stop).
 - `all10-smoke-seed11/` (T4, 2026-09-14, commit 1652225, seed 11, smoke-250,
   all 10 knobs: fp16 + compile(max-autotune) + cudnn-bench + 2 burners +
   tf32-off + streams2 + threads1 + corrupt frames + hostile instruction,
