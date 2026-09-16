@@ -1,86 +1,153 @@
-# Reflex Runtime Latency Diagnosis
+# Root
 
-**An autonomous investigator for GPU inference regressions.**
+**GPU inference regression debugger.**
 
-When inference suddenly gets slower, the root cause can be buried across host submission, synchronization, queueing, data transfers, GPU kernels, memory layout, contention, and runtime behavior. The slowest-looking component is not always the cause.
+Root traces an inference regression across the CPU→CUDA→GPU path, ranks likely causes, collects the next useful profiler signal, and verifies the diagnosis with a controlled rerun.
 
-Reflex investigates the regression instead of only producing profiler output. It compares a bad execution against healthy runs, reconstructs the CPU-to-GPU execution path, combines multiple diagnosis methods, keeps competing causes alive, chooses the next useful measurement, and verifies a suspected cause with a controlled test.
+Inference slowdowns are difficult because the visible bottleneck is often downstream of the real cause. Queue buildup, host submission stalls, synchronization, transfers, kernel slowdowns, memory layout, and contention can all overlap in the same trace.
 
-## How it works
+## Architecture
 
 ```mermaid
 flowchart TD
 
-    subgraph OBSERVE["1 · OBSERVE — establish a trustworthy differential"]
-        A[Inference regression<br/>p50 / p95 / p99 / correctness / SLO] --> B[Execution + context fingerprint<br/>model · runtime · deployment · GPU · workload]
-        B --> C[Matched healthy selection<br/>same relevant hardware/software context]
-        C --> D[Low-overhead telemetry<br/>stage timing · queue depth · failures · host/GPU samples]
-        D --> E[Robust differential statistics<br/>median/MAD · tail mass · per-kernel-name matching]
+    A[Regressed execution] --> INGEST
+    B[Healthy executions] --> INGEST
+
+    subgraph INGEST["Trace + telemetry ingestion · reflex/collect.py"]
+        I1[PyTorch / Kineto]
+        I2[Nsight / CUDA trace data]
+        I3[Runtime + hardware counters]
+        I4[Execution/context manifest]
+        I1 --> I5[Canonical evidence records]
+        I2 --> I5
+        I3 --> I5
+        I4 --> I5
+        I5 --> I6[request · stage · host op · CUDA API<br/>transfer · kernel · stream · sync · queue]
     end
 
-    subgraph STRUCTURE["2 · RECONSTRUCT — locate the affected execution path"]
-        E --> F[Progressive execution graph<br/>request → host → CUDA runtime → transfer → kernel → sync]
-        F --> G[Observed dependency edges<br/>enqueue · stream order · events · queue/handoff · readiness]
-        G --> H[Critical-path + suspect-subgraph analysis<br/>preserve unknown gaps instead of inventing causality]
+    INGEST --> MATCH
+
+    subgraph MATCH["Matched differential analysis · reflex/diagnose.py"]
+        M1[Match healthy context<br/>model · runtime · deployment · GPU · workload]
+        M1 --> M2[Stage deltas<br/>median / MAD · tail behavior]
+        M2 --> M3[GPU deltas<br/>per-kernel-name timing · launch gaps · blocked time]
+        M3 --> M4[Regression surface]
     end
 
-    subgraph DIAGNOSE["3 · DIAGNOSE — maintain competing explanations"]
-        H --> I[Open-world hypothesis registry<br/>CPU · queue · transfer · scheduler · GPU · memory · contention · UNKNOWN]
-        I --> J[Independent evidence models<br/>robust statistics · calibrated ranker · graph reasoning · incident priors]
-        J --> K[Evidence fusion + calibrated belief state<br/>retain competing causes and explicit UNKNOWN mass]
+    MATCH --> GRAPH
+
+    subgraph GRAPH["Execution reconstruction"]
+        G1[request]
+        G1 --> G2[host task]
+        G2 --> G3[CUDA runtime API]
+        G3 --> G4[transfer / readiness]
+        G4 --> G5[GPU kernel]
+        G5 --> G6[sync / completion]
+
+        G7[Observed edges<br/>enqueue · stream order · event · queue/handoff]
+        G7 --> G8[Critical path + suspect subgraph]
+        G6 --> G8
     end
 
-    subgraph DECIDE["4 · DECIDE — choose the next evidence action"]
-        K --> L{Enough evidence<br/>for a targeted test?}
-        L -- No --> M[Candidate measurements<br/>cheap counters · scheduler/queue trace · Kineto/Nsight · deep GPU/source analysis]
-        M --> N[Score each action<br/>Expected Information Gain / effective incremental cost]
-        N --> O[Effective cost model<br/>setup + acquisition + observer perturbation + lost capacity + shared cost]
-        O --> P[Redundancy + prerequisite + capability checks]
-        P --> Q[Collect only the selected evidence]
-        Q --> R[Bayesian belief update]
-        R --> K
+    GRAPH --> SCORE
+
+    subgraph SCORE["Cause scoring · diagnose.py + confidence.py + calibrate.py"]
+        S1[Robust statistical evidence]
+        S2[Calibrated ML cause ranker]
+        S3[Execution-graph evidence]
+        S4[Kernel + memory-layout signatures]
+        S5[Prior incident evidence]
+        S1 --> S6[Rank candidate causes]
+        S2 --> S6
+        S3 --> S6
+        S4 --> S6
+        S5 --> S6
     end
 
-    subgraph VERIFY["5 · TEST / VERIFY — require causal evidence"]
-        L -- Yes --> S[Controlled intervention<br/>record predicted mechanism + direction before execution]
-        S --> T[Measure mechanism response<br/>and end-to-end latency recovery]
-        T --> U{Prediction supported<br/>and latency recovered?}
-        U -- Yes --> V[VERIFIED]
-        U -- No --> W[Revise hypotheses / ABSTAIN]
-        W --> K
+    SCORE --> Q{Need more evidence?}
+
+    Q -- Yes --> SELECT
+
+    subgraph SELECT["Active measurement selection"]
+        P1[Candidate actions]
+        P2[Cheap counters]
+        P3[Queue / scheduler evidence]
+        P4[Kineto trace]
+        P5[Nsight profiling]
+        P6[Deep kernel / source analysis · reflex/deep.py]
+
+        P1 --> P2
+        P1 --> P3
+        P1 --> P4
+        P1 --> P5
+        P1 --> P6
+
+        P2 --> P7[Estimate information gained]
+        P3 --> P7
+        P4 --> P7
+        P5 --> P7
+        P6 --> P7
+
+        P7 --> P8[Account for collection cost,<br/>profiler overhead, prerequisites,<br/>redundancy, and shared setup]
+        P8 --> P9[Collect highest-value signal]
     end
 
-    X[(Immutable typed evidence ledger<br/>OBSERVED · INFERRED · TESTED · VERIFIED)]
-    Y[(Incident memory<br/>semantic retrieval + structural reranking)]
+    SELECT --> SCORE
 
-    D -. append .-> X
-    E -. append .-> X
-    Q -. append .-> X
-    S -. append .-> X
-    T -. append .-> X
+    Q -- No --> VERIFY
 
-    Y -. prior evidence .-> J
-    V -. verified incident .-> Y
+    subgraph VERIFY["Controlled verification"]
+        V1[Record predicted mechanism change]
+        V1 --> V2[Apply targeted intervention]
+        V2 --> V3[Re-run workload]
+        V3 --> V4[Measure mechanism response]
+        V4 --> V5[Measure end-to-end latency]
+        V5 --> V6{Prediction supported<br/>and latency recovered?}
+        V6 -- Yes --> V7[VERIFIED CAUSE]
+        V6 -- No --> V8[Return to diagnosis]
+    end
+
+    V8 --> SCORE
+
+    LEDGER[(Typed evidence ledger · reflex/ledger.py<br/>OBSERVED → INFERRED → TESTED → VERIFIED)]
+    MEMORY[(Incident memory · reflex/memory.py<br/>previous investigations + similar cases)]
+
+    INGEST -. append .-> LEDGER
+    MATCH -. append .-> LEDGER
+    SELECT -. append .-> LEDGER
+    VERIFY -. append .-> LEDGER
+
+    MEMORY -. prior evidence .-> SCORE
+    V7 -. verified incident .-> MEMORY
 ```
 
-The investigation is a closed loop: **observe → reconstruct → diagnose → choose evidence → update → test → verify**. Deeper observability is progressive: cheap telemetry is always available, while expensive profiling is treated as a measurement action whose expected diagnostic value must justify its effective cost and observer effect.
+The loop is:
 
-### Core mechanisms
+**match the right healthy run → measure the difference → reconstruct the execution path → rank causes → collect only the next useful signal → test the strongest explanation.**
 
-- **Matched healthy comparison** — compares incidents only against compatible healthy executions and measures differential behavior rather than absolute timing alone.
-- **Robust statistics** — median/MAD-based comparisons and matched per-kernel GPU timing reduce sensitivity to outliers and heterogeneous kernel distributions.
-- **CPU → GPU execution reconstruction** — uses execution structure to separate upstream causes from downstream symptoms.
-- **Multiple diagnostic models** — combines differently biased signals rather than trusting one classifier or heuristic.
-- **Explicit uncertainty** — keeps multiple possible causes and preserves `UNKNOWN` when the evidence does not support a confident diagnosis.
-- **Active measurement selection** — uses expected information gain relative to effective measurement cost to decide what evidence is worth collecting next.
-- **Observer-aware cost** — profiler overhead and measurement perturbation are part of the decision cost rather than treated as free.
-- **Evidence levels** — findings progress through `OBSERVED → INFERRED → TESTED → VERIFIED`.
-- **Intervention-gated verification** — a diagnosis becomes `VERIFIED` only when a controlled test changes the predicted mechanism and measured latency recovers.
-- **Incident memory** — previous investigations can be retrieved as structured evidence and priors without replacing current-run measurements.
+The key design choice is that deeper profiling is not the default. Kineto, Nsight, and deeper GPU/source analysis are measurement actions selected when they are useful enough to justify their cost and observer overhead.
 
-## Real GPU results
+## What Root is doing
 
-The system has been exercised on **SmolVLA inference running on an NVIDIA T4**, with real PyTorch/CUDA traces. Full trace files are kept outside git because individual captures are hundreds of megabytes; [`workloads/smolvla/TRACES.md`](workloads/smolvla/TRACES.md) is the committed trace and provenance index.
+- **Context-matched comparison** — avoids comparing an incident against a healthy run from a different hardware/software environment.
+- **Robust differential statistics** — uses distributional comparisons instead of relying on one latency sample or a single aggregate.
+- **Per-kernel GPU comparison** — compares like-for-like kernels so heterogeneous kernel distributions do not hide a coherent slowdown.
+- **CPU→CUDA→GPU reconstruction** — connects host work, runtime calls, transfers, streams, kernels, and synchronization before assigning blame.
+- **Statistical + ML cause scoring** — combines multiple signals rather than treating the loudest anomaly as the answer.
+- **Active profiling** — when several causes still fit, Root chooses the next measurement that best separates them instead of enabling every profiler at once.
+- **Controlled verification** — a suspected cause is tested against a predicted mechanism change and end-to-end latency recovery.
+- **Incident memory** — verified investigations can be reused as evidence for future incidents.
+
+## Real GPU evaluation
+
+Root has been evaluated on **SmolVLA inference running on an NVIDIA T4** using real PyTorch/CUDA traces. Full trace files are kept outside git because individual captures are hundreds of megabytes; [`workloads/smolvla/TRACES.md`](workloads/smolvla/TRACES.md) is the committed trace and provenance index.
+
+The evaluation covers three useful behaviors:
+
+- localizing large GPU timing regressions;
+- separating correctness failures from latency regressions;
+- staying quiet on clean runtime changes.
 
 ### Healthy baseline
 
@@ -94,11 +161,11 @@ Two 1,000-frame healthy SmolVLA runs produced **bit-identical outputs**, device-
 | p95 device latency | 7.07 ms | 23.3 ms | **+230%** |
 | Matched GPU anomaly | 0.39 control | 4.11 | strong trip |
 
-The regressed run also produced different outputs from its FP32 control. The matched per-kernel GPU comparison isolated a strong GPU timing anomaly while the healthy control remained quiet.
+The matched per-kernel GPU comparison isolated a strong GPU timing anomaly while the healthy control remained quiet.
 
-### Correctness regression without a latency regression
+### Correctness change without a latency regression
 
-An FP16 SmolVLA run produced **0/250 identical output hashes** versus its FP32 control while median latency changed only **+2.9%**, inside the healthy timing band. The latency diagnosis remained quiet rather than forcing the incident into a latency cause.
+An FP16 SmolVLA run produced **0/250 identical output hashes** versus its FP32 control while median latency changed only **+2.9%**, inside the healthy timing band. The latency diagnosis stayed quiet rather than forcing the change into a latency cause.
 
 ### Replication
 
@@ -107,11 +174,11 @@ Two larger SmolVLA stress configurations reproduced substantial timing regressio
 - **+207% median / +275% p95** — September 14 run.
 - **+177% median / +241% p95** — September 16 run.
 
-A separate `torch.compile` run stayed inside the healthy thresholds with identical outputs, providing a negative control rather than treating every runtime change as a regression.
+A separate `torch.compile` run stayed inside the healthy thresholds with identical outputs, providing a clean negative control.
 
 ## Evidence model
 
-Every investigation is backed by an append-only typed evidence ledger. The system distinguishes what it observed from what it inferred and what it actually tested:
+Every investigation is backed by an append-only typed evidence ledger:
 
 ```text
 OBSERVED   telemetry directly measured from the execution
@@ -123,25 +190,35 @@ TESTED     a targeted intervention was executed
 VERIFIED   predicted mechanism changed and latency recovered
 ```
 
-The language model, when used as an orchestrator, is not the source of truth. Telemetry, statistical comparison, execution dependencies, profiler evidence, and controlled experiments are.
+Telemetry, statistical comparison, execution dependencies, profiler evidence, and controlled experiments are the source of truth.
 
 ## Research basis
 
-The architecture was developed from a broader review of systems and ML research spanning:
+The architecture came out of a three-week research/build cycle. I used a swarm of agents to screen **3,000+ papers** across runtime diagnosis, observability, GPU profiling, active debugging, uncertainty, and incident retrieval, then narrowed the useful mechanisms into the system above.
+
+The final design draws from work on:
 
 - active diagnosis and sequential measurement selection;
-- uncertainty, calibration, and abstention;
+- statistical calibration and evidence fusion;
 - CPU/GPU execution tracing and critical-path reasoning;
 - GPU kernel, source, stall, and tensor-level diagnosis;
 - incident retrieval and structural memory;
-- causal verification through controlled interventions.
+- controlled interventions for verification.
 
-The repository includes the research corpus and project notes used to derive and compare candidate mechanisms. The final design intentionally combines a small set of mechanisms rather than reproducing any single paper.
+The repository includes the research corpus and project notes used to compare candidate mechanisms.
 
 ## Repository map
 
 ```text
-reflex/                  diagnosis, confidence, evidence, memory, collection
+reflex/                  current Python package
+  collect.py             trace ingestion + adapters
+  diagnose.py            matched differential diagnosis
+  confidence.py          confidence / evidence scoring
+  calibrate.py           ML calibration and cause ranking
+  deep.py                deeper GPU analysis
+  ledger.py              typed evidence ledger
+  memory.py              incident retrieval
+
 workloads/smolvla/       real SmolVLA workload + T4 trace inventory
 colab/                   GPU workload / Colab entry points
 scripts/                 collection, evaluation, and experiment runners
@@ -149,9 +226,11 @@ tests/                   regression and contract tests
 reflex-project-notes.md  research and architecture notes
 ```
 
+The repository and Python package still use the original internal name `reflex`; **Root** is the project name.
+
 ## CLI
 
-The package currently exposes three top-level commands:
+The current package exposes:
 
 ```bash
 python -m reflex show-me --ledger <ledger.jsonl> --incident <id> --summary <summary.json>
@@ -159,10 +238,10 @@ python -m reflex eval --out eval-out
 python -m reflex demo --out demo-out
 ```
 
-`show-me` renders one investigation from the evidence ledger. `eval` runs the hidden-fault evaluation harness. `demo` runs the end-to-end target story used for development validation.
+`show-me` renders one investigation from the evidence ledger. `eval` runs the hidden-fault evaluation harness. `demo` runs the end-to-end development demo.
 
 For the real SmolVLA/T4 evidence, start with [`workloads/smolvla/TRACES.md`](workloads/smolvla/TRACES.md).
 
 ---
 
-**Research question:** *How quickly and cheaply can an inference-regression investigator move from “latency got worse” to a verified engineering explanation?*
+**Research question:** *How quickly and cheaply can Root move from “inference got slower” to a verified engineering explanation?*
