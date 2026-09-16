@@ -10,25 +10,60 @@ Reflex investigates the regression instead of only producing profiler output. It
 
 ```mermaid
 flowchart TD
-    A[Inference regression] --> B[Match healthy execution<br/>context + hardware + software identity]
-    B --> C[Differential analysis<br/>median / MAD · tail behavior · per-kernel matching]
-    C --> D[CPU ↔ CUDA ↔ GPU execution graph<br/>dependencies · synchronization · critical path]
-    D --> E[Competing cause hypotheses<br/>statistical evidence fusion · calibrated beliefs · UNKNOWN]
 
-    E --> F{Enough evidence<br/>to test a cause?}
-    F -- No --> G[Active measurement selection<br/>Expected Information Gain / effective incremental cost]
-    G --> H[Collect selected evidence<br/>observer overhead · redundancy · prerequisites]
-    H --> I[Bayesian belief update]
-    I --> F
+    subgraph OBSERVE["1 · OBSERVE — establish a trustworthy differential"]
+        A[Inference regression<br/>p50 / p95 / p99 / correctness / SLO] --> B[Execution + context fingerprint<br/>model · runtime · deployment · GPU · workload]
+        B --> C[Matched healthy selection<br/>same relevant hardware/software context]
+        C --> D[Low-overhead telemetry<br/>stage timing · queue depth · failures · host/GPU samples]
+        D --> E[Robust differential statistics<br/>median/MAD · tail mass · per-kernel-name matching]
+    end
 
-    F -- Yes --> J[Controlled intervention<br/>predict mechanism change before test]
-    J --> K{Expected mechanism changed<br/>and latency recovered?}
-    K -- Yes --> L[VERIFIED]
-    K -- No --> M[Revise hypotheses / ABSTAIN]
-    M --> F
+    subgraph STRUCTURE["2 · RECONSTRUCT — locate the affected execution path"]
+        E --> F[Progressive execution graph<br/>request → host → CUDA runtime → transfer → kernel → sync]
+        F --> G[Observed dependency edges<br/>enqueue · stream order · events · queue/handoff · readiness]
+        G --> H[Critical-path + suspect-subgraph analysis<br/>preserve unknown gaps instead of inventing causality]
+    end
+
+    subgraph DIAGNOSE["3 · DIAGNOSE — maintain competing explanations"]
+        H --> I[Open-world hypothesis registry<br/>CPU · queue · transfer · scheduler · GPU · memory · contention · UNKNOWN]
+        I --> J[Independent evidence models<br/>robust statistics · calibrated ranker · graph reasoning · incident priors]
+        J --> K[Evidence fusion + calibrated belief state<br/>retain competing causes and explicit UNKNOWN mass]
+    end
+
+    subgraph DECIDE["4 · DECIDE — choose the next evidence action"]
+        K --> L{Enough evidence<br/>for a targeted test?}
+        L -- No --> M[Candidate measurements<br/>cheap counters · scheduler/queue trace · Kineto/Nsight · deep GPU/source analysis]
+        M --> N[Score each action<br/>Expected Information Gain / effective incremental cost]
+        N --> O[Effective cost model<br/>setup + acquisition + observer perturbation + lost capacity + shared cost]
+        O --> P[Redundancy + prerequisite + capability checks]
+        P --> Q[Collect only the selected evidence]
+        Q --> R[Bayesian belief update]
+        R --> K
+    end
+
+    subgraph VERIFY["5 · TEST / VERIFY — require causal evidence"]
+        L -- Yes --> S[Controlled intervention<br/>record predicted mechanism + direction before execution]
+        S --> T[Measure mechanism response<br/>and end-to-end latency recovery]
+        T --> U{Prediction supported<br/>and latency recovered?}
+        U -- Yes --> V[VERIFIED]
+        U -- No --> W[Revise hypotheses / ABSTAIN]
+        W --> K
+    end
+
+    X[(Immutable typed evidence ledger<br/>OBSERVED · INFERRED · TESTED · VERIFIED)]
+    Y[(Incident memory<br/>semantic retrieval + structural reranking)]
+
+    D -. append .-> X
+    E -. append .-> X
+    Q -. append .-> X
+    S -. append .-> X
+    T -. append .-> X
+
+    Y -. prior evidence .-> J
+    V -. verified incident .-> Y
 ```
 
-The loop is deliberately selective: **compare → localize → reason → choose evidence → update → test → verify**. Expensive profiling is collected when it is expected to resolve diagnostic uncertainty, not by default.
+The investigation is a closed loop: **observe → reconstruct → diagnose → choose evidence → update → test → verify**. Deeper observability is progressive: cheap telemetry is always available, while expensive profiling is treated as a measurement action whose expected diagnostic value must justify its effective cost and observer effect.
 
 ### Core mechanisms
 
