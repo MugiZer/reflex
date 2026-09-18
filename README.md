@@ -96,6 +96,41 @@ Individual SmolVLA traces are hundreds of megabytes, so we store them outside gi
 
 ## How an investigation works
 
+```mermaid
+flowchart TD
+
+    A[Regressed execution]
+    B[Healthy executions]
+
+    A --> C
+    B --> C
+
+    C["Context-matched comparison<br/>model · runtime · GPU · workload"]
+
+    C --> D["Robust differential analysis<br/>Median / MAD · tail behavior · per-kernel timing"]
+
+    D --> E["CPU → CUDA → GPU execution reconstruction<br/>correlation IDs · dependencies · critical path"]
+
+    E --> F["Cause ranking<br/>statistical evidence · graph attribution · calibrated ML"]
+
+    F --> G{Enough evidence?}
+
+    G -- No --> H["Active measurement selection<br/>expected information gain / effective observer cost"]
+
+    H --> I["Collect targeted evidence<br/>host · scheduler · GPU · deep profile"]
+
+    I --> F
+
+    G -- Yes --> J["Controlled verification<br/>predict mechanism change → intervene → rerun"]
+
+    J --> K{Prediction holds<br/>and latency recovers?}
+
+    K -- Yes --> L[VERIFIED]
+    K -- No --> F
+```
+
+The diagram shows the full investigation design. The sections below explain how each step works and which parts still require integration or hardware validation.
+
 ### Check the healthy comparison
 
 You supply the healthy run. For real traces, Root checks the timing-model version recorded with the data; in the simulator, it also checks workload and kernel context. Root refuses incompatible comparisons. It does not automatically find a baseline or check every hardware and software setting.
