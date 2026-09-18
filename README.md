@@ -1,166 +1,177 @@
 # Root
 
-**GPU inference regression debugger.**
+Find out why GPU inference got slower.
 
-Root traces an inference regression across the CPU→CUDA→GPU path, ranks likely causes, collects the next useful profiler signal, and verifies the diagnosis with a controlled rerun.
+Root compares slow model runs with healthy ones to investigate what changed. It follows work from the CPU through CUDA to GPU kernels, the functions executed on the GPU, then ranks possible causes and chooses what to measure next.
 
-Inference slowdowns are difficult because the visible bottleneck is often downstream of the real cause. Queue buildup, host submission stalls, synchronization, transfers, kernel slowdowns, memory layout, and contention can all overlap in the same trace.
+The goal is a tested explanation: changing the suspected cause should produce the predicted effect and reduce total latency.
 
-## Architecture
+I built Root to investigate a problem relevant to Reflex: how much of the engineering work between “inference got slower” and a tested explanation can be automated? Requests can wait in queues, the CPU can be late submitting GPU work, and data transfers can delay computation. The component with the largest visible delay may be waiting on another component.
 
-```mermaid
-flowchart TD
+The prototype has two kinds of tests. A simulator exercises the full investigation process, including testing a cause and measuring recovery. Real SmolVLA runs on an NVIDIA T4 test whether Root can detect a slowdown and identify where timing changed. Those hardware runs record execution events and timings in files called traces.
 
-    A[Regressed execution]
-    B[Healthy executions]
+[T4 results](#results-and-evidence) · [How Root works](#how-an-investigation-works) · [Run the simulator](#run-a-simulated-investigation)
 
-    A --> C
-    B --> C
+## A regression the first detector missed
 
-    C["Context-matched comparison<br/>model · runtime · GPU · workload"]
+A stress run deliberately changes execution settings, adds competing work, or alters model inputs. We compare it with a healthy control to see whether inference, the model's computation of an output, became slower. That slowdown is an inference regression.
 
-    C --> D["Robust differential analysis<br/>Median / MAD · tail behavior · per-kernel timing"]
+### How we created the stress conditions
 
-    D --> E["CPU → CUDA → GPU execution reconstruction<br/>correlation IDs · dependencies · critical path"]
+For the first combined run, we replayed 250 SmolVLA frames on the T4 with these changes:
 
-    E --> F["Cause ranking<br/>statistical evidence · graph attribution · calibrated ML"]
+| Change | What it did |
+|---|---|
+| FP16 autocast | Let eligible operations use 16-bit arithmetic while keeping model weights in 32-bit format. This changed the arithmetic and kernels used. |
+| `torch.compile` | Ran the model through PyTorch's compiler to test compiled execution. |
+| cuDNN benchmarking | Allowed the library to try and select implementations of supported operations. We also relaxed deterministic settings. |
+| Two background CPU workers | Repeatedly multiplied 256 × 256 NumPy matrices during measurement, competing for CPU resources while the host prepared and submitted inference work. |
 
-    F --> G{Enough evidence?}
+FP16, compilation, and benchmarking can improve performance individually. We combined them with competing CPU work to test how the settings behaved together, then measured whether inference became slower.
 
-    G -- No --> H["Active measurement selection<br/>expected information gain / effective observer cost"]
+### What happened
 
-    H --> I["Collect targeted evidence<br/>host · scheduler · GPU · deep profile"]
+GPU inference time increased. The median is the middle measurement. The p95 value marks the time within which 95% of measurements finished.
 
-    I --> F
-
-    G -- Yes --> J["Controlled verification<br/>predict mechanism change → intervene → rerun"]
-
-    J --> K{Prediction holds<br/>and latency recovers?}
-
-    K -- Yes --> L[VERIFIED]
-    K -- No --> F
-```
-
-Root matches a regressed execution to comparable healthy runs, computes robust per-stage and per-kernel timing deltas, and reconstructs dependencies across the CPU→CUDA→GPU path. It combines statistical, structural, and calibrated ML evidence to rank competing causes. If uncertainty remains, Root chooses the next measurement by expected information gain relative to its effective observer cost. A diagnosis is only verified after a controlled intervention produces the predicted mechanism change and end-to-end latency recovery.
-
-The loop is:
-
-**match the right healthy run → measure the difference → reconstruct the execution path → rank causes → collect only the next useful signal → test the strongest explanation.**
-
-## What Root is doing
-
-- **Context-matched comparison** — avoids comparing an incident against a healthy run from a different hardware/software environment.
-- **Robust differential statistics** — uses distributional comparisons instead of relying on one latency sample or a single aggregate.
-- **Per-kernel GPU comparison** — compares like-for-like kernels so heterogeneous kernel distributions do not hide a coherent slowdown.
-- **CPU→CUDA→GPU reconstruction** — connects host work, runtime calls, transfers, streams, kernels, and synchronization before assigning blame.
-- **Statistical + ML cause scoring** — combines multiple signals rather than treating the loudest anomaly as the answer.
-- **Active profiling** — when several causes still fit, Root chooses the next measurement that best separates them instead of enabling every profiler at once.
-- **Controlled verification** — a suspected cause is tested against a predicted mechanism change and end-to-end latency recovery.
-- **Incident memory** — verified investigations can be reused as evidence for future incidents.
-
-## Real GPU evaluation
-
-Root has been evaluated on **SmolVLA inference running on an NVIDIA T4** using real PyTorch/CUDA traces. Full trace files are kept outside git because individual captures are hundreds of megabytes; [`workloads/smolvla/TRACES.md`](workloads/smolvla/TRACES.md) is the committed trace and provenance index.
-
-The evaluation covers three useful behaviors:
-
-- localizing large GPU timing regressions;
-- separating correctness failures from latency regressions;
-- staying quiet on clean runtime changes.
-
-### Healthy baseline
-
-Two 1,000-frame healthy SmolVLA runs produced **bit-identical outputs**, device-latency medians within roughly **1%** (4.14 ms vs 4.11 ms), and p95 within roughly **5%**.
-
-### Large latency regression
-
-| Metric | Healthy | Regressed | Change |
+| Device latency | Healthy control | Stress run | Recorded change |
 |---|---:|---:|---:|
-| Median device latency | 3.94 ms | 9.94 ms | **+152%** |
-| p95 device latency | 7.07 ms | 23.3 ms | **+230%** |
-| Matched GPU anomaly | 0.39 control | 4.11 | strong trip |
+| Median | 3.94 ms | 9.94 ms | +152% |
+| p95 | 7.07 ms | 23.3 ms | +230% |
 
-The matched per-kernel GPU comparison isolated a strong GPU timing anomaly while the healthy control remained quiet.
+### Why the detector missed it
 
-### Correctness change without a latency regression
+The original detector grouped timings from different GPU kernels together. Those kernels normally take different amounts of time, so the variation between them hid the slowdown. The detector's highest stage score was only 1.34, assigned to transport rather than GPU execution.
 
-An FP16 SmolVLA run produced **0/250 identical output hashes** versus its FP32 control while median latency changed only **+2.9%**, inside the healthy timing band. The latency diagnosis stayed quiet rather than forcing the change into a latency cause.
+We changed the detector to compare kernels with the same name across runs. The GPU anomaly score then reached **4.11**, while the healthy-control comparison stayed at **0.39**. The score expresses timing change relative to the comparison's variability: a larger value indicates a more unusual change. It has no time unit and is not a probability.
 
-### Replication
+This experiment exposed and helped fix a detector bug. Root could now identify the GPU timing anomaly, but the combined settings did not reveal which individual change caused it. We did not demonstrate a fix that restored the workload's latency in this run.
 
-Two larger SmolVLA stress configurations reproduced substantial timing regressions on T4:
+The [trace inventory](workloads/smolvla/TRACES.md) records this experiment under `max-risky-colab-20260914-seed11`, run ID `20260913T224150Z-d783b2c1`. The detector is implemented in [diagnose.py](reflex/diagnose.py).
 
-- **+207% median / +275% p95** — September 14 run.
-- **+177% median / +241% p95** — September 16 run.
+## Results and evidence
 
-A separate `torch.compile` run stayed inside the healthy thresholds with identical outputs, providing a clean negative control.
+### What the larger stress runs added
 
-## Evidence model
+The September 14 and 16 runs added these changes to the first setup:
 
-Every investigation is backed by an append-only typed evidence ledger:
+- Used the compiler's `max-autotune` mode to try additional optimization choices.
+- Alternated inference frames between two CUDA streams, or GPU work queues, sharing one model.
+- Set PyTorch's CPU thread limits to one for work within an operation and one for work across operations.
+- Replaced camera images with reproducible random noise and changed the task instruction to an intentionally conflicting instruction. This tested changed model inputs as well as changed execution settings.
+- Disabled the TF32 arithmetic permission flags. We recorded this setting but did not measure its effect separately.
 
-```text
-OBSERVED   telemetry directly measured from the execution
-    ↓
-INFERRED   diagnosis supported by current evidence
-    ↓
-TESTED     a targeted intervention was executed
-    ↓
-VERIFIED   predicted mechanism changed and latency recovered
-```
+Each run used the short, 250-frame test workload. We collected traces in four parts to limit memory use. The exact settings are in the [combined-run script](scripts/smolvla_run_all10.py); the [replay code](workloads/smolvla/replay.py) implements the input changes and background workers.
 
-Telemetry, statistical comparison, execution dependencies, profiler evidence, and controlled experiments are the source of truth.
+These runs tested several changes together. Determining which change caused the slowdown requires tests that separate their effects. Because we also changed the images and instructions, differences in model output cannot be attributed to arithmetic precision alone.
 
-## Research basis
+### Recorded outcomes
 
-The architecture came out of a three-week research/build cycle. I used a swarm of agents to screen **3,000+ papers** across runtime diagnosis, observability, GPU profiling, active debugging, uncertainty, and incident retrieval, then narrowed the useful mechanisms into the system above.
+The SmolVLA runs include healthy repeats, changes that stayed within the timing thresholds, and deliberately stressed executions. Percentages below are the rounded values recorded in the [trace inventory](workloads/smolvla/TRACES.md).
 
-The final design draws from work on:
+| Experiment | Timing result | Output comparison |
+|---|---|---|
+| Healthy repeats, 1,000 frames each | Medians 4.14 and 4.11 ms; p95 within roughly 5% | All 1,000 output hashes matched |
+| First combined stress run | Median +152%; p95 +230% | No matching hashes across 250 outputs |
+| FP16 versus FP32, 250 frames | Median +2.9%; no latency alarm | No matching hashes across 250 outputs |
+| `torch.compile`, 250 frames | Median +2%; p95 +4%; within timing limits | All 250 output hashes matched |
+| Larger stress run, September 14 | Median +207%; p95 +275% | Comparison with the healthy control pending |
+| Larger stress run, September 16 | Median +177%; p95 +241% | Comparison with the healthy control pending |
 
-- active diagnosis and sequential measurement selection;
-- statistical calibration and evidence fusion;
-- CPU/GPU execution tracing and critical-path reasoning;
-- GPU kernel, source, stall, and tensor-level diagnosis;
-- incident retrieval and structural memory;
-- controlled interventions for verification.
+An output hash checks whether the recorded output is identical. A different hash shows that the output changed, but does not tell us whether its accuracy became worse. The FP16 run illustrates why timing and output checks are separate: every output hash changed while latency remained within the accepted range.
 
-The repository includes the research corpus and project notes used to compare candidate mechanisms.
+The first stress run also tested the corrected detector: its GPU anomaly score was 4.11 versus 0.39 for the control. The larger runs establish further slowdowns; their recorded results do not verify a cause.
 
-## Repository map
+We used the healthy repeats to set acceptable timing variation for this evaluation: ±5% for the median and ±10% for p95. These limits apply to this setup. Initialization dominated the slowest measurements, so we recorded p99, the 99th percentile, without using it to decide whether a run regressed.
 
-```text
-reflex/                  current Python package
-  collect.py             trace ingestion + adapters
-  diagnose.py            matched differential diagnosis
-  confidence.py          confidence / evidence scoring
-  calibrate.py           ML calibration and cause ranking
-  deep.py                deeper GPU analysis
-  ledger.py              typed evidence ledger
-  memory.py              incident retrieval
+All latency figures in this table describe device latency. They do not measure a complete robot observation-to-action loop.
 
-workloads/smolvla/       real SmolVLA workload + T4 trace inventory
-colab/                   GPU workload / Colab entry points
-scripts/                 collection, evaluation, and experiment runners
-tests/                   regression and contract tests
-reflex-project-notes.md  research and architecture notes
-```
+### Inspecting the evidence
 
-The repository and Python package still use the original internal name `reflex`; **Root** is the project name.
+- [SmolVLA trace inventory](workloads/smolvla/TRACES.md): run names, settings, collected files, source commits, and results.
+- [SmolVLA runner](scripts/smolvla_run.py) and [larger stress-run configuration](scripts/smolvla_run_all10.py): workload collection code.
+- [Replay implementation](workloads/smolvla/replay.py) and [trace replay tests](tests/test_smolvla_trace_replay.py): the workload and trace-processing path.
+- [Separate T4 feature analysis](.scratch/reflex-tool/research/t4_feature_analysis.md), [per-run CSV](.scratch/reflex-tool/research/t4_feature_table.csv), and [fault-versus-healthy CSV](.scratch/reflex-tool/research/t4_fault_vs_healthy.csv): an earlier 36-bundle collection across 12 labels and three seeds. This is a separate experiment, not the source of the SmolVLA numbers above.
 
-## CLI
+Individual SmolVLA traces are hundreds of megabytes, so we store them outside git. The inventory lists the files and results, but public downloads and underlying metrics files are not available for every run. Recalculating all the results requires access to those files.
 
-The current package exposes:
+## How an investigation works
 
-```bash
-python -m reflex show-me --ledger <ledger.jsonl> --incident <id> --summary <summary.json>
-python -m reflex eval --out eval-out
-python -m reflex demo --out demo-out
-```
+### Check the healthy comparison
 
-`show-me` renders one investigation from the evidence ledger. `eval` runs the hidden-fault evaluation harness. `demo` runs the end-to-end development demo.
+You supply the healthy run. For real traces, Root checks the timing-model version recorded with the data; in the simulator, it also checks workload and kernel context. Root refuses incompatible comparisons. It does not automatically find a baseline or check every hardware and software setting.
 
-For the real SmolVLA/T4 evidence, start with [`workloads/smolvla/TRACES.md`](workloads/smolvla/TRACES.md).
+Root compares median timings and measures how far samples typically fall from the median, using median absolute deviation. It allows small timing differences and prevents nearly constant measurements from producing extreme scores for tiny changes. GPU comparisons match kernel names, as in the detector fix above.
 
----
+### Use dependencies to interpret timing
 
-**Research question:** *How quickly and cheaply can Root move from “inference got slower” to a verified engineering explanation?*
+Root builds a graph of which CPU and GPU operations launch, feed, or wait for other operations. A late kernel launch and a kernel that takes longer to run suggest different causes, even if both delay the result. Root combines these relationships with timing comparisons and statistical models to rank possible explanations.
+
+Root records missing events and uncertain ordering rather than inventing links. It can leave the cause unknown when the available explanations do not fit. Model scores guide the investigation; testing a cause still requires changing it and measuring the effect.
+
+### Choose what to measure next
+
+When several explanations still fit, Root considers a CPU scheduling trace, a GPU kernel timeline, or hardware counters. It asks which measurement would best distinguish the remaining causes.
+
+When Root has a trusted model of possible measurement outcomes, it weighs the expected value of new evidence against collection cost. It discounts unreliable evidence and signals that repeat what it already knows. Collection cost includes setup work and any slowdown caused by profiling itself.
+
+Root checks whether a measurement is available, permitted, and affordable within the remaining budget. When its predictions are unreliable or it assigns too much weight to unknown causes, it falls back to a simpler choice based on cost. Some profiler choices still need manual execution.
+
+### Test a recorded prediction
+
+Before changing the suspected cause, Root records what should happen. Verification requires the relevant measurements to move in the predicted direction and total latency to fall by at least half the predicted improvement. A faster rerun alone is insufficient if the expected change in the suspected component did not occur.
+
+The investigation record distinguishes four states:
+
+| State | Meaning |
+|---|---|
+| OBSERVED | A direct measurement was recorded |
+| INFERRED | Current evidence supports a possible explanation |
+| TESTED | A test changed the suspected cause |
+| VERIFIED | The test produced the predicted effect and required reduction in total latency |
+
+These tests run in the simulator. The T4 results above demonstrate timing comparisons, not this complete verification process.
+
+## Current scope
+
+Alongside the investigation steps above, Root can keep recent events in a fixed-size buffer, account for profiling overhead, retrieve earlier investigations, and restrict detailed GPU analysis to cases that meet its evidence and budget checks.
+
+The next integration steps are to connect measurement selection to detailed GPU analysis, launch every supported external profiler automatically, and trace GPU kernels back through CUDA and framework operations to Python code.
+
+Learning from past investigations to choose measurements and decide which events to keep is planned work.
+
+We have not yet shown that the results hold on other GPUs, that Root can separate every combination of simultaneous faults, or that it reduces an engineer's debugging time.
+
+## Run a simulated investigation
+
+The project is named Root; the Python package is still named `reflex`. From the repository root, install the [dependencies](requirements-t4.txt) and run the demo:
+
+    python -m pip install -r requirements-t4.txt
+    python -m reflex demo --out demo-out
+
+The demo prints a simulated investigation report. To evaluate Root against faults whose identities are hidden from the investigator, run:
+
+    python -m reflex eval --out eval-out
+
+The evaluation reports how often the correct cause ranked first or in the top three, how many cases reached VERIFIED, the measurement count, and elapsed time. These commands run simulated tests; they do not reproduce the SmolVLA hardware measurements.
+
+To render an existing investigation, supply its ledger, incident ID, and summary:
+
+    python -m reflex show-me --ledger <ledger.jsonl> --incident <id> --summary <summary.json>
+
+For the real-workload collection path, start with the [SmolVLA runner](scripts/smolvla_run.py) and [trace inventory](workloads/smolvla/TRACES.md).
+
+## Research and implementation
+
+I developed Root over three weeks, using agents to screen more than 3,000 papers on debugging, collecting execution data, GPU profiling, and testing suspected causes. That work helped me choose how Root compares runs, selects measurements, and tests explanations.
+
+The [project and architecture notes](reflex-project-notes.md), paper indexes for [Program A](program-a-paper-master.csv) and [Program B](program-b-paper-master.csv), and [paper-screening records](pass2/) document that research. The results section records what we have tested so far.
+
+| Code | Responsibility |
+|---|---|
+| [collect.py](reflex/collect.py), [adapters.py](reflex/adapters.py) | Read traces and convert them into a common format |
+| [diagnose.py](reflex/diagnose.py), [reconstruct.py](reflex/reconstruct.py) | Compare timings and connect dependent operations |
+| [tournament.py](reflex/tournament.py), [confidence.py](reflex/confidence.py), [calibrate.py](reflex/calibrate.py) | Combine model scores, rank causes, and calibrate confidence |
+| [select.py](reflex/select.py), [deep.py](reflex/deep.py) | Measurement selection and deeper GPU analysis |
+| [ledger.py](reflex/ledger.py), [verify.py](reflex/verify.py) | Evidence states and controlled verification |
+| [runtime.py](reflex/runtime.py), [memory.py](reflex/memory.py) | Keep recent execution events and retrieve past investigations |
+| [tests/](tests/) | Regression and contract tests |
