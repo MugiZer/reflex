@@ -129,7 +129,7 @@ flowchart TD
     K -- No --> F
 ```
 
-The diagram shows the full investigation design. The sections below explain how each step works and which parts still require integration or hardware validation.
+The diagram shows the full investigation design. The sections below explain how each step works and which parts still require integration or hardware validation. Paper links identify the research behind specific mechanisms; they do not imply that Root reproduces each paper's complete system or guarantees.
 
 ### Check the healthy comparison
 
@@ -139,21 +139,23 @@ Root compares median timings and measures how far samples typically fall from th
 
 ### Use dependencies to interpret timing
 
-Root builds a graph of which CPU and GPU operations launch, feed, or wait for other operations. A late kernel launch and a kernel that takes longer to run suggest different causes, even if both delay the result. Root combines these relationships with timing comparisons and statistical models to rank possible explanations.
+Root builds a [graph of which CPU and GPU operations launch, feed, or wait for other operations](https://arxiv.org/abs/2608.01975), drawing on TELLER's cross-layer analysis. A [late kernel launch and a kernel that takes longer to run suggest different causes](https://arxiv.org/abs/2603.22774), even if both delay the result. Root combines these relationships with timing comparisons and statistical models to rank possible explanations.
 
-Root records missing events and uncertain ordering rather than inventing links. It can leave the cause unknown when the available explanations do not fit. Model scores guide the investigation; testing a cause still requires changing it and measuring the effect.
+Root records missing events and uncertain ordering rather than inventing links. It can [withhold a diagnosis when confidence is insufficient](https://arxiv.org/abs/1705.08500), following the selective-classification idea, and leave the cause unknown when the available explanations do not fit. Model scores guide the investigation; testing a cause still requires changing it and measuring the effect.
+
+The confidence layer uses [temperature scaling](https://proceedings.mlr.press/v70/guo17a.html) to adjust predicted probabilities against labeled examples. It also includes [conformal prediction](https://arxiv.org/abs/2107.07511) as a benchmark for returning a set of possible causes.
 
 ### Choose what to measure next
 
-When several explanations still fit, Root considers a CPU scheduling trace, a GPU kernel timeline, or hardware counters. It asks which measurement would best distinguish the remaining causes.
+When several explanations still fit, Root considers a CPU scheduling trace, a GPU kernel timeline, or hardware counters. It asks [which measurement would best distinguish the remaining causes](https://arxiv.org/abs/1207.1418).
 
-When Root has a trusted model of possible measurement outcomes, it weighs the expected value of new evidence against collection cost. It discounts unreliable evidence and signals that repeat what it already knows. Collection cost includes setup work and any slowdown caused by profiling itself.
+When Root has a trusted model of possible measurement outcomes, it weighs the expected value of new evidence against [collection cost](https://arxiv.org/abs/1705.09879). It discounts [unreliable evidence and signals that repeat what it already knows](https://proceedings.mlr.press/v54/chen17b.html). Collection cost includes setup work and any slowdown caused by profiling itself. [Shared setup costs](https://arxiv.org/abs/2501.18010) matter too: once a profiling group is active, another measurement in that group can cost less to collect.
 
 Root checks whether a measurement is available, permitted, and affordable within the remaining budget. When its predictions are unreliable or it assigns too much weight to unknown causes, it falls back to a simpler choice based on cost. Some profiler choices still need manual execution.
 
 ### Test a recorded prediction
 
-Before changing the suspected cause, Root records what should happen. Verification requires the relevant measurements to move in the predicted direction and total latency to fall by at least half the predicted improvement. A faster rerun alone is insufficient if the expected change in the suspected component did not occur.
+Before changing the suspected cause, Root records what should happen. This follows the [causal-profiling principle of testing whether changing a component improves overall performance](https://arxiv.org/abs/1608.03676), explored in Coz. Root's verification rule requires the relevant measurements to move in the predicted direction and total latency to fall by at least half the predicted improvement. A faster rerun alone is insufficient if the expected change in the suspected component did not occur.
 
 The investigation record distinguishes four states:
 
@@ -168,7 +170,7 @@ These tests run in the simulator. The T4 results above demonstrate timing compar
 
 ## Current scope
 
-Alongside the investigation steps above, Root can keep recent events in a fixed-size buffer, account for profiling overhead, retrieve earlier investigations, and restrict detailed GPU analysis to cases that meet its evidence and budget checks.
+Alongside the investigation steps above, Root can [keep recent events in a fixed-size buffer](https://www.usenix.org/conference/nsdi23/presentation/zhang-lei), inspired by Hindsight, account for profiling overhead, and retrieve earlier investigations. It [restricts detailed GPU analysis to cases that meet its evidence and budget checks](https://www.usenix.org/conference/osdi26/presentation/wu-haonan), drawing on StriaTrace's approach to selective tracing and diagnosis.
 
 The next integration steps are to connect measurement selection to detailed GPU analysis, launch every supported external profiler automatically, and trace GPU kernels back through CUDA and framework operations to Python code.
 
