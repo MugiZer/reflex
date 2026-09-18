@@ -11,122 +11,41 @@ Inference slowdowns are difficult because the visible bottleneck is often downst
 ```mermaid
 flowchart TD
 
-    A[Regressed execution] --> INGEST
-    B[Healthy executions] --> INGEST
+    A[Regressed execution]
+    B[Healthy executions]
 
-    subgraph INGEST["Trace + telemetry ingestion · reflex/collect.py"]
-        I1[PyTorch / Kineto]
-        I2[Nsight / CUDA trace data]
-        I3[Runtime + hardware counters]
-        I4[Execution/context manifest]
-        I1 --> I5[Canonical evidence records]
-        I2 --> I5
-        I3 --> I5
-        I4 --> I5
-        I5 --> I6[request · stage · host op · CUDA API<br/>transfer · kernel · stream · sync · queue]
-    end
+    A --> C
+    B --> C
 
-    INGEST --> MATCH
+    C["Context-matched comparison<br/>model · runtime · GPU · workload"]
 
-    subgraph MATCH["Matched differential analysis · reflex/diagnose.py"]
-        M1[Match healthy context<br/>model · runtime · deployment · GPU · workload]
-        M1 --> M2[Stage deltas<br/>median / MAD · tail behavior]
-        M2 --> M3[GPU deltas<br/>per-kernel-name timing · launch gaps · blocked time]
-        M3 --> M4[Regression surface]
-    end
+    C --> D["Robust differential analysis<br/>Median / MAD · tail behavior · per-kernel timing"]
 
-    MATCH --> GRAPH
+    D --> E["CPU → CUDA → GPU execution reconstruction<br/>correlation IDs · dependencies · critical path"]
 
-    subgraph GRAPH["Execution reconstruction"]
-        G1[request]
-        G1 --> G2[host task]
-        G2 --> G3[CUDA runtime API]
-        G3 --> G4[transfer / readiness]
-        G4 --> G5[GPU kernel]
-        G5 --> G6[sync / completion]
+    E --> F["Cause ranking<br/>statistical evidence · graph attribution · calibrated ML"]
 
-        G7[Observed edges<br/>enqueue · stream order · event · queue/handoff]
-        G7 --> G8[Critical path + suspect subgraph]
-        G6 --> G8
-    end
+    F --> G{Enough evidence?}
 
-    GRAPH --> SCORE
+    G -- No --> H["Active measurement selection<br/>expected information gain / effective observer cost"]
 
-    subgraph SCORE["Cause scoring · diagnose.py + confidence.py + calibrate.py"]
-        S1[Robust statistical evidence]
-        S2[Calibrated ML cause ranker]
-        S3[Execution-graph evidence]
-        S4[Kernel + memory-layout signatures]
-        S5[Prior incident evidence]
-        S1 --> S6[Rank candidate causes]
-        S2 --> S6
-        S3 --> S6
-        S4 --> S6
-        S5 --> S6
-    end
+    H --> I["Collect targeted evidence<br/>host · scheduler · GPU · deep profile"]
 
-    SCORE --> Q{Need more evidence?}
+    I --> F
 
-    Q -- Yes --> SELECT
+    G -- Yes --> J["Controlled verification<br/>predict mechanism change → intervene → rerun"]
 
-    subgraph SELECT["Active measurement selection"]
-        P1[Candidate actions]
-        P2[Cheap counters]
-        P3[Queue / scheduler evidence]
-        P4[Kineto trace]
-        P5[Nsight profiling]
-        P6[Deep kernel / source analysis · reflex/deep.py]
+    J --> K{Prediction holds<br/>and latency recovers?}
 
-        P1 --> P2
-        P1 --> P3
-        P1 --> P4
-        P1 --> P5
-        P1 --> P6
-
-        P2 --> P7[Estimate information gained]
-        P3 --> P7
-        P4 --> P7
-        P5 --> P7
-        P6 --> P7
-
-        P7 --> P8[Account for collection cost,<br/>profiler overhead, prerequisites,<br/>redundancy, and shared setup]
-        P8 --> P9[Collect highest-value signal]
-    end
-
-    SELECT --> SCORE
-
-    Q -- No --> VERIFY
-
-    subgraph VERIFY["Controlled verification"]
-        V1[Record predicted mechanism change]
-        V1 --> V2[Apply targeted intervention]
-        V2 --> V3[Re-run workload]
-        V3 --> V4[Measure mechanism response]
-        V4 --> V5[Measure end-to-end latency]
-        V5 --> V6{Prediction supported<br/>and latency recovered?}
-        V6 -- Yes --> V7[VERIFIED CAUSE]
-        V6 -- No --> V8[Return to diagnosis]
-    end
-
-    V8 --> SCORE
-
-    LEDGER[(Typed evidence ledger · reflex/ledger.py<br/>OBSERVED → INFERRED → TESTED → VERIFIED)]
-    MEMORY[(Incident memory · reflex/memory.py<br/>previous investigations + similar cases)]
-
-    INGEST -. append .-> LEDGER
-    MATCH -. append .-> LEDGER
-    SELECT -. append .-> LEDGER
-    VERIFY -. append .-> LEDGER
-
-    MEMORY -. prior evidence .-> SCORE
-    V7 -. verified incident .-> MEMORY
+    K -- Yes --> L[VERIFIED]
+    K -- No --> F
 ```
+
+Root matches a regressed execution to comparable healthy runs, computes robust per-stage and per-kernel timing deltas, and reconstructs dependencies across the CPU→CUDA→GPU path. It combines statistical, structural, and calibrated ML evidence to rank competing causes. If uncertainty remains, Root chooses the next measurement by expected information gain relative to its effective observer cost. A diagnosis is only verified after a controlled intervention produces the predicted mechanism change and end-to-end latency recovery.
 
 The loop is:
 
 **match the right healthy run → measure the difference → reconstruct the execution path → rank causes → collect only the next useful signal → test the strongest explanation.**
-
-The key design choice is that deeper profiling is not the default. Kineto, Nsight, and deeper GPU/source analysis are measurement actions selected when they are useful enough to justify their cost and observer overhead.
 
 ## What Root is doing
 
