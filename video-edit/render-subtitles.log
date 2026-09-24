@@ -51,7 +51,7 @@ Output #0, mp4, to 'C:\Users\moham\Downloads\reflex demo - FINAL subtitled.mp4':
 [Parsed_ass_0 @ 000001b855f17680] fontselect: (Arial, 400, 0) -> ArialMT, 0, ArialMT
 [mp4 @ 000001b85773e6c0] Starting second pass: moving the moov atom to the beginning of the file
 [out#0/mp4 @ 000001b857b4ae80] video:17417KiB audio:1440KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.783477%
-frame= 5792 fps= 59 q=-1.0 Lsize=   19004KiB time=00:01:32.53 bitrate=1682.4kbits/s speed=0.945x    
+frame= 5792 fps= 59 q=-1.0 Lsize=   19004KiB time=00:01:32.53 bitrate=1682.4kbits/s speed=0.945x
 [libx264 @ 000001b857b492c0] frame I:25    Avg QP: 9.75  size: 59256
 [libx264 @ 000001b857b492c0] frame P:1566  Avg QP:16.14  size:  7918
 [libx264 @ 000001b857b492c0] frame B:4201  Avg QP:16.89  size:   941

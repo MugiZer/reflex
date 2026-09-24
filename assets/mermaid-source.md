@@ -16,7 +16,6 @@ flowchart LR
     classDef good fill:#183e3a,stroke:#80d5bd,color:#ffffff
     classDef muted fill:#20262a,stroke:#65717b,color:#a7b2ba,stroke-dasharray:5 5
 ```
-
 ## 2. Reconstruct where the work went
 
 ```mermaid
@@ -79,4 +78,3 @@ flowchart LR
     classDef good fill:#183e3a,stroke:#80d5bd,color:#ffffff
     classDef bad fill:#422b2e,stroke:#ed927e,color:#ffffff
 ```
-

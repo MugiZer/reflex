@@ -62,7 +62,7 @@ Output #0, mp4, to 'C:\Users\moham\Downloads\reflex demo - diagrams and mirrored
         vendor_id       : [0][0][0][0]
 [mp4 @ 0000026b18ca8140] Starting second pass: moving the moov atom to the beginning of the file
 [out#0/mp4 @ 0000026b18ca2c40] video:21325KiB audio:1440KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.628759%
-frame= 5552 fps= 70 q=-1.0 Lsize=   22908KiB time=00:01:32.50 bitrate=2028.8kbits/s speed=1.17x    
+frame= 5552 fps= 70 q=-1.0 Lsize=   22908KiB time=00:01:32.50 bitrate=2028.8kbits/s speed=1.17x
 [libx264 @ 0000026b18d80580] frame I:25    Avg QP: 9.96  size: 55033
 [libx264 @ 0000026b18d80580] frame P:1570  Avg QP:15.48  size: 10091
 [libx264 @ 0000026b18d80580] frame B:3957  Avg QP:17.44  size:  1167
