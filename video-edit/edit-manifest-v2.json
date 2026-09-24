@@ -1,0 +1,57 @@
+{
+  "source": "C:\\Users\\moham\\Downloads\\reflex demo.mp4",
+  "output": "C:\\Users\\moham\\Downloads\\reflex demo - retimed diagrams and webcam.mp4",
+  "source_duration": 92.51666666666667,
+  "final_reading_hold_seconds": 4.0,
+  "timing_basis": "Word timestamps from local transcription of the actual video",
+  "mirror": "Source footage mirrored horizontally; diagrams unmirrored",
+  "webcam": {
+    "source_crop": [
+      288,
+      162,
+      1344,
+      756
+    ],
+    "output_rect": [
+      1476,
+      815,
+      404,
+      229
+    ],
+    "visible_from": 31.3,
+    "fade_out_seconds": 0.35
+  },
+  "audio": "Original AAC packets copied; ending reading hold is silent",
+  "placements": [
+    {
+      "asset": "01-matched-comparison.png",
+      "start_seconds": 31.3,
+      "end_seconds_exclusive": 39.4
+    },
+    {
+      "asset": "02-execution-path.png",
+      "start_seconds": 39.4,
+      "end_seconds_exclusive": 50.4
+    },
+    {
+      "asset": "03-evidence-ranking.png",
+      "start_seconds": 50.4,
+      "end_seconds_exclusive": 60.5
+    },
+    {
+      "asset": "04-measurement-selection.png",
+      "start_seconds": 60.5,
+      "end_seconds_exclusive": 68.8
+    },
+    {
+      "asset": "05-controlled-verification.png",
+      "start_seconds": 68.8,
+      "end_seconds_exclusive": 80.3
+    },
+    {
+      "asset": "06-real-t4-result.png",
+      "start_seconds": 80.3,
+      "end_seconds_exclusive": 96.51666666666667
+    }
+  ]
+}

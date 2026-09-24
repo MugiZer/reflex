@@ -94,6 +94,22 @@ All latency figures in this table describe device latency. They do not measure a
 
 Individual SmolVLA traces are hundreds of megabytes, so we store them outside git. The inventory lists the files and results, but public downloads and underlying metrics files are not available for every run. Recalculating all the results requires access to those files.
 
+## Network latency experiment
+
+On Linux with `iproute2` (`ip` and `tc`) and root access, run one isolated HTTP experiment:
+
+```bash
+sudo bash scripts/network_experiment.sh delay /tmp/root-network-delay
+```
+
+Choose `delay`, `loss`, `bandwidth`, or `server`; the optional third argument sets the request count (default 200). The script creates a temporary network namespace and veth pair, sends real TCP request/response traffic through it, captures a healthy run, applies one impairment to server egress (or periodic server work for the control), captures an incident, removes the impairment, and captures recovery. Its exit trap removes the namespace and veth. Use a new output directory for each run. The isolated address is `198.19.7.1/30` to `198.19.7.2/30`; check for a conflicting route before running.
+
+Each phase saves one JSONL row per request and a summary JSON. The shared server log correlates requests by ID, including requests whose client timed out. `*-qdisc-before.json` and `*-qdisc-after.json` record the actual kernel queue discipline and packet counters; `comparison.json` and `recovery-comparison.json` compare matched runs. The summaries report completed and failed attempts, median, MAD, p95, p99, and both tail spreads. Percentiles over RTT are conditional on completed requests; `attempt_total` includes failures and timeouts. For meaningful p99 estimates, use many more than 100 requests and repeat the experiment.
+
+Client RTT and preparation use the client monotonic clock. Server work uses the server monotonic clock. `unobserved_rtt` is the RTT remainder after measured server work; it includes transport, server ingress/egress, and any uninstrumented work. No one-way latency or cross-host timestamp subtraction is claimed. The per-request IDs are the seam for joining later server CPU/CUDA/GPU traces. The current HTTP server performs a fixed response and optional sleep; it does not run SmolVLA. Network diagnosis, packet-level attribution, and automatic GPU trace joining await real evidence and the separate mechanism research.
+
+The HTTP path and server slowdown control can be exercised without Linux privileges using `python -m reflex.network serve` and `python -m reflex.network run --out <dir> --phase healthy` (then `--phase incident --server-slow-every 20 --server-slow-ms 50`). Compare the saved phase JSON files with `python -m reflex.network compare <dir>/healthy.json <dir>/incident.json`.
+
 ## How an investigation works
 
 ```mermaid

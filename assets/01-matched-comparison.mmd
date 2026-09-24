@@ -1,0 +1,10 @@
+flowchart LR
+    R["Regressed<br/>execution"]:::bad --> M{"Context<br/>match"}
+    H1["Healthy run A"] --> M
+    H2["Healthy run B"] --> M
+    H3["Healthy run C"] --> M
+    M -->|Compatible| B["Matched healthy<br/>baseline"]:::good
+    M -.->|Incompatible| X["Excluded"]:::muted
+    classDef bad fill:#422b2e,stroke:#ed927e,color:#ffffff
+    classDef good fill:#183e3a,stroke:#80d5bd,color:#ffffff
+    classDef muted fill:#20262a,stroke:#65717b,color:#a7b2ba,stroke-dasharray:5 5

@@ -1,0 +1,89 @@
+{
+  "resolution": "1920x1080",
+  "frames": 5552,
+  "fps": 60.0,
+  "original_audio_bit_identical": true,
+  "audio_hash": "SHA256=3bf0834e7109fd1c86808d858977278fd149189d42267d2d9debee5421b765a8",
+  "visual_checks": [
+    {
+      "time_seconds": 24.1,
+      "asset": "01-matched-comparison.png",
+      "mean_pixel_error": 1.261
+    },
+    {
+      "time_seconds": 29.9,
+      "asset": "01-matched-comparison.png",
+      "mean_pixel_error": 1.261
+    },
+    {
+      "time_seconds": 30.1,
+      "asset": "02-execution-path.png",
+      "mean_pixel_error": 1.198
+    },
+    {
+      "time_seconds": 37.9,
+      "asset": "02-execution-path.png",
+      "mean_pixel_error": 1.198
+    },
+    {
+      "time_seconds": 38.1,
+      "asset": "03-evidence-ranking.png",
+      "mean_pixel_error": 1.406
+    },
+    {
+      "time_seconds": 45.9,
+      "asset": "03-evidence-ranking.png",
+      "mean_pixel_error": 1.406
+    },
+    {
+      "time_seconds": 46.1,
+      "asset": "04-measurement-selection.png",
+      "mean_pixel_error": 1.412
+    },
+    {
+      "time_seconds": 54.9,
+      "asset": "04-measurement-selection.png",
+      "mean_pixel_error": 1.411
+    },
+    {
+      "time_seconds": 55.1,
+      "asset": "05-controlled-verification.png",
+      "mean_pixel_error": 1.29
+    },
+    {
+      "time_seconds": 63.9,
+      "asset": "05-controlled-verification.png",
+      "mean_pixel_error": 1.267
+    },
+    {
+      "time_seconds": 64.1,
+      "asset": "06-real-t4-result.png",
+      "mean_pixel_error": 1.427
+    },
+    {
+      "time_seconds": 73.9,
+      "asset": "06-real-t4-result.png",
+      "mean_pixel_error": 1.427
+    },
+    {
+      "time_seconds": 5,
+      "source_mirrored": true,
+      "mean_pixel_error": 0.75
+    },
+    {
+      "time_seconds": 23.9,
+      "source_mirrored": true,
+      "mean_pixel_error": 0.716
+    },
+    {
+      "time_seconds": 74.1,
+      "source_mirrored": true,
+      "mean_pixel_error": 0.652
+    },
+    {
+      "time_seconds": 85,
+      "source_mirrored": true,
+      "mean_pixel_error": 0.687
+    }
+  ]
+}

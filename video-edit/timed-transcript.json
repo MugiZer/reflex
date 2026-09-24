@@ -1,0 +1,1148 @@
+[
+  {
+    "start": 1.17,
+    "end": 31.15,
+    "text": " Reflex has some of the fastest inference in the world, so I wondered, how do you guys handle hard inference regressions efficiently? That's hard because you have to disentangle difficult regressions where the slowest-looking components isn't always the root cause. I've been working on this for the past three weeks. I used a swarm of patients to screen over 3,000 papers and then I distilled the useful mechanisms into this inference regression debugger code.",
+    "words": [
+      {
+        "start": 1.17,
+        "end": 1.83,
+        "word": " Reflex"
+      },
+      {
+        "start": 1.83,
+        "end": 2.13,
+        "word": " has"
+      },
+      {
+        "start": 2.13,
+        "end": 2.39,
+        "word": " some"
+      },
+      {
+        "start": 2.39,
+        "end": 2.49,
+        "word": " of"
+      },
+      {
+        "start": 2.49,
+        "end": 2.63,
+        "word": " the"
+      },
+      {
+        "start": 2.63,
+        "end": 2.95,
+        "word": " fastest"
+      },
+      {
+        "start": 2.95,
+        "end": 3.23,
+        "word": " inference"
+      },
+      {
+        "start": 3.23,
+        "end": 3.23,
+        "word": " in"
+      },
+      {
+        "start": 3.23,
+        "end": 3.69,
+        "word": " the"
+      },
+      {
+        "start": 3.69,
+        "end": 3.91,
+        "word": " world,"
+      },
+      {
+        "start": 4.05,
+        "end": 4.17,
+        "word": " so"
+      },
+      {
+        "start": 4.17,
+        "end": 5.25,
+        "word": " I"
+      },
+      {
+        "start": 5.25,
+        "end": 5.47,
+        "word": " wondered,"
+      },
+      {
+        "start": 5.61,
+        "end": 5.81,
+        "word": " how"
+      },
+      {
+        "start": 5.81,
+        "end": 5.91,
+        "word": " do"
+      },
+      {
+        "start": 5.91,
+        "end": 6.01,
+        "word": " you"
+      },
+      {
+        "start": 6.01,
+        "end": 6.15,
+        "word": " guys"
+      },
+      {
+        "start": 6.15,
+        "end": 6.45,
+        "word": " handle"
+      },
+      {
+        "start": 6.45,
+        "end": 7.83,
+        "word": " hard"
+      },
+      {
+        "start": 7.83,
+        "end": 8.33,
+        "word": " inference"
+      },
+      {
+        "start": 8.33,
+        "end": 9.57,
+        "word": " regressions"
+      },
+      {
+        "start": 9.57,
+        "end": 9.93,
+        "word": " efficiently?"
+      },
+      {
+        "start": 10.67,
+        "end": 10.93,
+        "word": " That's"
+      },
+      {
+        "start": 10.93,
+        "end": 11.05,
+        "word": " hard"
+      },
+      {
+        "start": 11.05,
+        "end": 11.35,
+        "word": " because"
+      },
+      {
+        "start": 11.35,
+        "end": 11.55,
+        "word": " you"
+      },
+      {
+        "start": 11.55,
+        "end": 11.73,
+        "word": " have"
+      },
+      {
+        "start": 11.73,
+        "end": 11.97,
+        "word": " to"
+      },
+      {
+        "start": 11.97,
+        "end": 13.75,
+        "word": " disentangle"
+      },
+      {
+        "start": 13.75,
+        "end": 15.21,
+        "word": " difficult"
+      },
+      {
+        "start": 15.21,
+        "end": 16.81,
+        "word": " regressions"
+      },
+      {
+        "start": 16.81,
+        "end": 17.17,
+        "word": " where"
+      },
+      {
+        "start": 17.17,
+        "end": 17.37,
+        "word": " the"
+      },
+      {
+        "start": 17.37,
+        "end": 17.85,
+        "word": " slowest"
+      },
+      {
+        "start": 17.85,
+        "end": 18.17,
+        "word": "-looking"
+      },
+      {
+        "start": 18.17,
+        "end": 18.43,
+        "word": " components"
+      },
+      {
+        "start": 18.43,
+        "end": 18.83,
+        "word": " isn't"
+      },
+      {
+        "start": 18.83,
+        "end": 18.99,
+        "word": " always"
+      },
+      {
+        "start": 18.99,
+        "end": 19.15,
+        "word": " the"
+      },
+      {
+        "start": 19.15,
+        "end": 19.27,
+        "word": " root"
+      },
+      {
+        "start": 19.27,
+        "end": 19.49,
+        "word": " cause."
+      },
+      {
+        "start": 19.81,
+        "end": 20.03,
+        "word": " I've"
+      },
+      {
+        "start": 20.03,
+        "end": 20.13,
+        "word": " been"
+      },
+      {
+        "start": 20.13,
+        "end": 20.29,
+        "word": " working"
+      },
+      {
+        "start": 20.29,
+        "end": 20.43,
+        "word": " on"
+      },
+      {
+        "start": 20.43,
+        "end": 20.51,
+        "word": " this"
+      },
+      {
+        "start": 20.51,
+        "end": 20.65,
+        "word": " for"
+      },
+      {
+        "start": 20.65,
+        "end": 21.27,
+        "word": " the"
+      },
+      {
+        "start": 21.27,
+        "end": 21.45,
+        "word": " past"
+      },
+      {
+        "start": 21.45,
+        "end": 21.69,
+        "word": " three"
+      },
+      {
+        "start": 21.69,
+        "end": 21.89,
+        "word": " weeks."
+      },
+      {
+        "start": 22.15,
+        "end": 22.15,
+        "word": " I"
+      },
+      {
+        "start": 22.15,
+        "end": 22.31,
+        "word": " used"
+      },
+      {
+        "start": 22.31,
+        "end": 22.61,
+        "word": " a"
+      },
+      {
+        "start": 22.61,
+        "end": 22.83,
+        "word": " swarm"
+      },
+      {
+        "start": 22.83,
+        "end": 22.93,
+        "word": " of"
+      },
+      {
+        "start": 22.93,
+        "end": 23.07,
+        "word": " patients"
+      },
+      {
+        "start": 23.07,
+        "end": 23.33,
+        "word": " to"
+      },
+      {
+        "start": 23.33,
+        "end": 23.53,
+        "word": " screen"
+      },
+      {
+        "start": 23.53,
+        "end": 23.79,
+        "word": " over"
+      },
+      {
+        "start": 23.79,
+        "end": 24.45,
+        "word": " 3"
+      },
+      {
+        "start": 24.45,
+        "end": 24.81,
+        "word": ",000"
+      },
+      {
+        "start": 24.81,
+        "end": 25.15,
+        "word": " papers"
+      },
+      {
+        "start": 25.15,
+        "end": 25.65,
+        "word": " and"
+      },
+      {
+        "start": 25.65,
+        "end": 26.03,
+        "word": " then"
+      },
+      {
+        "start": 26.03,
+        "end": 26.09,
+        "word": " I"
+      },
+      {
+        "start": 26.09,
+        "end": 26.35,
+        "word": " distilled"
+      },
+      {
+        "start": 26.35,
+        "end": 26.63,
+        "word": " the"
+      },
+      {
+        "start": 26.63,
+        "end": 26.79,
+        "word": " useful"
+      },
+      {
+        "start": 26.79,
+        "end": 27.09,
+        "word": " mechanisms"
+      },
+      {
+        "start": 27.09,
+        "end": 27.59,
+        "word": " into"
+      },
+      {
+        "start": 27.59,
+        "end": 28.21,
+        "word": " this"
+      },
+      {
+        "start": 28.21,
+        "end": 28.65,
+        "word": " inference"
+      },
+      {
+        "start": 28.65,
+        "end": 30.21,
+        "word": " regression"
+      },
+      {
+        "start": 30.21,
+        "end": 30.77,
+        "word": " debugger"
+      },
+      {
+        "start": 30.77,
+        "end": 31.15,
+        "word": " code."
+      }
+    ]
+  },
+  {
+    "start": 31.15,
+    "end": 52.41,
+    "text": " So it starts by matching the bad execution against healthy runs from the same hardware and software context. Then it measures what actually changed down to individual GPU kernels and reconstructs the CPU to CUDA to GPU execution path. And then it combines multiple statistical",
+    "words": [
+      {
+        "start": 31.15,
+        "end": 32.23,
+        "word": " So"
+      },
+      {
+        "start": 32.23,
+        "end": 32.49,
+        "word": " it"
+      },
+      {
+        "start": 32.49,
+        "end": 32.71,
+        "word": " starts"
+      },
+      {
+        "start": 32.71,
+        "end": 33.01,
+        "word": " by"
+      },
+      {
+        "start": 33.01,
+        "end": 33.45,
+        "word": " matching"
+      },
+      {
+        "start": 33.45,
+        "end": 33.69,
+        "word": " the"
+      },
+      {
+        "start": 33.69,
+        "end": 33.97,
+        "word": " bad"
+      },
+      {
+        "start": 33.97,
+        "end": 35.29,
+        "word": " execution"
+      },
+      {
+        "start": 35.29,
+        "end": 35.77,
+        "word": " against"
+      },
+      {
+        "start": 35.77,
+        "end": 36.07,
+        "word": " healthy"
+      },
+      {
+        "start": 36.07,
+        "end": 36.37,
+        "word": " runs"
+      },
+      {
+        "start": 36.37,
+        "end": 37.09,
+        "word": " from"
+      },
+      {
+        "start": 37.09,
+        "end": 37.29,
+        "word": " the"
+      },
+      {
+        "start": 37.29,
+        "end": 37.53,
+        "word": " same"
+      },
+      {
+        "start": 37.53,
+        "end": 37.81,
+        "word": " hardware"
+      },
+      {
+        "start": 37.81,
+        "end": 38.19,
+        "word": " and"
+      },
+      {
+        "start": 38.19,
+        "end": 38.41,
+        "word": " software"
+      },
+      {
+        "start": 38.41,
+        "end": 38.79,
+        "word": " context."
+      },
+      {
+        "start": 39.41,
+        "end": 39.73,
+        "word": " Then"
+      },
+      {
+        "start": 39.73,
+        "end": 39.91,
+        "word": " it"
+      },
+      {
+        "start": 39.91,
+        "end": 40.23,
+        "word": " measures"
+      },
+      {
+        "start": 40.23,
+        "end": 40.53,
+        "word": " what"
+      },
+      {
+        "start": 40.53,
+        "end": 40.99,
+        "word": " actually"
+      },
+      {
+        "start": 40.99,
+        "end": 41.41,
+        "word": " changed"
+      },
+      {
+        "start": 41.41,
+        "end": 41.67,
+        "word": " down"
+      },
+      {
+        "start": 41.67,
+        "end": 41.91,
+        "word": " to"
+      },
+      {
+        "start": 41.91,
+        "end": 42.45,
+        "word": " individual"
+      },
+      {
+        "start": 42.45,
+        "end": 42.77,
+        "word": " GPU"
+      },
+      {
+        "start": 42.77,
+        "end": 43.23,
+        "word": " kernels"
+      },
+      {
+        "start": 43.23,
+        "end": 44.01,
+        "word": " and"
+      },
+      {
+        "start": 44.01,
+        "end": 45.07,
+        "word": " reconstructs"
+      },
+      {
+        "start": 45.07,
+        "end": 45.17,
+        "word": " the"
+      },
+      {
+        "start": 45.17,
+        "end": 45.59,
+        "word": " CPU"
+      },
+      {
+        "start": 45.59,
+        "end": 46.41,
+        "word": " to"
+      },
+      {
+        "start": 46.41,
+        "end": 46.79,
+        "word": " CUDA"
+      },
+      {
+        "start": 46.79,
+        "end": 47.01,
+        "word": " to"
+      },
+      {
+        "start": 47.01,
+        "end": 47.37,
+        "word": " GPU"
+      },
+      {
+        "start": 47.37,
+        "end": 49.51,
+        "word": " execution"
+      },
+      {
+        "start": 49.51,
+        "end": 49.99,
+        "word": " path."
+      },
+      {
+        "start": 50.49,
+        "end": 50.59,
+        "word": " And"
+      },
+      {
+        "start": 50.59,
+        "end": 50.77,
+        "word": " then"
+      },
+      {
+        "start": 50.77,
+        "end": 50.99,
+        "word": " it"
+      },
+      {
+        "start": 50.99,
+        "end": 51.25,
+        "word": " combines"
+      },
+      {
+        "start": 51.25,
+        "end": 51.81,
+        "word": " multiple"
+      },
+      {
+        "start": 51.81,
+        "end": 52.41,
+        "word": " statistical"
+      }
+    ]
+  },
+  {
+    "start": 52.41,
+    "end": 61.35,
+    "text": " emission learning models with the execution graph to narrow down where the regression actually originated. So if several",
+    "words": [
+      {
+        "start": 52.41,
+        "end": 53.01,
+        "word": " emission"
+      },
+      {
+        "start": 53.01,
+        "end": 53.13,
+        "word": " learning"
+      },
+      {
+        "start": 53.13,
+        "end": 53.39,
+        "word": " models"
+      },
+      {
+        "start": 53.39,
+        "end": 53.73,
+        "word": " with"
+      },
+      {
+        "start": 53.73,
+        "end": 53.93,
+        "word": " the"
+      },
+      {
+        "start": 53.93,
+        "end": 54.97,
+        "word": " execution"
+      },
+      {
+        "start": 54.97,
+        "end": 55.45,
+        "word": " graph"
+      },
+      {
+        "start": 55.45,
+        "end": 56.31,
+        "word": " to"
+      },
+      {
+        "start": 56.31,
+        "end": 56.65,
+        "word": " narrow"
+      },
+      {
+        "start": 56.65,
+        "end": 57.07,
+        "word": " down"
+      },
+      {
+        "start": 57.07,
+        "end": 57.81,
+        "word": " where"
+      },
+      {
+        "start": 57.81,
+        "end": 58.13,
+        "word": " the"
+      },
+      {
+        "start": 58.13,
+        "end": 58.65,
+        "word": " regression"
+      },
+      {
+        "start": 58.65,
+        "end": 59.53,
+        "word": " actually"
+      },
+      {
+        "start": 59.53,
+        "end": 60.07,
+        "word": " originated."
+      },
+      {
+        "start": 60.51,
+        "end": 60.61,
+        "word": " So"
+      },
+      {
+        "start": 60.61,
+        "end": 61.11,
+        "word": " if"
+      },
+      {
+        "start": 61.11,
+        "end": 61.35,
+        "word": " several"
+      }
+    ]
+  },
+  {
+    "start": 61.35,
+    "end": 67.53,
+    "text": " causes still plausible, it shows the next measurement that would best separate them rather than be turning on every",
+    "words": [
+      {
+        "start": 61.35,
+        "end": 61.63,
+        "word": " causes"
+      },
+      {
+        "start": 61.63,
+        "end": 62.03,
+        "word": " still"
+      },
+      {
+        "start": 62.03,
+        "end": 62.85,
+        "word": " plausible,"
+      },
+      {
+        "start": 63.25,
+        "end": 64.05,
+        "word": " it"
+      },
+      {
+        "start": 64.05,
+        "end": 64.23,
+        "word": " shows"
+      },
+      {
+        "start": 64.23,
+        "end": 64.41,
+        "word": " the"
+      },
+      {
+        "start": 64.41,
+        "end": 64.75,
+        "word": " next"
+      },
+      {
+        "start": 64.75,
+        "end": 65.05,
+        "word": " measurement"
+      },
+      {
+        "start": 65.05,
+        "end": 65.39,
+        "word": " that"
+      },
+      {
+        "start": 65.39,
+        "end": 65.59,
+        "word": " would"
+      },
+      {
+        "start": 65.59,
+        "end": 65.81,
+        "word": " best"
+      },
+      {
+        "start": 65.81,
+        "end": 66.11,
+        "word": " separate"
+      },
+      {
+        "start": 66.11,
+        "end": 66.33,
+        "word": " them"
+      },
+      {
+        "start": 66.33,
+        "end": 66.45,
+        "word": " rather"
+      },
+      {
+        "start": 66.45,
+        "end": 66.71,
+        "word": " than"
+      },
+      {
+        "start": 66.71,
+        "end": 66.85,
+        "word": " be"
+      },
+      {
+        "start": 66.85,
+        "end": 67.03,
+        "word": " turning"
+      },
+      {
+        "start": 67.03,
+        "end": 67.29,
+        "word": " on"
+      },
+      {
+        "start": 67.29,
+        "end": 67.53,
+        "word": " every"
+      }
+    ]
+  },
+  {
+    "start": 67.53,
+    "end": 75.35,
+    "text": " expensive profiler. So once it has this run the explanation, it tests that cause directly and",
+    "words": [
+      {
+        "start": 67.53,
+        "end": 67.93,
+        "word": " expensive"
+      },
+      {
+        "start": 67.93,
+        "end": 68.45,
+        "word": " profiler."
+      },
+      {
+        "start": 68.77,
+        "end": 69.37,
+        "word": " So"
+      },
+      {
+        "start": 69.37,
+        "end": 69.53,
+        "word": " once"
+      },
+      {
+        "start": 69.53,
+        "end": 69.69,
+        "word": " it"
+      },
+      {
+        "start": 69.69,
+        "end": 69.83,
+        "word": " has"
+      },
+      {
+        "start": 69.83,
+        "end": 69.97,
+        "word": " this"
+      },
+      {
+        "start": 69.97,
+        "end": 70.13,
+        "word": " run"
+      },
+      {
+        "start": 70.13,
+        "end": 70.33,
+        "word": " the"
+      },
+      {
+        "start": 70.33,
+        "end": 71.65,
+        "word": " explanation,"
+      },
+      {
+        "start": 72.25,
+        "end": 72.39,
+        "word": " it"
+      },
+      {
+        "start": 72.39,
+        "end": 72.57,
+        "word": " tests"
+      },
+      {
+        "start": 72.57,
+        "end": 74.07,
+        "word": " that"
+      },
+      {
+        "start": 74.07,
+        "end": 74.35,
+        "word": " cause"
+      },
+      {
+        "start": 74.35,
+        "end": 74.87,
+        "word": " directly"
+      },
+      {
+        "start": 74.87,
+        "end": 75.35,
+        "word": " and"
+      }
+    ]
+  },
+  {
+    "start": 75.35,
+    "end": 80.01,
+    "text": " checks whether the expected part of the system changes and the end-to-end latency recovers.",
+    "words": [
+      {
+        "start": 75.35,
+        "end": 75.49,
+        "word": " checks"
+      },
+      {
+        "start": 75.49,
+        "end": 75.71,
+        "word": " whether"
+      },
+      {
+        "start": 75.71,
+        "end": 75.97,
+        "word": " the"
+      },
+      {
+        "start": 75.97,
+        "end": 76.31,
+        "word": " expected"
+      },
+      {
+        "start": 76.31,
+        "end": 76.65,
+        "word": " part"
+      },
+      {
+        "start": 76.65,
+        "end": 76.77,
+        "word": " of"
+      },
+      {
+        "start": 76.77,
+        "end": 76.85,
+        "word": " the"
+      },
+      {
+        "start": 76.85,
+        "end": 77.05,
+        "word": " system"
+      },
+      {
+        "start": 77.05,
+        "end": 77.39,
+        "word": " changes"
+      },
+      {
+        "start": 77.39,
+        "end": 78.27,
+        "word": " and"
+      },
+      {
+        "start": 78.27,
+        "end": 78.51,
+        "word": " the"
+      },
+      {
+        "start": 78.51,
+        "end": 78.83,
+        "word": " end"
+      },
+      {
+        "start": 78.83,
+        "end": 78.97,
+        "word": "-to"
+      },
+      {
+        "start": 78.97,
+        "end": 79.13,
+        "word": "-end"
+      },
+      {
+        "start": 79.13,
+        "end": 79.65,
+        "word": " latency"
+      },
+      {
+        "start": 79.65,
+        "end": 80.01,
+        "word": " recovers."
+      }
+    ]
+  },
+  {
+    "start": 80.01,
+    "end": 88.39,
+    "text": " So I actually tested this on a real small GRA model on an NPT-4 where it localized the larger GPU timing",
+    "words": [
+      {
+        "start": 80.01,
+        "end": 80.31,
+        "word": " So"
+      },
+      {
+        "start": 80.31,
+        "end": 80.45,
+        "word": " I"
+      },
+      {
+        "start": 80.45,
+        "end": 80.73,
+        "word": " actually"
+      },
+      {
+        "start": 80.73,
+        "end": 80.95,
+        "word": " tested"
+      },
+      {
+        "start": 80.95,
+        "end": 81.29,
+        "word": " this"
+      },
+      {
+        "start": 81.29,
+        "end": 81.39,
+        "word": " on"
+      },
+      {
+        "start": 81.39,
+        "end": 81.47,
+        "word": " a"
+      },
+      {
+        "start": 81.47,
+        "end": 81.73,
+        "word": " real"
+      },
+      {
+        "start": 81.73,
+        "end": 82.05,
+        "word": " small"
+      },
+      {
+        "start": 82.05,
+        "end": 82.37,
+        "word": " GRA"
+      },
+      {
+        "start": 82.37,
+        "end": 82.63,
+        "word": " model"
+      },
+      {
+        "start": 82.63,
+        "end": 83.35,
+        "word": " on"
+      },
+      {
+        "start": 83.35,
+        "end": 83.45,
+        "word": " an"
+      },
+      {
+        "start": 83.45,
+        "end": 83.69,
+        "word": " NPT"
+      },
+      {
+        "start": 83.69,
+        "end": 84.55,
+        "word": "-4"
+      },
+      {
+        "start": 84.55,
+        "end": 85.13,
+        "word": " where"
+      },
+      {
+        "start": 85.13,
+        "end": 85.31,
+        "word": " it"
+      },
+      {
+        "start": 85.31,
+        "end": 85.57,
+        "word": " localized"
+      },
+      {
+        "start": 85.57,
+        "end": 86.01,
+        "word": " the"
+      },
+      {
+        "start": 86.01,
+        "end": 86.69,
+        "word": " larger"
+      },
+      {
+        "start": 86.69,
+        "end": 88.01,
+        "word": " GPU"
+      },
+      {
+        "start": 88.01,
+        "end": 88.39,
+        "word": " timing"
+      }
+    ]
+  },
+  {
+    "start": 89.33,
+    "end": 90.97,
+    "text": " regressions. So here are some examples.",
+    "words": [
+      {
+        "start": 89.33,
+        "end": 89.89,
+        "word": " regressions."
+      },
+      {
+        "start": 90.15,
+        "end": 90.15,
+        "word": " So"
+      },
+      {
+        "start": 90.15,
+        "end": 90.29,
+        "word": " here"
+      },
+      {
+        "start": 90.29,
+        "end": 90.45,
+        "word": " are"
+      },
+      {
+        "start": 90.45,
+        "end": 90.63,
+        "word": " some"
+      },
+      {
+        "start": 90.63,
+        "end": 90.97,
+        "word": " examples."
+      }
+    ]
+  }
+]

@@ -1,0 +1,7 @@
+flowchart LR
+    H["CPU / host<br/>work"] --> C["CUDA runtime<br/>launch"]
+    C -->|Enqueue / correlation ID| K["GPU kernels"]:::good
+    T["Transfer"] -->|Data dependency| K
+    K --> S["Synchronization"]
+    S -->|Unblocks| N["Host<br/>continues"]
+    classDef good fill:#183e3a,stroke:#80d5bd,color:#ffffff

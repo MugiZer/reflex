@@ -1,0 +1,190 @@
+{
+  "all_cues_visible": 36,
+  "captions_fit_available_width": true,
+  "diagram_and_webcam_preserved": true,
+  "original_audio_bit_identical": true,
+  "ending_hold_caption_free": true,
+  "duration_seconds": 96.53333333333333,
+  "checks": [
+    {
+      "time": 2.575,
+      "caption": "Reflex has some of the fastest inference in the world.",
+      "visible": true
+    },
+    {
+      "time": 4.81,
+      "caption": "So I wondered:",
+      "visible": true
+    },
+    {
+      "time": 6.715,
+      "caption": "How do you guys handle hard",
+      "visible": true
+    },
+    {
+      "time": 8.965,
+      "caption": "inference regressions efficiently?",
+      "visible": true
+    },
+    {
+      "time": 12.205,
+      "caption": "That's hard because you have to disentangle",
+      "visible": true
+    },
+    {
+      "time": 15.275,
+      "caption": "difficult regressions,",
+      "visible": true
+    },
+    {
+      "time": 17.615,
+      "caption": "where the slowest-looking component",
+      "visible": true
+    },
+    {
+      "time": 19.04,
+      "caption": "isn't always the root cause.",
+      "visible": true
+    },
+    {
+      "time": 20.93,
+      "caption": "I've been working on this for the past three weeks.",
+      "visible": true
+    },
+    {
+      "time": 23.685,
+      "caption": "I used a swarm of agents to screen over 3,000 papers,",
+      "visible": true
+    },
+    {
+      "time": 26.405,
+      "caption": "then distilled the useful mechanisms",
+      "visible": true
+    },
+    {
+      "time": 29.415,
+      "caption": "into this inference-regression debugger called Root.",
+      "visible": true
+    },
+    {
+      "time": 33.29,
+      "caption": "It starts by matching the bad execution",
+      "visible": true
+    },
+    {
+      "time": 35.885,
+      "caption": "against healthy runs",
+      "visible": true
+    },
+    {
+      "time": 37.745,
+      "caption": "from the same hardware and software context.",
+      "visible": true
+    },
+    {
+      "time": 40.405,
+      "caption": "Then it measures what actually changed,",
+      "visible": true
+    },
+    {
+      "time": 42.37,
+      "caption": "down to individual GPU kernels,",
+      "visible": true
+    },
+    {
+      "time": 45.355,
+      "caption": "and reconstructs the CPU-to-CUDA-to-GPU",
+      "visible": true
+    },
+    {
+      "time": 48.755,
+      "caption": "execution path.",
+      "visible": true
+    },
+    {
+      "time": 51.445,
+      "caption": "Then it combines multiple statistical",
+      "visible": true
+    },
+    {
+      "time": 53.98,
+      "caption": "and machine-learning models with the execution graph",
+      "visible": true
+    },
+    {
+      "time": 56.68,
+      "caption": "to narrow down where",
+      "visible": true
+    },
+    {
+      "time": 59.005,
+      "caption": "the regression actually originated.",
+      "visible": true
+    },
+    {
+      "time": 61.755,
+      "caption": "If several causes are still plausible,",
+      "visible": true
+    },
+    {
+      "time": 64.145,
+      "caption": "it chooses the next measurement",
+      "visible": true
+    },
+    {
+      "time": 65.685,
+      "caption": "that would best separate them,",
+      "visible": true
+    },
+    {
+      "time": 67.465,
+      "caption": "rather than turning on every expensive profiler.",
+      "visible": true
+    },
+    {
+      "time": 70.32,
+      "caption": "Once it has a strong explanation,",
+      "visible": true
+    },
+    {
+      "time": 73.795,
+      "caption": "it tests that cause directly",
+      "visible": true
+    },
+    {
+      "time": 76.395,
+      "caption": "and checks whether the system changes as expected",
+      "visible": true
+    },
+    {
+      "time": 78.725,
+      "caption": "and end-to-end latency recovers.",
+      "visible": true
+    },
+    {
+      "time": 81.315,
+      "caption": "I tested it on a real SmolVLA model",
+      "visible": true
+    },
+    {
+      "time": 83.645,
+      "caption": "on an NVIDIA T4,",
+      "visible": true
+    },
+    {
+      "time": 85.675,
+      "caption": "where it localized large",
+      "visible": true
+    },
+    {
+      "time": 88.345,
+      "caption": "GPU timing regressions.",
+      "visible": true
+    },
+    {
+      "time": 90.75,
+      "caption": "Here are some examples.",
+      "visible": true
+    }
+  ]
+}

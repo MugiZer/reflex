@@ -1,0 +1,50 @@
+﻿[Script Info]
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+WrapStyle: 2
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Camera,Arial,42,&H00FFFFFF,&H00FFFFFF,&H40000000,&H40000000,0,0,0,0,100,100,0,0,3,9,0,2,90,90,72,1
+Style: Diagram,Arial,38,&H00FFFFFF,&H00FFFFFF,&H40000000,&H40000000,0,0,0,0,100,100,0,0,3,8,0,2,80,500,110,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.17,0:00:03.98,Camera,,0,0,0,,Reflex has some of the fastest inference in the world.
+Dialogue: 0,0:00:04.05,0:00:05.57,Camera,,0,0,0,,So I wondered:
+Dialogue: 0,0:00:05.61,0:00:07.82,Camera,,0,0,0,,How do you guys handle hard
+Dialogue: 0,0:00:07.83,0:00:10.10,Camera,,0,0,0,,inference regressions efficiently?
+Dialogue: 0,0:00:10.67,0:00:13.74,Camera,,0,0,0,,That's hard because you have to disentangle
+Dialogue: 0,0:00:13.75,0:00:16.80,Camera,,0,0,0,,difficult regressions,
+Dialogue: 0,0:00:16.81,0:00:18.42,Camera,,0,0,0,,where the slowest-looking component
+Dialogue: 0,0:00:18.43,0:00:19.65,Camera,,0,0,0,,isn't always the root cause.
+Dialogue: 0,0:00:19.81,0:00:22.05,Camera,,0,0,0,,I've been working on this for the past three weeks.
+Dialogue: 0,0:00:22.15,0:00:25.22,Camera,,0,0,0,,I used a swarm of agents to screen over 3,000 papers,
+Dialogue: 0,0:00:25.23,0:00:27.58,Camera,,0,0,0,,then distilled the useful mechanisms
+Dialogue: 0,0:00:27.59,0:00:31.24,Camera,,0,0,0,,into this inference-regression debugger called Root.
+Dialogue: 0,0:00:31.30,0:00:35.28,Diagram,,0,0,0,,It starts by matching the bad execution
+Dialogue: 0,0:00:35.29,0:00:36.48,Diagram,,0,0,0,,against healthy runs
+Dialogue: 0,0:00:36.49,0:00:39.00,Diagram,,0,0,0,,from the same hardware and software context.
+Dialogue: 0,0:00:39.41,0:00:41.40,Diagram,,0,0,0,,Then it measures what actually changed,
+Dialogue: 0,0:00:41.41,0:00:43.33,Diagram,,0,0,0,,down to individual GPU kernels,
+Dialogue: 0,0:00:43.35,0:00:47.36,Diagram,,0,0,0,,and reconstructs the CPU-to-CUDA-to-GPU
+Dialogue: 0,0:00:47.37,0:00:50.14,Diagram,,0,0,0,,execution path.
+Dialogue: 0,0:00:50.49,0:00:52.40,Diagram,,0,0,0,,Then it combines multiple statistical
+Dialogue: 0,0:00:52.41,0:00:55.55,Diagram,,0,0,0,,and machine-learning models with the execution graph
+Dialogue: 0,0:00:55.56,0:00:57.80,Diagram,,0,0,0,,to narrow down where
+Dialogue: 0,0:00:57.81,0:01:00.20,Diagram,,0,0,0,,the regression actually originated.
+Dialogue: 0,0:01:00.51,0:01:03.00,Diagram,,0,0,0,,If several causes are still plausible,
+Dialogue: 0,0:01:03.25,0:01:05.04,Diagram,,0,0,0,,it chooses the next measurement
+Dialogue: 0,0:01:05.05,0:01:06.32,Diagram,,0,0,0,,that would best separate them,
+Dialogue: 0,0:01:06.33,0:01:08.60,Diagram,,0,0,0,,rather than turning on every expensive profiler.
+Dialogue: 0,0:01:08.77,0:01:11.87,Diagram,,0,0,0,,Once it has a strong explanation,
+Dialogue: 0,0:01:12.25,0:01:15.34,Diagram,,0,0,0,,it tests that cause directly
+Dialogue: 0,0:01:15.35,0:01:17.44,Diagram,,0,0,0,,and checks whether the system changes as expected
+Dialogue: 0,0:01:17.45,0:01:20.00,Diagram,,0,0,0,,and end-to-end latency recovers.
+Dialogue: 0,0:01:20.01,0:01:22.62,Diagram,,0,0,0,,I tested it on a real SmolVLA model
+Dialogue: 0,0:01:22.63,0:01:24.66,Diagram,,0,0,0,,on an NVIDIA T4,
+Dialogue: 0,0:01:24.67,0:01:26.68,Diagram,,0,0,0,,where it localized large
+Dialogue: 0,0:01:26.69,0:01:30.00,Diagram,,0,0,0,,GPU timing regressions.
+Dialogue: 0,0:01:30.15,0:01:31.35,Diagram,,0,0,0,,Here are some examples.

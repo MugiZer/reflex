@@ -1,0 +1,99 @@
+{
+  "duration_seconds": 96.53333333333333,
+  "resolution": "1920x1080",
+  "fps": 60.0,
+  "original_audio_bit_identical": true,
+  "final_proof_hold_verified": true,
+  "checks": [
+    {
+      "time": 31.4,
+      "expected_diagram": "01-matched-comparison.png",
+      "mean_pixel_error": 1.274
+    },
+    {
+      "time": 39.3,
+      "expected_diagram": "01-matched-comparison.png",
+      "mean_pixel_error": 1.275
+    },
+    {
+      "time": 35.35,
+      "mirrored_webcam": true,
+      "mean_pixel_error": 3.27
+    },
+    {
+      "time": 39.5,
+      "expected_diagram": "02-execution-path.png",
+      "mean_pixel_error": 1.253
+    },
+    {
+      "time": 50.3,
+      "expected_diagram": "02-execution-path.png",
+      "mean_pixel_error": 1.255
+    },
+    {
+      "time": 44.9,
+      "mirrored_webcam": true,
+      "mean_pixel_error": 3.343
+    },
+    {
+      "time": 50.5,
+      "expected_diagram": "03-evidence-ranking.png",
+      "mean_pixel_error": 1.305
+    },
+    {
+      "time": 60.4,
+      "expected_diagram": "03-evidence-ranking.png",
+      "mean_pixel_error": 1.305
+    },
+    {
+      "time": 55.45,
+      "mirrored_webcam": true,
+      "mean_pixel_error": 3.119
+    },
+    {
+      "time": 60.6,
+      "expected_diagram": "04-measurement-selection.png",
+      "mean_pixel_error": 1.32
+    },
+    {
+      "time": 68.7,
+      "expected_diagram": "04-measurement-selection.png",
+      "mean_pixel_error": 1.32
+    },
+    {
+      "time": 64.65,
+      "mirrored_webcam": true,
+      "mean_pixel_error": 3.404
+    },
+    {
+      "time": 68.9,
+      "expected_diagram": "05-controlled-verification.png",
+      "mean_pixel_error": 1.355
+    },
+    {
+      "time": 80.2,
+      "expected_diagram": "05-controlled-verification.png",
+      "mean_pixel_error": 1.363
+    },
+    {
+      "time": 74.55,
+      "mirrored_webcam": true,
+      "mean_pixel_error": 3.318
+    },
+    {
+      "time": 80.4,
+      "expected_diagram": "06-real-t4-result.png",
+      "mean_pixel_error": 1.412
+    },
+    {
+      "time": 96.417,
+      "expected_diagram": "06-real-t4-result.png",
+      "mean_pixel_error": 1.412
+    },
+    {
+      "time": 85.65,
+      "mirrored_webcam": true,
+      "mean_pixel_error": 3.268
+    }
+  ]
+}

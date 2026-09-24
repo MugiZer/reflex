@@ -1,0 +1,39 @@
+{
+  "source": "C:\\Users\\moham\\Downloads\\reflex demo.mp4",
+  "output": "C:\\Users\\moham\\Downloads\\reflex demo - diagrams and mirrored.mp4",
+  "mirror": "Horizontal flip of source video before diagram compositing",
+  "audio": "Original AAC stream copied without re-encoding",
+  "placements": [
+    {
+      "asset": "01-matched-comparison.png",
+      "start_seconds": 24,
+      "end_seconds_exclusive": 30
+    },
+    {
+      "asset": "02-execution-path.png",
+      "start_seconds": 30,
+      "end_seconds_exclusive": 38
+    },
+    {
+      "asset": "03-evidence-ranking.png",
+      "start_seconds": 38,
+      "end_seconds_exclusive": 46
+    },
+    {
+      "asset": "04-measurement-selection.png",
+      "start_seconds": 46,
+      "end_seconds_exclusive": 55
+    },
+    {
+      "asset": "05-controlled-verification.png",
+      "start_seconds": 55,
+      "end_seconds_exclusive": 64
+    },
+    {
+      "asset": "06-real-t4-result.png",
+      "start_seconds": 64,
+      "end_seconds_exclusive": 74
+    }
+  ],
+  "transitions": "Exact cuts at the agreed time boundaries"
+}

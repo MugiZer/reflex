@@ -1,0 +1,6 @@
+flowchart LR
+    T["Matched timing<br/>evidence"] --> D["Combined<br/>diagnosis"]:::good
+    G["Execution / dependency<br/>evidence"] --> D
+    A["Statistical / ML<br/>attribution"] --> D
+    D --> R["Ranked possible causes<br/>GPU · scheduler · CPU · queue"]
+    classDef good fill:#183e3a,stroke:#80d5bd,color:#ffffff
