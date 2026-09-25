@@ -1,6 +1,6 @@
 # Root network diagnosis: complete implementation plan
 
-This plan implements [architecture.md](architecture.md) without changing its architectural decisions. The order below follows technical dependencies. Every capability is included, including conditional model-based acquisition, natural interventions, interaction diagnosis, distributed hindsight, infrastructure evidence, and topology-based inference. A capability being unavailable in a deployment changes the diagnostic result; it does not remove its implementation from this plan.
+This plan implements [architecture.md](architecture.md) without changing its architectural decisions. The order below follows technical dependencies. It covers natural interventions, interaction diagnosis, distributed hindsight, infrastructure evidence, and topology-based inference. Expected-loss optimization is deferred until a concrete deployment supplies defensible predictive models and a declared loss policy; until then, use the qualitative acquisition policy.
 
 The shortest faithful implementation is a local Python investigator using Root's existing ledger, buffer, experiment lifecycle, and report conventions; small endpoint collectors; native capture tools; and two new Python modules for network evidence and network analysis. The four architectural components do not become four services or four class hierarchies.
 
@@ -255,13 +255,7 @@ Implement the architecture's qualitative order exactly:
 
 Resources are keyed by actual endpoint/source/filter/interval/setup compatibility. A process-wide map of active acquisitions within the investigator avoids charging or running the same setup twice across overlapping incidents. Reuse shared result IDs. It is not a cross-host scheduling service. Incremental costs include activation, recording, pinning, export, analysis, waiting, and operating impact. Record estimated and realized values separately.
 
-Complete the optional model-based path now, without training a general predictive model. Accept a versioned, finite conditional/joint outcome table with explicit latent states or evidence contexts, eligible operating regime, training/validation provenance, uncertainty bounds, and a declared loss over permissible claims. Validate normalization, coverage of contemplated outcomes, held-out calibration evidence, and conditional dependencies. Marginal action tables cannot be multiplied into a joint bundle model unless the independence assumption is justified and recorded.
-
-The model also supplies its state weights/prior and any conditioning already applied to current evidence. Validate these against the model's stated scope; do not derive them by normalizing arbitrary hypothesis scores. Calibration tolerances and the loss/cost tradeoff are declared policy inputs, not quantities the controller pretends to infer automatically. Store prediction rows and their later outcomes so calibration and transfer checks are computed from records, not accepted from a `trusted: true` flag.
-
-Enumerate outcomes for the small candidate bundle, compute the expected reduction in declared claim loss, and account for the same resource costs. This is a few array/dictionary operations, not a Bayesian optimization framework. Model uncertainty that reverses the preferred action returns an unresolved ranking to the qualitative policy. Unexpected outcomes invalidate the model for that use. Do not assign uniform likelihood to an unknown mechanism or treat closed-model confidence as verification.
-
-Model fitting, where measured repeated data support it, is a count-table calculation over valid replication units with held-out records and explicit smoothing. Current observation frequencies cannot estimate an untried intervention's response without additional assumptions. Such an action remains on the qualitative path; that is the complete architecture's specified fallback, not deferred functionality.
+Defer expected-loss optimization until a concrete deployment provides validated predictive models, a declared loss over permissible claims, and enough evidence to assess calibration and scope. The qualitative acquisition policy is the complete implementation for the current use case; a future model-based policy must fall back to it whenever predictions are out of scope or too uncertain.
 
 Measure observer effects with actual collectors off/on over comparable assigned blocks, using deadline/tail and coverage outcomes as well as CPU/bytes/time. Reuse runtime scheduling support but replace artificial sleep costs for this path. Historical mean overhead does not certify a tail bound. If instrumentation changes the regime, retain that result and restrict interpretation of the capture.
 
@@ -338,7 +332,7 @@ For each case run reduced-observability variants, missing/noisy/confounded acqui
 
 The complete check set includes: existing regression tests for shared code; the pure analysis/controller suite without GPU libraries or privileges; loopback application tests; Linux netns/kernel capture integration; and actual source-profile checks for hardware-dependent telemetry. Hardware not present on a test host produces an explicit skip/unvalidated capability, not a fictional pass or removal of the capability. Completion of the implementation includes the source handlers and these checks; claims of validated physical support name the environments actually exercised.
 
-Measure bounded memory, spool size, acquisition time, callback delay, event loss, and deadline/tail perturbation. Demonstrate that expired or never-recorded evidence cannot reappear through hindsight and that a cheaper inconclusive acquisition does not consume the budget repeatedly without new information. Test both the qualitative and conditional joint-model controller paths.
+Measure bounded memory, spool size, acquisition time, callback delay, event loss, and deadline/tail perturbation. Demonstrate that expired or never-recorded evidence cannot reappear through hindsight and that a cheaper inconclusive acquisition does not consume the budget repeatedly without new information. Test the qualitative controller; add model-based policy tests only after a deployment justifies that extension.
 
 **13. Simplification pass: what was removed without removing capability**
 
@@ -351,7 +345,7 @@ The final coverage check maps every architectural responsibility to executable w
 | Stochastic detection, fair comparisons, censoring and adaptive-selection control | 6 |
 | Clock domains, many-to-many joins, interaction localization and indistinguishability | 5–7 |
 | Competing/compound/novel mechanisms and evidence provenance | 3, 8 |
-| Multi-hypothesis acquisition, shared cost, perturbation, qualitative and joint-model policies | 5, 9 |
+| Multi-hypothesis acquisition, shared cost, perturbation, qualitative policy | 5, 9 |
 | Observational, controlled and natural evidence; claim-level causal verification | 3, 6, 10 |
 | Endpoint-only through AP/NIC/relay/switch/topology observability | 5, 7 |
 | Current-incident evidence separated from historical advice | 8, 11 |
@@ -366,7 +360,7 @@ The final coverage check maps every architectural responsibility to executable w
 | A second network schema package or registry | Validation functions in `network_capture.py`; lifecycle constraints in the existing ledger. |
 | A universal causal graph engine | Small partial dependency views and explicit predicates; feedback is preserved without pretending it is a global DAG. |
 | Custom packet parser, scheduler profiler, or clock synchronizer | Wireshark tools, perf/kernel trace facilities, native timestamps, and external clock-bound evidence. One targeted probe file covers real missing boundaries. |
-| Implementing HEC/ECED or a general Bayesian optimizer | Qualitative claim discrimination by default; exact finite conditional-outcome calculations when justified models exist. |
+| Implementing HEC/ECED or a general Bayesian optimizer | Defer expected-loss optimization until a concrete deployment supplies validated predictive models and a declared loss policy. |
 | A learned detector, learned matching system, and arbitrary adaptive inference framework | Frozen explicit comparison contracts, bounded block statistics, summable error allocation, and prospective confirmation. |
 | A custom tomography framework | Existing SciPy linear programming over supplied path constraints, reporting feasible bounds rather than an arbitrary sparse answer. |
 | Vendor plugins for hypothetical APs/switches | Functional normalized rich-event ingestion plus standard live sources; concrete additional source formats only where an actual deployment exposes them. |
