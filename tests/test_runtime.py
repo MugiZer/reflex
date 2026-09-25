@@ -11,6 +11,48 @@ from reflex.ledger import Ledger
 from reflex.runtime import Runtime, calibrate
 
 
+def test_ring_age_byte_pin_and_atomic_take():
+    from reflex.runtime import HindsightRing
+    now = [0.]
+    ring = HindsightRing(4, byte_limit=100, age_s=2, pin_bytes=100, clock=lambda: now[0])
+    ring.push({"x": 1})
+    pin = ring.pin("trigger", post_window=1)
+    ring.push({"x": 2})
+    assert len(pin["records"]) == 2
+    assert ring.take() == [{"x": 1}, {"x": 2}]
+    ring.push({"x": 3})
+    assert ring.snapshot() == [{"x": 3}]
+    now[0] = 3
+    assert ring.snapshot() == []
+    assert ring.release_pin("trigger")["records"] == [{"x": 1}, {"x": 2}]
+
+
+def test_stalled_drain_does_not_block_callback():
+    import threading
+    from reflex.runtime import BoundedDrain
+    entered,release=threading.Event(),threading.Event()
+    def writer(row):
+        entered.set()
+        release.wait(3)
+    drain=BoundedDrain(writer,capacity=2)
+    drain.push({"n":0})
+    assert entered.wait(1)
+    finished=threading.Event()
+    def produce():
+        for i in range(1000): drain.push({"n":i})
+        finished.set()
+    thread=threading.Thread(target=produce)
+    thread.start()
+    try:
+        assert finished.wait(1)
+        assert drain.dropped>=998 and drain.queue.qsize()<=2
+        assert not drain.close(timeout=.01)["complete"]
+    finally:
+        release.set()
+        thread.join()
+        assert drain.close()["complete"]
+
+
 def test_loop_runs_at_target_tick(tmp_path: Path) -> None:
     rt = Runtime(tmp_path / "l.jsonl", ring_capacity=32, tick_ms=2.0)
     stats = asyncio.run(rt.run(10))

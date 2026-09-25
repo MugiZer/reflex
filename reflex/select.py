@@ -16,11 +16,95 @@ from __future__ import annotations
 import json
 import math
 
-from . import confidence as _conf
-from . import diagnose as _diag
 from .ledger import UNKNOWN, Evidence, EvidenceLevel
 
 PROVENANCE = "select"
+
+
+def choose_acquisition(actions, distinctions, capabilities, acquired, budgets, *, active=None,
+                       scope_priority=("outcome_boundary", "proximate_mechanism", "initiating_location")):
+    """Finite prerequisite bundles and conservative partial dominance, without likelihoods."""
+    from .ledger import canonical_hash
+    active = {} if active is None else active
+    catalog = {a["id"]: a for a in actions}
+    rejected, candidates = {}, []
+
+    def closure(identity, visiting=None):
+        visiting = set() if visiting is None else visiting
+        if identity not in catalog or identity in visiting:
+            raise ValueError("missing/cyclic prerequisite")
+        visiting = visiting | {identity}
+        row = catalog[identity]
+        found = []
+        for requirement in row.get("prerequisites", []):
+            for item in closure(requirement, visiting):
+                if item not in found:
+                    found.append(item)
+        return found + [identity]
+
+    for action in actions:
+        identity = canonical_hash([action["id"], action["scope"], action["epoch"], sorted(action["inputs"])])
+        if identity in acquired:
+            rejected[action["id"]] = "identical scope/epoch/evidence already acquired"
+            continue
+        useful = set(action["distinctions"]) & set(distinctions)
+        predictions = [p for p in action.get("outcomes", []) if p.get("basis") in
+                       ("boundary_semantics", "protocol", "current_empirical", "qualified_contrast") and
+                       set(p.get("changes", [])) & useful]
+        if not action.get("preserve") and not predictions:
+            rejected[action["id"]] = "no justified claim-changing outcome"
+            continue
+        try:
+            bundle = [catalog[key] for key in closure(action["id"])]
+        except ValueError as exc:
+            rejected[action["id"]] = str(exc)
+            continue
+        if any(not set(a["capabilities"]) <= set(capabilities) for a in bundle):
+            rejected[action["id"]] = "missing capability or permission"
+            continue
+        cost = {key: 0. for key in ("seconds", "bytes", "perturbation")}
+        resources, valid = set(), True
+        for row in bundle:
+            for resource in row["resources"]:
+                key = canonical_hash(resource["key"])
+                if key in active or key in resources:
+                    continue
+                resources.add(key)
+                bounds = resource.get("bounds") or resource.get("enforced_caps")
+                if bounds is None or any(k not in bounds or not isinstance(bounds[k], (int,float)) or
+                                         not math.isfinite(bounds[k]) or bounds[k] < 0 for k in cost):
+                    valid = False
+                    break
+                for k in cost:
+                    cost[k] += bounds[k]
+        all_shared=all(row["resources"] and all(canonical_hash(r["key"]) in active for r in row["resources"]) for row in bundle)
+        if not valid or (cost["seconds"] <= 0 and not all_shared):
+            rejected[action["id"]] = "unknown cost or unbounded wait"
+            continue
+        if any(cost[k] > budgets.get(k, 0) for k in cost):
+            rejected[action["id"]] = "budget exhausted"
+            continue
+        priority = min((scope_priority.index(d) for d in useful if d in scope_priority), default=len(scope_priority))
+        candidates.append(dict(action=action["id"], acquisition_id=identity, bundle=[a["id"] for a in bundle],
+                               distinctions=sorted(useful), priority=priority, preserve=bool(action.get("preserve")),
+                               resources=sorted(resources), bounds=cost, coverage=action.get("coverage"),
+                               predicates=predictions))
+    survivors = []
+    for candidate in candidates:
+        dominated = any(other is not candidate and candidate["preserve"] == other["preserve"] and
+                        set(candidate["distinctions"]) <= set(other["distinctions"]) and
+                        candidate["coverage"] is not None and candidate["coverage"] == other["coverage"] and
+                        all(other["bounds"][k] <= candidate["bounds"][k] for k in candidate["bounds"]) and
+                        (set(candidate["distinctions"]) < set(other["distinctions"]) or
+                         any(other["bounds"][k] < candidate["bounds"][k] for k in candidate["bounds"]))
+                        for other in candidates)
+        if not dominated:
+            survivors.append(candidate)
+    survivors.sort(key=lambda c: (not c["preserve"], c["priority"], c["bounds"]["seconds"],
+                                  c["bounds"]["bytes"], c["bounds"]["perturbation"], c["action"]))
+    return {"choice": survivors[0] if survivors else None, "considered": candidates, "rejected": rejected,
+            "reason": "scope priority, conservative bounds, stable action ID; not an optimality claim" if survivors
+                      else "no considered feasible discriminator"}
 
 ACTIONS = ("timeline", "scheduler_trace", "kernel_timeline",
            "counters", "tensor_analysis", "deep_profile")
@@ -313,6 +397,7 @@ def select(belief: dict, models: dict | None, costs: dict, taken=(),
 
 
 def _index_fallback(costs: dict, taken, table, q: float, reason: str) -> dict:
+    from . import confidence as _conf
     untaken = [a for a in ACTIONS if a not in taken and _prereq_ok(a, taken)[0]]
     if not untaken:
         return {"mode": "index", "winner": None, "rows": [], "reason": reason,
@@ -457,6 +542,7 @@ def run(ledger, incident_id: str, belief: dict, models: dict | None,
     generate (Registry seeds causes + UNKNOWN) -> challenge (provisional mark)
     -> cost-check (guards) -> plan (selector); loop measure->update, then
     verify-or-abstain. Every selection is logged with its why record."""
+    from . import diagnose as _diag
     reg = ToolRegistry(costs, grants)
     registry = _diag.Registry(ledger, incident_id, PROVENANCE)
     trace = [{"state": "propose", "note": "seed causes + UNKNOWN (provisional)"}]

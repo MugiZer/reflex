@@ -5,10 +5,12 @@ import asyncio
 import random
 import statistics
 import time
+import json
+import queue
+import threading
 from collections import deque
 from pathlib import Path
 
-from .fakegpu import generate
 from .ledger import Evidence, Ledger
 
 PROVENANCE = "runtime"
@@ -17,25 +19,167 @@ PROVENANCE = "runtime"
 class HindsightRing:
     """Bounded nonblocking hindsight buffer; drops oldest, counts every drop."""
 
-    def __init__(self, capacity: int = 16) -> None:
+    def __init__(self, capacity: int = 16, *, byte_limit: int = 1_048_576,
+                 age_s: float = 60, pin_bytes: int = 1_048_576, clock=time.monotonic) -> None:
         if capacity < 1:
             raise ValueError("capacity must be >= 1")
         self._buf: deque = deque(maxlen=capacity)
         self.dropped = 0
+        self.byte_limit, self.age_s, self.pin_bytes = byte_limit, age_s, pin_bytes
+        if byte_limit < 1 or age_s <= 0 or pin_bytes < 1:
+            raise ValueError("positive retention limits required")
+        self._meta = deque()
+        self._bytes = 0
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._pins = {}
+        self._pinned_bytes = 0
+        self._sequence = 0
+
+    def _evict(self, now, incoming=0):
+        while self._buf and (len(self._buf) == self._buf.maxlen and incoming or
+                             self._bytes + incoming > self.byte_limit or
+                             now - self._meta[0][0] > self.age_s):
+            self._buf.popleft()
+            self._bytes -= self._meta.popleft()[1]
+            self.dropped += 1
 
     def push(self, obs: dict) -> None:  # never blocks: evict-oldest + count
-        if len(self._buf) == self._buf.maxlen:
-            self.dropped += 1
-        self._buf.append(obs)
+        size = len(json.dumps(obs, allow_nan=False).encode())
+        with self._lock:
+            now = self._clock()
+            self._sequence += 1
+            if size > self.byte_limit:
+                self.dropped += 1
+                return
+            self._evict(now, size)
+            self._buf.append(obs)
+            self._meta.append((now, size, self._sequence))
+            self._bytes += size
+            for pin in self._pins.values():
+                if pin["remaining"] > 0:
+                    pin["remaining"] -= 1
+                    self._retain(pin, obs, size, self._sequence)
 
     def snapshot(self) -> list:
-        return list(self._buf)
+        with self._lock:
+            self._evict(self._clock())
+            return list(self._buf)
+
+    def take(self):
+        with self._lock:
+            self._evict(self._clock())
+            records = list(self._buf)
+            self._buf.clear()
+            self._meta.clear()
+            self._bytes = 0
+            return records
+
+    def _retain(self, pin, obs, size, seq):
+        if self._pinned_bytes + size > self.pin_bytes:
+            pin["lost_sequences"].append(seq)
+        else:
+            pin["records"].append(obs)
+            pin["sequences"].append(seq)
+            pin["bytes"] += size
+            self._pinned_bytes += size
+
+    def pin(self, identity, predicate=lambda row: True, post_window=0):
+        with self._lock:
+            if not 0 <= post_window <= self._buf.maxlen:
+                raise ValueError("post-trigger window exceeds bounded ring capacity")
+            self._evict(self._clock())
+            if identity in self._pins:
+                return self._pins[identity]
+            if len(self._pins) >= self._buf.maxlen:
+                return {"records":[],"sequences":[],"lost_sequences":[m[2] for m in self._meta],
+                        "bytes":0,"remaining":0,"unavailable_predecessors":self.dropped,
+                        "reason":"pin count capacity exhausted"}
+            pin = dict(records=[], sequences=[], lost_sequences=[], bytes=0,
+                       remaining=post_window, unavailable_predecessors=self.dropped)
+            for obs, (_, size, seq) in zip(self._buf, self._meta):
+                if predicate(obs):
+                    self._retain(pin, obs, size, seq)
+            self._pins[identity] = pin
+            return pin
+
+    def release_pin(self, identity):
+        with self._lock:
+            pin = self._pins.pop(identity)
+            self._pinned_bytes -= pin["bytes"]
+            return pin
 
     def clear(self) -> None:
-        self._buf.clear()
+        self.take()
 
     def __len__(self) -> int:
-        return len(self._buf)
+        with self._lock:
+            return len(self._buf)
+
+
+class BoundedDrain:
+    """Disk I/O never runs in the producer; loss is explicit when capacity is spent."""
+
+    def __init__(self, write, capacity=256):
+        self.queue = queue.Queue(capacity)
+        self.write = write
+        self.dropped = 0
+        self.error = None
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def push(self, record):
+        try:
+            self.queue.put_nowait(record)
+            return True
+        except queue.Full:
+            self.dropped += 1
+            return False
+
+    def _run(self):
+        while not self._stop.is_set() or not self.queue.empty():
+            try:
+                item = self.queue.get(timeout=.05)
+            except queue.Empty:
+                continue
+            try:
+                self.write(item)
+            except Exception as exc:
+                self.error = str(exc)
+                self.dropped += 1
+            finally:
+                self.queue.task_done()
+
+    def close(self, timeout=5):
+        self._stop.set()
+        self._thread.join(timeout)
+        return {"dropped": self.dropped, "pending": self.queue.qsize(),
+                "complete": not self._thread.is_alive() and self.error is None,
+                "error": self.error}
+
+
+def measure_collector_overhead(workload, collector, pairs=8, seed=0):
+    """Measure actual off/on assigned blocks; workload returns deadline/tail and coverage outcomes."""
+    from .network_analysis import paired_schedule
+    rows = []
+    for block, arm in enumerate(paired_schedule(pairs, seed)):
+        cpu, start = time.process_time(), time.monotonic()
+        handle = None
+        cleanup = None
+        try:
+            if arm == "treatment":
+                handle = collector.start()
+            outcomes = workload(block, arm)
+            if not {"eligible", "deadline_misses", "tail", "coverage"} <= outcomes.keys():
+                raise ValueError("deadline, tail and coverage outcomes required")
+        finally:
+            if handle is not None:
+                cleanup = collector.stop(handle)
+        rows.append({"block":block,"arm":arm,"outcomes":outcomes,"collector":cleanup,
+                     "seconds":time.monotonic()-start,"cpu_seconds":time.process_time()-cpu})
+    return {"blocks":rows,"assignment_seed":seed,
+            "limitation":"observed block effects; historical mean overhead does not certify tail bounds"}
 
 
 class Runtime:
@@ -54,6 +198,7 @@ class Runtime:
                 "l1": bundle["l1"][i], "kernel": bundle["gpu_kernel"][i]["kernel_name"]}
 
     async def run(self, n_ticks: int, flush_every: int = 0) -> dict:
+        from .fakegpu import generate
         bundle = generate(self.seed, self.profile, max(n_ticks, 1))
         t_start = time.monotonic_ns()
         tick_ns = int(self.tick_ms * 1e6)
@@ -78,27 +223,25 @@ class Runtime:
                 "intervals_ms": intervals, "dropped": new_drops, "ring_len": len(self.ring)}
 
     async def flush(self) -> int:
-        snap = self.ring.snapshot()
+        snap = self.ring.take()
         for obs in snap:  # ponytail: one Evidence per obs, no batching/coalescing; add batching if flush cost matters
             await asyncio.to_thread(self.ledger.append_evidence, Evidence(
                 correlation_id=obs["correlation_id"], provenance=PROVENANCE,
                 kind="hindsight", payload={"l1": obs["l1"], "kernel": obs["kernel"]}, synthetic=True))
-        self.ring.clear()
         return len(snap)
 
     async def run_with_trigger(self, n_ticks: int, trigger_at: int, post_window: int) -> dict:
+        from .fakegpu import generate
         total = max(n_ticks, trigger_at + 1 + post_window)
         bundle = generate(self.seed, self.profile, total)
         pre: list = []
-        for i in range(n_ticks):
+        post = []
+        for i in range(total):
             self.ring.push(self._obs(bundle, i))
             if i == trigger_at:
                 pre = self.ring.snapshot()
-            await asyncio.sleep(self.tick_ms / 1000.0)
-        post = []
-        for i in range(trigger_at + 1, min(total, trigger_at + 1 + post_window)):
-            self.ring.push(self._obs(bundle, i))
-            post.append(self.ring.snapshot()[-1])  # preserved from the live ring, not the bundle
+            elif trigger_at < i <= trigger_at + post_window:
+                post.append(self.ring.snapshot()[-1])
             await asyncio.sleep(self.tick_ms / 1000.0)
         return {"pre": pre, "post": post}
 

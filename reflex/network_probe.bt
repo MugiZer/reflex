@@ -1,0 +1,85 @@
+#!/usr/bin/env bpftrace
+// Supported tracepoint profile. Kernel field availability is checked by bpftrace before attachment.
+BEGIN
+{
+    printf("root-probe-v1 pid=%d\n", $1);
+}
+
+tracepoint:sock:inet_sock_set_state
+/pid == $1/
+{
+    @events = count();
+    printf("state %llu %d %p %d %d\n", nsecs, pid, args->skaddr, args->oldstate, args->newstate);
+}
+
+tracepoint:tcp:tcp_retransmit_skb
+/pid == $1/
+{
+    @events = count();
+    printf("retransmit %llu %d %p\n", nsecs, pid, args->skaddr);
+}
+
+interval:s:1
+{
+    @seconds++;
+    if (@seconds >= $2) { exit(); }
+}
+
+#ifdef ROOT_RICH
+// BTF supplies struct layout. Failure to resolve a type or attachment aborts this profile.
+kprobe:tcp_sendmsg, kprobe:tcp_recvmsg
+/pid == $1/
+{
+    if (!@owned[(uint64)arg0]) { @owned[(uint64)arg0] = nsecs; }
+}
+
+kprobe:tcp_data_queue
+/@owned[(uint64)arg0]/
+{
+    @receiving[cpu, tid] = (uint64)arg0;
+}
+
+kretprobe:tcp_data_queue
+/@receiving[cpu, tid]/
+{
+    $address = @receiving[cpu, tid];
+    $tcp = (struct tcp_sock *)$address;
+    @events = count();
+    printf("receive %llu %llu %llu %u %u\n", nsecs, $address, @owned[$address], $tcp->copied_seq, $tcp->rcv_nxt);
+    delete(@receiving[cpu, tid]);
+}
+
+kprobe:tcp_close
+/@owned[(uint64)arg0]/
+{
+    delete(@owned[(uint64)arg0]);
+}
+#endif
+
+#ifdef ROOT_QDISC
+// This optional profile must match the exported qdisc tracepoint fields.
+tracepoint:qdisc:qdisc_enqueue
+/args->ifindex == $3/
+{
+    @events = count();
+    printf("queue-in %llu %p %p\n", nsecs, args->qdisc, args->skbaddr);
+}
+
+tracepoint:qdisc:qdisc_dequeue
+/args->ifindex == $3/
+{
+    @events = count();
+    printf("queue-out %llu %p %p\n", nsecs, args->qdisc, args->skbaddr);
+}
+#endif
+
+END
+{
+    print(@events);
+    clear(@events);
+    clear(@seconds);
+#ifdef ROOT_RICH
+    clear(@owned);
+    clear(@receiving);
+#endif
+}

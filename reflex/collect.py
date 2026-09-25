@@ -171,6 +171,41 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def artifact_path(directory: str | Path, name: str) -> Path:
+    d = Path(directory).resolve()
+    if not name or name in (".", "..", "manifest.json", "DONE") or any(c in name for c in "/\\:"):
+        raise ValueError("artifact must have a flat non-reserved name")
+    path = (d / name).resolve()
+    if path.parent != d:
+        raise ValueError("artifact outside collection directory")
+    return path
+
+
+def begin_artifacts(directory: str | Path, manifest: dict) -> dict:
+    d = Path(directory)
+    d.mkdir(parents=True, exist_ok=False)
+    man = {**manifest, "status": "collecting", "sha256": {}}
+    (d / "manifest.json").write_text(json.dumps(man, allow_nan=False), encoding="utf-8")
+    return man
+
+
+def finalize_artifacts(directory: str | Path, names: list[str], *, coverage: dict) -> dict:
+    """Only call on closed segments; incomplete coverage remains explicit."""
+    d = Path(directory)
+    man = json.loads((d / "manifest.json").read_text(encoding="utf-8"))
+    man["sha256"] = {name: _sha256(artifact_path(d, name)) for name in names}
+    man["coverage"] = coverage
+    man["status"] = "done"
+    for name, digest in man["sha256"].items():
+        if _sha256(artifact_path(d, name)) != digest:
+            raise IOError("artifact changed during finalization")
+    temp = d / "manifest.tmp"
+    temp.write_text(json.dumps(man, allow_nan=False), encoding="utf-8")
+    temp.replace(d / "manifest.json")
+    (d / "DONE").write_text(json.dumps(man["sha256"]), encoding="utf-8")
+    return man
+
+
 def complete_run(root: str | Path, fault: str, seed: int,
                  artifacts: dict[str, bytes]) -> dict:
     """Write artifacts, verify each by re-read checksum, then flag DONE.

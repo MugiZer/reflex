@@ -1,0 +1,9 @@
+Station 02:00:00:00:00:01 (on wlan0)
+        inactive time: 12 ms
+        rx bytes: 12000
+        rx packets: 100
+        tx bytes: 15000
+        tx packets: 110
+        tx retries: 3
+        tx failed: 1
+        signal: -51 dBm

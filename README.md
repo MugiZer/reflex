@@ -1,5 +1,40 @@
 # Root
 
+## Network investigations
+
+The network path uses separate evidence contracts and claim gates. It does not use the GPU likelihood tables or simulator interventions. Install its analysis dependencies with `python -m pip install -r requirements-network.txt`.
+
+```sh
+python -m reflex.network serve --port 8765 --log server.jsonl
+python -m reflex.network run --out observations --phase reference --requests 200 --persistent --concurrency 2
+python -m reflex.network run --out observations --phase current --requests 200 --persistent --concurrency 2 --interval-s 0.02
+python -m reflex.network ingest --ledger investigation.jsonl --incident example --input observations/reference-manifest.json --arm reference
+python -m reflex.network ingest --ledger investigation.jsonl --incident example --input observations/current-manifest.json --arm current
+python -m reflex.network investigate --ledger investigation.jsonl --incident example --contract tests/fixtures/network/contract.json
+python -m reflex.network resume --ledger investigation.jsonl --incident example
+python -m reflex.network report --ledger investigation.jsonl --incident example
+```
+
+The example contract is exploratory. Independent replication, prospective selection, fixed weights and material thresholds must be justified before a formal regression declaration. Workload blocks and hundreds of requests alone do not establish independence. Missing server headers permit endpoint-only operation; composite residuals never establish one-way transit.
+
+`run` supports fresh or persistent connections, bounded concurrent dispatch, intended release intervals, deadlines and optional Linux `--tcp-info`. Application hooks and bounded drain queues record export losses. The manifest retains exact eligible-delivery accounting even when detailed events are dropped. Compatibility percentiles use at most 1,024 retained attempts; population duration sketches are bounded DDSketch summaries. A timeout before the deadline keeps its deadline status unknown.
+
+`capture --profile PROFILE --config JSON --out NEW_DIRECTORY` accepts explicit time and byte caps. Profiles use `ss`, `dumpcap`/`tshark`, `perf`, `ip`, `iw`, or `bpftrace`. `probe --profile PROFILE` reports availability. Optional receive and queue probes require compatible kernel types/attachment fields; unsupported layouts fail rather than using guessed offsets. Native packet labels remain dissector inferences. A successful command does not establish complete event coverage.
+
+Normalized exports are JSONL records with `version: "network-v2"`, `kind` and `payload`; see `tests/fixtures/network/ap-events.jsonl`. Events retain source incarnation, sequence, clock, units, boundary, identity links, drops and limitations. AP eligibility/access, relay release and infrastructure queue/residence exports use this same format. Qlog ingestion explicitly supports the 0.3 JSON event profile. Socket timestamping helpers preserve software and hardware clock identities; external offset/rate bounds remain necessary for directional durations.
+
+Configured endpoint sources can supply bounded acquisition actions through the contract's `endpoints` or an explicit `--actions` JSON file. SSH execution uses the same fixed CLI; `export` transfers closed checksummed segments. Experiment executors are supplied picklable Python objects with scoped observe, washout, apply, readback, measure and restore operations. They run in a bounded child process; timeout triggers a separate bounded restoration attempt. Plans and inferential allocations are durable before execution. A missing result after restart is unknown execution and is not permission to repeat an intervention.
+
+The isolated Linux harness also runs registered paired blocks through `isolated-contrast`, with fixed controls for rates, pacing, competing traffic, CPU contention and route choice. Native readbacks establish exposure; measured queue drainage and fresh connections delimit blocks. Shared-host interference remains explicit, so those controls do not automatically verify a narrow cause. Raw mutation commands and workload artifacts stay in `private/`; diagnosis receives the authorized contrast and its observed results. Censored block outcomes retain interval bounds.
+
+Validation is split deliberately:
+
+- Pure analysis, ledger/replay, parser fixtures, report mutation and real HTTP loopback checks run without privileges or GPU packages.
+- `scripts/network_experiment.sh` requires privileged Linux network namespaces. It supports separate directions, multiple connections, cross traffic and an alternate routed path; injected labels and commands stay under `private/`.
+- AP, NIC and infrastructure physical checks require explicitly supplied `ROOT_PHYSICAL_AP_EXPORT`, `ROOT_PHYSICAL_NIC_EXPORT`, or `ROOT_PHYSICAL_INFRASTRUCTURE_EXPORT`. They are skipped when absent. Synthetic fixtures and netem are not physical wireless validation.
+
+The Windows development host has no `ip`, `tc`, `perf`, Wireshark CLI, `bpftrace` or `iw`; native Linux capture, kernel attachment semantics, PTP/NIC and physical AP/infrastructure behavior have not been validated on that host.
+
 Find out why GPU inference got slower.
 
 Root compares slow model runs with healthy ones to investigate what changed. It follows work from the CPU through CUDA to GPU kernels, the functions executed on the GPU, then ranks possible causes and chooses what to measure next.

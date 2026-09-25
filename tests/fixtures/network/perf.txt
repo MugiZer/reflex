@@ -1,0 +1,2 @@
+worker 901/903 [002] 123.456789: sched:sched_wakeup: comm=receiver pid=903 prio=120 target_cpu=002
+worker 901/901 [002] 123.457789: sched:sched_switch: prev_comm=worker prev_pid=901 prev_prio=120 prev_state=R ==> next_comm=receiver next_pid=903 next_prio=120

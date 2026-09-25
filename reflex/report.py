@@ -15,12 +15,7 @@ import re
 import time
 from pathlib import Path
 
-from . import confidence as _conf
-from . import diagnose as _diag
-from . import fakegpu as _fg
-from . import memory as _mem
 from . import select as _sel
-from . import tournament as _tour
 from . import verify as _ver
 from .ledger import UNKNOWN, Evidence, EvidenceLevel, Hypothesis, Ledger
 from .runtime import calibrate as _calibrate
@@ -42,8 +37,99 @@ _S2C = {"host": "s_host", "device": "s_device", "deep": "s_deep"}
 EV_RE = re.compile(r"\bev:([0-9a-f]{32})\b")
 
 
+def network_projection(ledger, incident_id):
+    from .ledger import LedgerError, validate_network_gate
+    incident = ledger.incidents.get(incident_id)
+    if not incident or incident.domain != "network":
+        raise LedgerError("network report requires exact network incident")
+    mine = [e for e in ledger.evidence.values() if e.incident_id == incident_id]
+    superseded = {h for e in mine if e.kind == "supersession" for h in e.payload["claims"]}
+    claims = []
+    candidates=[]
+    for h in ledger.hypotheses.values():
+        if h.incident_id != incident_id or h.hypothesis_id in superseded:
+            continue
+        if h.domain != "network":
+            raise LedgerError("report domain mismatch")
+        for ref in h.scope["support"] + [h.scope["contract_id"]]:
+            ev = ledger.evidence.get(ref)
+            if not ev or ev.incident_id != incident_id:
+                raise LedgerError("report cross-incident reference")
+        if h.status == EvidenceLevel.INFERRED:
+            from .network_analysis import mechanism_predictions
+            records={}
+            visited=set()
+            def collect(ref):
+                if ref in visited:
+                    return
+                visited.add(ref)
+                ev=ledger.evidence[ref]
+                if ev.kind == "summary" or ev.payload.get("kind") == "historical_advice":
+                    raise LedgerError("historical advice cannot support a current claim")
+                if ev.kind == "event":
+                    records[ref]=ev.payload
+                for parent in ev.payload.get("inputs",[]):
+                    collect(parent)
+            for ref in h.scope["support"]:
+                collect(ref)
+            supported=mechanism_predictions(records).get(h.scope["mechanism"],{})
+            if supported.get("result") != "supports" or supported.get("scope") != h.scope["location"]:
+                candidates.append({"id":h.hypothesis_id,"scope":h.scope,"reason":"candidate lacks supported current observations"})
+                continue
+        if h.status in (EvidenceLevel.TESTED, EvidenceLevel.VERIFIED):
+            experiments = [e for e in ledger.experiments.values() if h.hypothesis_id in e.plan.get("claims", [])]
+            valid = False
+            for exp in experiments:
+                try:
+                    validate_network_gate(h, exp, ledger.evidence, h.status)
+                    valid = True
+                    break
+                except LedgerError:
+                    continue
+            if not valid:
+                raise LedgerError("report claim gate failed")
+        claims.append({"id": h.hypothesis_id, "level": h.status.value, "scope": h.scope})
+    kinds = ("comparison_contract", "population", "episode", "fact", "acquisition_plan", "acquisition_result", "experiment_result")
+    observations = {e.record_id: e.payload for e in mine if e.kind in kinds}
+    raw_refs = {ref for e in mine if e.kind == "reference" for ref in e.payload["inputs"]}
+    limits = {ref: {"coverage": ledger.evidence[ref].payload["coverage"],
+                    "limitations": ledger.evidence[ref].payload["limitations"],
+                    "clock": ledger.evidence[ref].payload["clock"]} for ref in sorted(raw_refs)}
+    closures = [e.payload for e in mine if e.kind == "closure"]
+    return {"domain": "network", "incident_id": incident_id, "claims": sorted(claims, key=lambda c:c["id"]),
+            "candidates":sorted(candidates,key=lambda c:c["id"]),
+            "evidence": observations, "measurement_limits": limits,
+            "closure": closures[-1] if closures else {"reason": "investigation open"},
+            "qualification": "Known mechanisms are not complete; missing boundaries remain unresolved."}
+
+
+def render_network(ledger, incident_id, projection=None):
+    expected = network_projection(ledger, incident_id)
+    if projection is not None and projection != expected:
+        raise ValueError("network report projection differs from validated evidence")
+    lines = [f"# Network incident {incident_id}", "", expected["qualification"], ""]
+    if not expected["claims"]:
+        lines.append("Insufficient evidence for a mechanism claim.")
+    for claim in expected["claims"]:
+        scope = claim["scope"]
+        lines.append(f"- {claim['level']}: {scope['mechanism']} — {scope['location']}; outcome: {scope['outcome']}; regime: {scope['regime']}.")
+        lines.append("  Alternatives: " + ", ".join(scope["alternatives"]))
+    lines += ["", "Closure: " + expected["closure"]["reason"], "", "Validated evidence and measurement limits:",
+              "```json", json.dumps(expected, sort_keys=True, indent=2, allow_nan=False), "```"]
+    return "\n".join(lines)
+
+
+def validate_network_report(text, ledger, incident_id, projection=None):
+    if text != render_network(ledger, incident_id, projection):
+        raise ValueError("noncanonical network report: altered scope or omitted caveats")
+    return {"valid": True, "domain": "network", "incident_id": incident_id}
+
+
 def _fit_temp():
     """Shared temperature over fixed fit families (offline-style, eval side)."""
+    from . import confidence as _conf
+    from . import diagnose as _diag
+    from . import fakegpu as _fg
     causemap = {"cpu_starvation": "cpu", "kernel_regression": "gpu",
                 "transfer_heavy": "transport"}
     stages = _diag.STAGES
@@ -62,6 +148,11 @@ def run_case(seed: int, profile: str, workdir: str | Path, n_kernels: int = 8,
              store_path: str | Path | None = None) -> dict:
     """Full OBSERVE->DIAGNOSE->TEST->ACT loop on real bundles. Returns a
     JSON-safe summary; ledger at summary['ledger_path']."""
+    from . import confidence as _conf
+    from . import diagnose as _diag
+    from . import fakegpu as _fg
+    from . import memory as _mem
+    from . import tournament as _tour
     t0 = time.monotonic()
     workdir = Path(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
@@ -189,6 +280,8 @@ def _ev(record_id: str) -> str:
 
 
 def render_showme(ledger_path: str | Path, incident_id: str, summary: dict) -> str:
+    if summary.get("domain") == "network":
+        return render_network(Ledger(ledger_path), incident_id, summary)
     """Markdown investigation over one ledger incident + its run summary."""
     ledger = Ledger(str(ledger_path))
     if incident_id not in ledger.incidents:
@@ -310,6 +403,13 @@ def _exp_evidence_id(ledger, incident_id: str, intervention: str | None) -> str 
 
 def resolve_report(report: str, ledger) -> dict:
     """Independent oracle: every ev: ID resolves; VERIFIED/fix claims hold."""
+    if report.startswith("# Network incident "):
+        incident_id=report.splitlines()[0].removeprefix("# Network incident ")
+        try:
+            validate_network_report(report,ledger,incident_id)
+            return {"violations":[],"ok":True}
+        except (ValueError,KeyError) as exc:
+            return {"violations":[str(exc)],"ok":False}
     violations = []
     for rid in sorted(set(EV_RE.findall(report))):
         if rid == "missing":

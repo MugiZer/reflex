@@ -11,8 +11,8 @@ from __future__ import annotations
 import math
 from dataclasses import asdict, replace
 
-from .fakegpu import TIMING_MODEL_VERSION, FaultProfile, PRESETS, generate
 from .ledger import Evidence, EvidenceLevel, Experiment
+from .network_analysis import randomization_test, paired_schedule
 
 PROVENANCE = "verify"
 STAGES = ("cpu_launch", "gpu_kernel", "transfer", "sync_edge", "l1")
@@ -27,6 +27,186 @@ _MUTATIONS = {
     "revert_kernel_config": {"kernel_slowdown_x": 1.0},
 }
 INTERVENTIONS = tuple(_MUTATIONS)
+
+
+
+
+
+
+def natural_contrast(treated_before, treated_after, control_before, control_after, assumptions):
+    values = (treated_before,treated_after,control_before,control_after)
+    if any(not v or any(not math.isfinite(x) for x in v) for v in values):
+        raise ValueError("four observed populations required")
+    means = [sum(v)/len(v) for v in values]
+    required = ("exogeneity_evidence", "overlap_evidence", "stability_evidence", "alternative_changes_evidence", "parallel_trend_basis")
+    supported = all(isinstance(assumptions.get(k), list) and assumptions[k] for k in required)
+    return {"effect": (means[1]-means[0])-(means[3]-means[2]),
+            "method": "matched difference in differences", "interpretation": "qualified natural contrast" if supported else "observational association",
+            "assumptions": assumptions, "limitation": "pretrend checks cannot prove parallel trends"}
+
+
+def _executor_worker(connection, executor):
+    import os
+    if os.name == "posix":
+        os.setsid()
+    try:
+        connection.send({"ready":True})
+        while True:
+            method,args=connection.recv()
+            try:
+                result=getattr(executor,method)(*args)
+                connection.send({"result":result})
+            except BaseException as exc:
+                connection.send({"error":f"{type(exc).__name__}: {exc}"})
+    except (EOFError,BrokenPipeError):
+        return
+    finally:
+        connection.close()
+
+
+def _stop_executor(process, connection):
+    import os
+    import signal
+    if process is not None and process.pid is not None:
+        if process.is_alive():
+            if os.name == "posix":
+                try:
+                    os.killpg(process.pid,signal.SIGKILL)
+                except ProcessLookupError:
+                    process.kill()
+            else:
+                process.kill()
+        process.join(timeout=2)
+    if connection is not None:
+        connection.close()
+
+
+def execute_network_experiment(ledger, experiment, executor, *, cancel=None):
+    """Scoped executor implements observe/apply/readback/measure/restore, all results durably retained."""
+    import time
+    from .ledger import canonical_hash
+    from .network_capture import ingest
+    ledger.record_experiment(experiment)
+    plan = experiment.plan
+    incident_id = ledger.hypotheses[experiment.hypothesis_id].incident_id
+    allocations=[e for e in ledger.evidence.values() if e.incident_id == incident_id and
+                 e.kind == "error_allocation" and e.payload["contract_id"] == plan["contract_id"]]
+    look=len(allocations)+1
+    contract=ledger.evidence[plan["contract_id"]].payload
+    allocation_id=ingest(ledger,"error_allocation",{"contract_id":plan["contract_id"],"look":look,
+                         "alpha":contract["alpha"]/(look*(look+1)),"experiment_id":experiment.experiment_id,
+                         "inputs":[plan["contract_id"]]},incident_id)
+    refs = {k: [] for k in ("manipulation", "assignment", "coverage", "carryover", "effect", "mediator", "rivals")}
+    observations = [allocation_id]
+    outcomes = {"control": [], "treatment": []}
+    started = time.monotonic()
+    execution = "attempted"
+    failure = None
+    restoration = None
+    process=connection=None
+
+    def call(method,*args,restoring=False):
+        nonlocal process,connection
+        import multiprocessing
+        deadline=(time.monotonic()+plan.get("restoration_timeout_s",5) if restoring else started+plan["budget"]["seconds"])
+        if method == "washout":
+            deadline=min(deadline,time.monotonic()+plan["washout"]["timeout_s"])
+        if process is None or not process.is_alive():
+            _stop_executor(process,connection)
+            context=multiprocessing.get_context("spawn")
+            connection,child=context.Pipe()
+            process=context.Process(target=_executor_worker,args=(child,executor),daemon=True)
+            process.start()
+            child.close()
+            while not connection.poll(.02):
+                if time.monotonic() >= deadline or not process.is_alive():
+                    raise TimeoutError("executor startup deadline")
+            if connection.recv() != {"ready":True}:
+                raise OSError("executor startup failed")
+        connection.send((method,args))
+        while not connection.poll(.02):
+            if time.monotonic() >= deadline or (not restoring and cancel and cancel.is_set()):
+                _stop_executor(process,connection)
+                process=connection=None
+                raise TimeoutError("executor operation deadline/cancellation; mutation status requires reconciliation")
+            if not process.is_alive():
+                raise OSError("executor exited without result")
+        reply=connection.recv()
+        if "error" in reply:
+            raise RuntimeError(reply["error"])
+        return reply["result"]
+
+    def record(category, value):
+        row = {**value, "experiment_id": experiment.experiment_id, "category": category}
+        ref = ingest(ledger, "experiment_observation", row, incident_id)
+        observations.append(ref)
+        if category in refs:
+            refs[category].append(ref)
+        return ref
+
+    try:
+        for block, arm in enumerate(plan["schedule"]):
+            if cancel and cancel.is_set():
+                raise InterruptedError("cancelled")
+            if time.monotonic()-started >= plan["budget"]["seconds"]:
+                raise TimeoutError("experiment budget exhausted")
+            initial = call("observe",plan, block)
+            record("initial_state", {"block": block, "value": initial})
+            washed_out = call("washout",plan, block, plan["washout"]["timeout_s"])
+            record("carryover", {"block": block, "initial_state": initial,
+                                  "washed_out": washed_out, "interference": initial.get("interference", "unknown")})
+            if not washed_out:
+                raise TimeoutError("measured washout condition not reached")
+            call("apply",plan, block, arm)
+            readback = call("readback",plan, block, arm)
+            record("manipulation", {"block": block, "arm": arm, "actual": readback})
+            if readback != plan["exposure"][arm]:
+                raise ValueError("exposure readback mismatch")
+            record("assignment", {"block": block, "arm": arm})
+            measured = call("measure",plan, block, arm)
+            outcome=measured["outcome"]
+            if plan.get("assignment_scheme") == "natural":
+                natural=measured.get("natural",{})
+                if any(not 0 <= natural.get(k,-1) <= 1 for k in ("before","after")):
+                    raise ValueError("natural contrast needs bounded before/after outcomes")
+                outcome=(natural["after"]-natural["before"]+1)/2
+            block_summary = {"value": outcome, "start": time.monotonic_ns(),
+                             "regime": plan["scope"]["regime"], "unit": f"{experiment.experiment_id}:{block}"}
+            if measured.get("outcome_bounds") is not None:
+                block_summary["value_bounds"]=measured["outcome_bounds"]
+            outcomes[arm].append(block_summary)
+            record("block_outcome", {"block": block, "arm": arm, "outcome": measured["outcome"],
+                                     "natural":measured.get("natural"),"block_summary": block_summary})
+            record("coverage", {"block": block, **measured["coverage"]})
+            for category in ("mediator", "rivals"):
+                for value in measured.get(category, []):
+                    record(category, {"block": block, **value})
+        execution = "executed"
+        from .network_analysis import compare_blocks
+        contract = ledger.evidence[plan["contract_id"]].payload
+        comparison = compare_blocks(outcomes["treatment"], outcomes["control"], contract,look,
+                                    effect_scale=2 if plan.get("assignment_scheme")=="natural" else 1)
+        record("effect", {"reference": outcomes["treatment"], "current": outcomes["control"],
+                          "look": look, "allocation_id":allocation_id,"comparison": comparison,
+                          "randomization": randomization_test([p["value"] for p in outcomes["control"]],
+                                                                [p["value"] for p in outcomes["treatment"]], seed=plan["seed"])
+                          if plan.get("assignment_scheme") == "paired_randomized" and
+                          all(p.get("value_bounds",[p["value"],p["value"]])[0] == p.get("value_bounds",[p["value"],p["value"]])[1]
+                              for group in outcomes.values() for p in group) else None})
+    except Exception as exc:
+        failure = f"{type(exc).__name__}: {exc}"
+    finally:
+        try:
+            restoration = call("restore",plan,restoring=True)
+        except Exception as exc:
+            restoration = {"status": "failed", "reason": str(exc)}
+        record("restoration", {"outcome": restoration})
+        _stop_executor(process,connection)
+    result = {"experiment_id": experiment.experiment_id, "plan_hash": canonical_hash(plan),
+              "execution": execution, "scope": plan["scope"], "inputs": observations,
+              "failure": failure, "restoration": restoration, "elapsed_s": time.monotonic()-started, **refs}
+    ingest(ledger, "experiment_result", result, incident_id)
+    return result
 
 
 # ponytail: flat cause->(interventions, expected field directions); grow from
@@ -71,6 +251,7 @@ def _effects_hold(faulty: dict, fixed: dict, expected: dict) -> dict:
 
 
 def _resolve(profile: FaultProfile | str) -> tuple[str, FaultProfile]:
+    from .fakegpu import TIMING_MODEL_VERSION, FaultProfile, PRESETS, generate
     if isinstance(profile, str):
         return profile, PRESETS[profile]
     return "custom", profile
@@ -78,6 +259,7 @@ def _resolve(profile: FaultProfile | str) -> tuple[str, FaultProfile]:
 
 def apply_intervention(intervention: str, profile: FaultProfile | str) -> FaultProfile:
     """Mutated profile for a rerun; raises ValueError on unknown names."""
+    from .fakegpu import TIMING_MODEL_VERSION, FaultProfile, PRESETS, generate
     try:
         mut = _MUTATIONS[intervention]
     except KeyError:
@@ -96,6 +278,7 @@ def completion_p99(bundle: dict) -> float:
 
 def capture_context(seed: int, profile: FaultProfile | str, n_kernels: int, bundle: dict) -> dict:
     """Replay input: seed + knobs + shape + output IDs sufficient to reproduce."""
+    from .fakegpu import TIMING_MODEL_VERSION, FaultProfile, PRESETS, generate
     name, prof = _resolve(profile)
     return {"seed": seed, "n_kernels": n_kernels,
             "profile": name if isinstance(profile, str) else {"custom": asdict(prof)},
@@ -105,6 +288,7 @@ def capture_context(seed: int, profile: FaultProfile | str, n_kernels: int, bund
 
 def replay_bundle(ctx: dict) -> dict:
     """Regenerate from stored context; ID mismatch means non-reproducible."""
+    from .fakegpu import TIMING_MODEL_VERSION, FaultProfile, PRESETS, generate
     prof = ctx["profile"]
     profile = prof if isinstance(prof, str) else FaultProfile(**prof["custom"])
     bundle = generate(ctx["seed"], profile, ctx["n_kernels"])
@@ -148,6 +332,7 @@ def run_intervention(ledger, hypothesis_id: str, seed: int, faulty_profile: Faul
     observably move (semantic proof the intervention tested THIS cause);
     when given, every direction must hold or promotion stops at TESTED.
     """
+    from .fakegpu import TIMING_MODEL_VERSION, FaultProfile, PRESETS, generate
     if n_kernels < 1:
         raise ValueError("n_kernels must be >= 1")
     name, faulty = _resolve(faulty_profile)
