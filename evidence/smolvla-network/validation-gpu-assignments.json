@@ -1,0 +1,368 @@
+[
+  {
+    "phase": "block-0001",
+    "case": "network_gpu",
+    "arm": "healthy",
+    "configured": {},
+    "readback": {
+      "relay": {
+        "forward_ms": 0,
+        "reverse_ms": 0,
+        "jitter_ms": 0,
+        "response_rate_bps": 0,
+        "close_every": 0,
+        "queue_ms": 0
+      },
+      "gpu_worker_alive": false,
+      "cpu_worker_alive": false,
+      "client_concurrency": 2,
+      "payload_bytes": 1024,
+      "persistent": true
+    },
+    "restored": true
+  },
+  {
+    "phase": "block-0002",
+    "case": "network_gpu",
+    "arm": "incident",
+    "configured": {
+      "reverse_ms": 250
+    },
+    "readback": {
+      "relay": {
+        "forward_ms": 0,
+        "reverse_ms": 250,
+        "jitter_ms": 0,
+        "response_rate_bps": 0,
+        "close_every": 0,
+        "queue_ms": 0
+      },
+      "gpu_worker_alive": true,
+      "cpu_worker_alive": false,
+      "client_concurrency": 2,
+      "payload_bytes": 1024,
+      "persistent": true
+    },
+    "restored": true
+  },
+  {
+    "phase": "block-0003",
+    "case": "network_gpu",
+    "arm": "recovery",
+    "configured": {},
+    "readback": {
+      "relay": {
+        "forward_ms": 0,
+        "reverse_ms": 0,
+        "jitter_ms": 0,
+        "response_rate_bps": 0,
+        "close_every": 0,
+        "queue_ms": 0
+      },
+      "gpu_worker_alive": false,
+      "cpu_worker_alive": false,
+      "client_concurrency": 2,
+      "payload_bytes": 1024,
+      "persistent": true
+    },
+    "restored": true
+  },
+  {
+    "phase": "block-0004",
+    "case": "forward_delay",
+    "arm": "healthy",
+    "configured": {},
+    "readback": {
+      "relay": {
+        "forward_ms": 0,
+        "reverse_ms": 0,
+        "jitter_ms": 0,
+        "response_rate_bps": 0,
+        "close_every": 0,
+        "queue_ms": 0
+      },
+      "gpu_worker_alive": false,
+      "cpu_worker_alive": false,
+      "client_concurrency": 2,
+      "payload_bytes": 1024,
+      "persistent": true
+    },
+    "restored": true
+  },
+  {
+    "phase": "block-0005",
+    "case": "forward_delay",
+    "arm": "incident",
+    "configured": {
+      "forward_ms": 350
+    },
+    "readback": {
+      "relay": {
+        "forward_ms": 350,
+        "reverse_ms": 0,
+        "jitter_ms": 0,
+        "response_rate_bps": 0,
+        "close_every": 0,
+        "queue_ms": 0
+      },
+      "gpu_worker_alive": false,
+      "cpu_worker_alive": false,
+      "client_concurrency": 2,
+      "payload_bytes": 1024,
+      "persistent": true
+    },
+    "restored": true
+  },
+  {
+    "phase": "block-0006",
+    "case": "forward_delay",
+    "arm": "recovery",
+    "configured": {},
+    "readback": {
+      "relay": {
+        "forward_ms": 0,
+        "reverse_ms": 0,
+        "jitter_ms": 0,
+        "response_rate_bps": 0,
+        "close_every": 0,
+        "queue_ms": 0
+      },
+      "gpu_worker_alive": false,
+      "cpu_worker_alive": false,
+      "client_concurrency": 2,
+      "payload_bytes": 1024,
+      "persistent": true
+    },
+    "restored": true
+  },
+  {
+    "phase": "block-0007",
+    "case": "gpu_pressure",
+    "arm": "healthy",
+    "configured": {},
+    "readback": {
+      "relay": {
+        "forward_ms": 0,
+        "reverse_ms": 0,
+        "jitter_ms": 0,
+        "response_rate_bps": 0,
+        "close_every": 0,
+        "queue_ms": 0
+      },
+      "gpu_worker_alive": false,
+      "cpu_worker_alive": false,
+      "client_concurrency": 2,
+      "payload_bytes": 1024,
+      "persistent": true
+    },
+    "restored": true
+  },
+  {
+    "phase": "block-0008",
+    "case": "gpu_pressure",
+    "arm": "incident",
+    "configured": {},
+    "readback": {
+      "relay": {
+        "forward_ms": 0,
+        "reverse_ms": 0,
+        "jitter_ms": 0,
+        "response_rate_bps": 0,
+        "close_every": 0,
+        "queue_ms": 0
+      },
+      "gpu_worker_alive": true,
+      "cpu_worker_alive": false,
+      "client_concurrency": 2,
+      "payload_bytes": 1024,
+      "persistent": true
+    },
+    "restored": true
+  },
+  {
+    "phase": "block-0009",
+    "case": "gpu_pressure",
+    "arm": "recovery",
+    "configured": {},
+    "readback": {
+      "relay": {
+        "forward_ms": 0,
+        "reverse_ms": 0,
+        "jitter_ms": 0,
+        "response_rate_bps": 0,
+        "close_every": 0,
+        "queue_ms": 0
+      },
+      "gpu_worker_alive": false,
+      "cpu_worker_alive": false,
+      "client_concurrency": 2,
+      "payload_bytes": 1024,
+      "persistent": true
+    },
+    "restored": true
+  },
+  {
+    "phase": "block-0010",
+    "case": "steady",
+    "arm": "production",
+    "configured": {},
+    "readback": {
+      "relay": {
+        "forward_ms": 0,
+        "reverse_ms": 0,
+        "jitter_ms": 0,
+        "response_rate_bps": 0,
+        "close_every": 0,
+        "queue_ms": 0
+      },
+      "gpu_worker_alive": false,
+      "cpu_worker_alive": false,
+      "client_concurrency": 1,
+      "payload_bytes": 1024,
+      "persistent": true
+    },
+    "restored": true
+  },
+  {
+    "phase": "block-0011",
+    "case": "burst",
+    "arm": "production",
+    "configured": {
+      "queue_ms": 150
+    },
+    "readback": {
+      "relay": {
+        "forward_ms": 0,
+        "reverse_ms": 0,
+        "jitter_ms": 0,
+        "response_rate_bps": 0,
+        "close_every": 0,
+        "queue_ms": 150
+      },
+      "gpu_worker_alive": false,
+      "cpu_worker_alive": false,
+      "client_concurrency": 4,
+      "payload_bytes": 4096,
+      "persistent": true
+    },
+    "restored": true
+  },
+  {
+    "phase": "block-0012",
+    "case": "capacity",
+    "arm": "production",
+    "configured": {
+      "response_rate_bps": 160000
+    },
+    "readback": {
+      "relay": {
+        "forward_ms": 0,
+        "reverse_ms": 0,
+        "jitter_ms": 0,
+        "response_rate_bps": 160000,
+        "close_every": 0,
+        "queue_ms": 0
+      },
+      "gpu_worker_alive": false,
+      "cpu_worker_alive": false,
+      "client_concurrency": 3,
+      "payload_bytes": 8192,
+      "persistent": true
+    },
+    "restored": true
+  },
+  {
+    "phase": "block-0013",
+    "case": "asymmetric",
+    "arm": "production",
+    "configured": {
+      "reverse_ms": 220,
+      "jitter_ms": 60
+    },
+    "readback": {
+      "relay": {
+        "forward_ms": 0,
+        "reverse_ms": 220,
+        "jitter_ms": 60,
+        "response_rate_bps": 0,
+        "close_every": 0,
+        "queue_ms": 0
+      },
+      "gpu_worker_alive": false,
+      "cpu_worker_alive": false,
+      "client_concurrency": 2,
+      "payload_bytes": 1024,
+      "persistent": true
+    },
+    "restored": true
+  },
+  {
+    "phase": "block-0014",
+    "case": "endpoint",
+    "arm": "production",
+    "configured": {},
+    "readback": {
+      "relay": {
+        "forward_ms": 0,
+        "reverse_ms": 0,
+        "jitter_ms": 0,
+        "response_rate_bps": 0,
+        "close_every": 0,
+        "queue_ms": 0
+      },
+      "gpu_worker_alive": true,
+      "cpu_worker_alive": true,
+      "client_concurrency": 3,
+      "payload_bytes": 2048,
+      "persistent": true
+    },
+    "restored": true
+  },
+  {
+    "phase": "block-0015",
+    "case": "overlap",
+    "arm": "production",
+    "configured": {
+      "forward_ms": 120,
+      "queue_ms": 150
+    },
+    "readback": {
+      "relay": {
+        "forward_ms": 120,
+        "reverse_ms": 0,
+        "jitter_ms": 0,
+        "response_rate_bps": 0,
+        "close_every": 0,
+        "queue_ms": 150
+      },
+      "gpu_worker_alive": true,
+      "cpu_worker_alive": false,
+      "client_concurrency": 4,
+      "payload_bytes": 4096,
+      "persistent": true
+    },
+    "restored": true
+  },
+  {
+    "phase": "block-0016",
+    "case": "drain",
+    "arm": "production",
+    "configured": {},
+    "readback": {
+      "relay": {
+        "forward_ms": 0,
+        "reverse_ms": 0,
+        "jitter_ms": 0,
+        "response_rate_bps": 0,
+        "close_every": 0,
+        "queue_ms": 0
+      },
+      "gpu_worker_alive": false,
+      "cpu_worker_alive": false,
+      "client_concurrency": 1,
+      "payload_bytes": 1024,
+      "persistent": true
+    },
+    "restored": true
+  }
+]

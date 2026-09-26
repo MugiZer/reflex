@@ -1,0 +1,9 @@
+{
+  "platform": "Linux-6.6.122+-x86_64-with-glibc2.39",
+  "python": "3.13.15",
+  "torch": "2.9.1+cu128",
+  "lerobot": "0.6.0",
+  "gpu": "Tesla T4, 580.82.07, 15360 MiB",
+  "capabilities": "00000000a82c25fb",
+  "corpus_sha256": "b1fb605b78171a8820e651d7b85040a115647f4147342cd65da8957d579f7dd3"
+}

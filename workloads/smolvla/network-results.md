@@ -24,7 +24,7 @@ Environment: Linux 6.6.122+, Python 3.13.15, Torch 2.9.1+cu128, LeRobot 0.6.0, N
 
 The checked-in `corpora/` manifests match the frozen inputs used on the T4. Main SHA256: `b1fb605b78171a8820e651d7b85040a115647f4147342cd65da8957d579f7dd3`.
 
-Downloaded archives and analysis remain in the ignored `.loop-runs/` directory; they are not hosted by this repository. `network-smolvla-report.json` records counts and artifact hashes. The repeat archive `network-smolvla-more.tar.gz` has SHA256 `e64d8e3f87d7894834209a51088efad07919d3a133b08b12acffc21519b60bb0`. Its public manifests are ingestible with the existing Root network commands. Private assignments must remain outside Root inputs.
+Collected archives and analysis are preserved in [`evidence/smolvla-network`](../../evidence/smolvla-network/README.md). `network-smolvla-report.json` records counts and artifact hashes. The repeat archive `network-smolvla-more.tar.gz` has SHA256 `e64d8e3f87d7894834209a51088efad07919d3a133b08b12acffc21519b60bb0`. Its public manifests are ingestible with the existing Root network commands. Private assignments must remain outside Root inputs.
 
 Validation: full feasible suite 237 passed/14 skipped; final focused suite 46 passed/11 skipped; bridge and corpus checks rerun after freezing inputs: 8 passed. Archive and per-file checksums, action correlation, CUDA coverage, restoration, and label isolation passed. The repeat T4 session was terminated after downloading evidence.
 

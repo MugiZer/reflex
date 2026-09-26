@@ -1,0 +1,15 @@
+{
+  "platform": "Linux 6.6.122+, x86_64, glibc 2.39",
+  "python": "3.13.15",
+  "torch": "2.9.1+cu128",
+  "lerobot": "0.6.0",
+  "gpu": "Tesla T4, driver 580.82.07, 15360 MiB",
+  "capabilities": "00000000a82c25fb",
+  "cap_net_admin": false,
+  "cap_net_raw": true,
+  "network": "same-host TCP loopback through application relay",
+  "corpus_sha256": "b1fb605b78171a8820e651d7b85040a115647f4147342cd65da8957d579f7dd3",
+  "record_source": "remote environment output captured before session loss",
+  "session_status": "Colab reports session lost (404/401); stop by name and VM ID returned not found",
+  "corpus_export_status": "final frozen-input archive was generated remotely but not recovered; experiment archives are preserved locally"
+}
