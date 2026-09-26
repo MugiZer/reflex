@@ -1,0 +1,6 @@
+{"builder": "corpus-v1", "checkpoint": "lerobot/smolvla_base", "checkpoint_rev": "c83c3163b8ca9b7e67c509fffd9121e66cb96205", "counts": {"holdout": 5, "main": 1000, "smoke": 250}, "dataset": "lerobot/svla_so100_pickplace", "dataset_rev": "728583b5eaf9e739a7f119e2def466fa1d552402", "episodes": 50, "instruction": "Pick up the cube and place it in the box.", "preprocessing": {"image_source_keys": ["observation.images.top", "observation.images.wrist"], "max_length": 48, "normalization": "MEAN_STD-shipped", "resize_pad": [512, 512], "task_key": "task", "tokenizer": "SmolVLM2-500M-Video-Instruct"}, "type": "header", "warmup": {"passes": 2, "rule": "holdout first-frames x2"}}
+{"episode_idx": 0, "frame_id": "ep00_fr00000", "frame_idx": 0, "type": "holdout"}
+{"episode_idx": 1, "frame_id": "ep01_fr00000", "frame_idx": 0, "type": "holdout"}
+{"episode_idx": 2, "frame_id": "ep02_fr00000", "frame_idx": 0, "type": "holdout"}
+{"episode_idx": 3, "frame_id": "ep03_fr00000", "frame_idx": 0, "type": "holdout"}
+{"episode_idx": 4, "frame_id": "ep04_fr00000", "frame_idx": 0, "type": "holdout"}
