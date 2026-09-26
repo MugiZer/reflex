@@ -75,7 +75,10 @@ def relay(host,port,upstream_host,upstream_port,log,*,credits=2,period_s=.05):
                 application_event(drain,source,next(sequence),clock,delivery,"relay_release")
                 upstream=http.client.HTTPConnection(upstream_host,upstream_port,timeout=5)
                 try:
-                    upstream.request("POST","/infer",body=body,headers={"X-Request-Id":delivery,"Connection":"close"})
+                    headers={"X-Request-Id":delivery,"Connection":"close"}
+                    if self.headers.get("Authorization"):
+                        headers["Authorization"]=self.headers["Authorization"]
+                    upstream.request("POST","/infer",body=body,headers=headers)
                     response=upstream.getresponse()
                     payload=response.read(10_000_001)
                     if len(payload)>10_000_000:

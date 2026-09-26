@@ -141,9 +141,32 @@ Choose `delay`, `loss`, `bandwidth`, or `server`; the optional third argument se
 
 Each phase saves one JSONL row per request and a summary JSON. The shared server log correlates requests by ID, including requests whose client timed out. `*-qdisc-before.json` and `*-qdisc-after.json` record the actual kernel queue discipline and packet counters; `comparison.json` and `recovery-comparison.json` compare matched runs. The summaries report completed and failed attempts, median, MAD, p95, p99, and both tail spreads. Percentiles over RTT are conditional on completed requests; `attempt_total` includes failures and timeouts. For meaningful p99 estimates, use many more than 100 requests and repeat the experiment.
 
-Client RTT and preparation use the client monotonic clock. Server work uses the server monotonic clock. `unobserved_rtt` is the RTT remainder after measured server work; it includes transport, server ingress/egress, and any uninstrumented work. No one-way latency or cross-host timestamp subtraction is claimed. The per-request IDs are the seam for joining later server CPU/CUDA/GPU traces. The current HTTP server performs a fixed response and optional sleep; it does not run SmolVLA. Network diagnosis, packet-level attribution, and automatic GPU trace joining await real evidence and the separate mechanism research.
+Client RTT and preparation use the client monotonic clock. Server work uses the server monotonic clock. `unobserved_rtt` is the RTT remainder after measured server work; it includes transport, server ingress/egress, and any uninstrumented work. No one-way latency or cross-host timestamp subtraction is claimed. The generic HTTP server performs a fixed response and optional sleep; the SmolVLA bridge below serves real actions with joined request IDs and CUDA timing.
 
 The HTTP path and server slowdown control can be exercised without Linux privileges using `python -m reflex.network serve` and `python -m reflex.network run --out <dir> --phase healthy` (then `--phase incident --server-slow-every 20 --server-slow-ms 50`). Compare the saved phase JSON files with `python -m reflex.network compare <dir>/healthy.json <dir>/incident.json`.
+
+### SmolVLA network bridge
+
+On a host with the pinned LeRobot/T4 dependencies and generated corpus, start the service on loopback or a private tunnel:
+
+```bash
+python scripts/network_smolvla_run.py serve --corpus workloads/smolvla/corpora --log /tmp/smolvla-server.jsonl
+python scripts/network_smolvla_run.py run --corpus workloads/smolvla/corpora --out /tmp/smolvla-client --phase block-0001 --requests 40 --deadline-s 4
+```
+
+For a private non-loopback bind, set `REFLEX_SERVICE_TOKEN` on both endpoints. The client sends a frozen `frame_id`, request ID, and bounded padding; `--response-padding-bytes` controls return serialization without changing the action. Each block writes checksummed `network-v2` JSONL/events and a manifest ingestible with `python -m reflex.network ingest --input BLOCK-manifest.json`. `--deep-every N` profiles only selected requests. The service loads the model and dataset once and records real action hashes, server intervals, and CUDA events under the same request ID.
+
+`scripts/network_smolvla_farm.py` runs randomized healthy/incident/recovery blocks and a changing long-lived workload through a local TCP relay. Its public artifacts use opaque block names; the private assignment file records controls and restoration. Relay delays, pacing, and connection closes are application-level controls, not proof of kernel packet loss or a physical route change. Use the isolated Linux `tc` harness for those claims when `NET_ADMIN` and separate endpoints are available.
+
+With `CAP_NET_ADMIN` on a T4 Linux host, the existing namespace harness can serve real SmolVLA instead of its fixed response:
+
+```bash
+export SMOLVLA_CORPUS="$PWD/workloads/smolvla/corpora"
+export REFLEX_SERVICE_TOKEN="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+sudo -E bash scripts/network_experiment.sh delay /tmp/root-smolvla-delay 100
+```
+
+The harness records native `tc` readbacks in `private/` and restores its owned interfaces. Run each fault in a fresh output directory. This requires access to the T4 from its network namespace and a client outside that namespace; the Colab T4 used for the local relay experiment lacked `CAP_NET_ADMIN`.
 
 ## How an investigation works
 
